@@ -14,13 +14,26 @@ tunnel:
   mtu_mode: unsafe         # safe requires underlay MTU ≥ 1550
   onprem_ip: 10.44.44.1    # WG: tunnel address. IPSec/DX: VTEP loopback
   cloud_ip: 10.44.44.2     # WG: tunnel address. IPSec/DX: ignored
+  network_cidr: 10.44.44.0/24  # Optional (defaults to this value if unset); covers onprem_ip/cloud_ip. Update if you change onprem_ip/cloud_ip off their defaults — not derived automatically.
   port: 51820              # WG only
+
+# ── Fabric peer hostnames ───────────────────────────────────────
+# Must name an actual host in the cloud_infra / cloud_workload inventory groups.
+infra_relay_host: infra-router
+workload_vtep_host: workload-router
+
+# ── Cloud network CIDRs (shared by evpn_aws_infra provisioning and the onprem WireGuard client's AllowedIPs) ──
+# All optional — templates fall back to these same values if left unset; set here once to keep both roles in sync if you change them.
+infra_vpc_cidr: 10.100.0.0/16
+workload_vpc_cidr: 10.200.0.0/16
+ocp_pod_network_cidr: 10.128.0.0/16  # OCP pod network in the workload VPC; override to match your cluster (OpenShift default cluster network is 10.128.0.0/14).
 
 # ── BGP ───────────────────────────────────────────────────────
 bgp:
   onprem_asn: 65044
   infra_asn: 65100
   workload_asn: 65200
+  # max_prefix: 1000   # Defensive backstop only; defaults to 1000 if omitted (source-audit.md §1).
 
 # ── VLAN Stretches ────────────────────────────────────────────
 stretches:
@@ -48,4 +61,7 @@ monitoring:
   node_exporter: true
 
 # ── FRR container image ──────────────────────────────────────
-frr_image: quay.io/frrouting/frr:10.5.3
+frr_image: quay.io/frrouting/frr:10.5.3   # pinned, not :latest; the templates now read their "frr version" line from this tag (kickoff-decisions.md #10).
+
+# ── AWS admin-plane access (evpn_aws_infra role) ───────────────
+# evpn_aws_infra_admin_cidr: 203.0.113.4/32   # required by provision-aws.yml, no safe default (source-audit.md §1).

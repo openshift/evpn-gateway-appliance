@@ -5,6 +5,10 @@
 - name: Deploy cloud infra (EVPN relay + WireGuard)
   hosts: cloud_infra
   become: true
+  pre_tasks:
+    # Needed so ansible_facts.services is populated for the roles' systemd-vs-podman branch (source-audit.md, "Missing service facts").
+    - name: Gather service facts
+      ansible.builtin.service_facts:
   roles:
     - evpn_cloud_infra
     - evpn_monitoring
@@ -12,6 +16,9 @@
 - name: Deploy cloud workload (EVPN VTEP)
   hosts: cloud_workload
   become: true
+  pre_tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
   roles:
     - evpn_cloud_workload
     - evpn_monitoring
@@ -19,6 +26,9 @@
 - name: Deploy on-prem appliance (EVPN VTEP + VLAN trunk)
   hosts: onprem_appliances
   become: true
+  pre_tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
   roles:
     - evpn_onprem_appliance
     - evpn_monitoring

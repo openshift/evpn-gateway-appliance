@@ -1,6 +1,8 @@
 ---
 # On bootc images: services are baked in, just ensure started.
 # On non-bootc: deploy containers directly with shared /var/run/frr.
+#
+# KNOWN OPEN ITEM: both exporters use network: host with no listen-address binding or host firewall, so metrics are unauthenticated on every interface (source-audit.md §1).
 
 - name: Ensure /var/run/frr exists on host
   ansible.builtin.file:
@@ -24,7 +26,7 @@
 - name: Deploy frr_exporter via podman (non-bootc)
   containers.podman.podman_container:
     name: frr_exporter
-    image: docker.io/tynany/frr_exporter:latest
+    image: "{{ evpn_monitoring_frr_exporter_image }}"
     state: started
     restart_policy: always
     network: host
@@ -55,7 +57,7 @@
 - name: Deploy node_exporter via podman (non-bootc)
   containers.podman.podman_container:
     name: node_exporter
-    image: quay.io/prometheus/node-exporter:latest
+    image: "{{ evpn_monitoring_node_exporter_image }}"
     state: started
     restart_policy: always
     network: host

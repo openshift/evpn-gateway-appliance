@@ -3,12 +3,22 @@
 # Provision AWS infrastructure: 2 VPCs + TGW + 2 EC2 instances
 # Uses AWS CLI directly (avoids Python 3.14 compatibility issues
 # with amazon.aws Ansible modules)
+#
+# NOTE: not certified-content eligible as written; migrating these CLI calls to amazon.aws modules is an open follow-up (source-audit.md, "AWS role and certified content").
 # ═══════════════════════════════════════════════════════════════════════
+
+- name: Validate admin CIDR is configured
+  ansible.builtin.assert:
+    that:
+      - (evpn_aws_infra_admin_cidr | length > 0) or evpn_aws_infra_allow_open_admin_cidr
+    fail_msg: "Set evpn_aws_infra_admin_cidr, or evpn_aws_infra_allow_open_admin_cidr: true for a disposable lab only."
+    success_msg: "Admin CIDR configured: {{ evpn_aws_infra_admin_cidr | default('0.0.0.0/0 (explicitly allowed)') }}"
+  run_once: true
 
 - name: Set AWS region
   ansible.builtin.set_fact:
     _region: "{{ aws_region }}"
-
+    _admin_cidr: "{{ evpn_aws_infra_admin_cidr if evpn_aws_infra_admin_cidr | length > 0 else '0.0.0.0/0' }}"
 
 # ── Look up AMI ─────────────────────────────────────────────────────
 - name: Look up CentOS Stream 9 AMI
@@ -248,15 +258,16 @@
   changed_when: true
 
 - name: Configure Infra SG rules
+  # Admin-plane ingress scoped to evpn_aws_infra_admin_cidr, not 0.0.0.0/0 (source-audit.md §1).
   ansible.builtin.shell: |
     SG={{ _infra_sg.stdout | trim }}
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol tcp --port 22 --cidr 0.0.0.0/0 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol tcp --port 22 --cidr {{ _admin_cidr }} 2>/dev/null || true
     {% if tunnel.type == 'wireguard' %}
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol udp --port {{ tunnel.port }} --cidr 0.0.0.0/0 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol udp --port {{ tunnel.port }} --cidr {{ _admin_cidr }} 2>/dev/null || true
     {% endif %}
     aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ infra_vpc_cidr }} 2>/dev/null || true
     aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ workload_vpc_cidr }} 2>/dev/null || true
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ tunnel.onprem_ip }}/24 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ tunnel.network_cidr | default('10.44.44.0/24') }} 2>/dev/null || true
   changed_when: false
 
 - name: Create Workload router SG
@@ -273,10 +284,10 @@
 - name: Configure Workload SG rules
   ansible.builtin.shell: |
     SG={{ _workload_sg.stdout | trim }}
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol tcp --port 22 --cidr 0.0.0.0/0 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol tcp --port 22 --cidr {{ _admin_cidr }} 2>/dev/null || true
     aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ infra_vpc_cidr }} 2>/dev/null || true
     aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ workload_vpc_cidr }} 2>/dev/null || true
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ tunnel.onprem_ip }}/24 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ tunnel.network_cidr | default('10.44.44.0/24') }} 2>/dev/null || true
   changed_when: false
 
 # ── EC2 Instances ──────────────────────────────────────────────────
@@ -380,7 +391,7 @@
   ansible.builtin.command: >
     aws ec2 create-route --region {{ _region }}
     --route-table-id {{ _workload_rt.stdout | trim }}
-    --destination-cidr-block {{ tunnel.onprem_ip | regex_replace('\.\d+$', '.0/24') }}
+    --destination-cidr-block {{ tunnel.network_cidr | default('10.44.44.0/24') }}
     --transit-gateway-id {{ _tgw.stdout | trim }}
   register: _r
   failed_when: _r.rc != 0 and 'already exists' not in _r.stderr
@@ -399,7 +410,7 @@
   ansible.builtin.command: >
     aws ec2 create-transit-gateway-route --region {{ _region }}
     --transit-gateway-route-table-id {{ _tgw_rt.stdout | trim }}
-    --destination-cidr-block {{ tunnel.onprem_ip | regex_replace('\.\d+$', '.0/24') }}
+    --destination-cidr-block {{ tunnel.network_cidr | default('10.44.44.0/24') }}
     --transit-gateway-attachment-id {{ _tgw_infra.stdout | trim }}
   register: _r
   failed_when: _r.rc != 0 and 'already exists' not in _r.stderr
@@ -412,6 +423,6 @@
       --query "Reservations[0].Instances[0].NetworkInterfaces[0].NetworkInterfaceId" --output text)
     aws ec2 create-route --region {{ _region }} \
       --route-table-id {{ _infra_rt.stdout | trim }} \
-      --destination-cidr-block {{ tunnel.onprem_ip | regex_replace('\.\d+$', '.0/24') }} \
+      --destination-cidr-block {{ tunnel.network_cidr | default('10.44.44.0/24') }} \
       --network-interface-id $ENI 2>/dev/null || true
   changed_when: false

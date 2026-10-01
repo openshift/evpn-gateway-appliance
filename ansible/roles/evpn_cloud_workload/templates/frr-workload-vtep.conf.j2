@@ -1,8 +1,11 @@
 ! Workload VPC Router — EVPN VTEP endpoint
 ! Managed by Ansible — do not edit manually
-frr version 10.3.1
+!
+! KNOWN OPEN ITEM: no route-map/prefix-list policy; maximum-prefix below is only a defensive backstop (source-audit.md §1, "No BGP policy or limits").
+! frr version line derived from frr_image; revisit if frr_image moves to digest pinning.
+frr version {{ frr_image.split(":")[-1] }}
 frr defaults traditional
-hostname workload-router
+hostname {{ inventory_hostname }}
 log syslog informational
 no ipv6 forwarding
 !
@@ -12,18 +15,20 @@ router bgp {{ bgp.workload_asn }}
  no bgp ebgp-requires-policy
  no bgp default ipv4-unicast
  !
- neighbor {{ hostvars['infra-router'].private_ip }} remote-as {{ bgp.infra_asn }}
- neighbor {{ hostvars['infra-router'].private_ip }} description infra-relay
- neighbor {{ hostvars['infra-router'].private_ip }} ebgp-multihop 4
+{% set infra_host = hostvars[infra_relay_host] %}
+ neighbor {{ infra_host.private_ip }} remote-as {{ bgp.infra_asn }}
+ neighbor {{ infra_host.private_ip }} description infra-relay
+ neighbor {{ infra_host.private_ip }} ebgp-multihop 4
  !
  address-family ipv4 unicast
   network {{ private_ip }}/32
-  neighbor {{ hostvars['infra-router'].private_ip }} activate
-  neighbor {{ hostvars['infra-router'].private_ip }} soft-reconfiguration inbound
+  neighbor {{ infra_host.private_ip }} activate
+  neighbor {{ infra_host.private_ip }} soft-reconfiguration inbound
  exit-address-family
  !
  address-family l2vpn evpn
-  neighbor {{ hostvars['infra-router'].private_ip }} activate
+  neighbor {{ infra_host.private_ip }} activate
+  neighbor {{ infra_host.private_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
   advertise-all-vni
 {% for s in stretches %}
 {% set vni = 10000 + s.vlan %}

@@ -1,6 +1,7 @@
 ---
 # Generate WireGuard keys on first run, load from cache on subsequent runs.
 # Keys are stored in {{ playbook_dir }}/.wg-keys/keys.yml (gitignored).
+# no_log: true throughout — these tasks handle private key material directly (source-audit.md §1).
 
 - name: Check for existing WireGuard keys
   ansible.builtin.stat:
@@ -15,12 +16,14 @@
   delegate_to: localhost
   become: false
   run_once: true
+  no_log: true
   block:
     - name: Create .wg-keys directory
       ansible.builtin.file:
         path: "{{ playbook_dir }}/../.wg-keys"
         state: directory
         mode: "0700"
+      no_log: false
 
     - name: Generate server private key
       ansible.builtin.command: wg genkey
@@ -57,3 +60,4 @@
     file: "{{ playbook_dir }}/../.wg-keys/keys.yml"
   delegate_to: localhost
   run_once: true
+  no_log: true

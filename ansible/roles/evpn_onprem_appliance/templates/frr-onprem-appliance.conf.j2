@@ -1,8 +1,11 @@
 ! On-prem EVPN Appliance — VTEP endpoint
 ! Managed by Ansible — do not edit manually
-frr version 10.3.1
+!
+! KNOWN OPEN ITEM: no route-map/prefix-list policy; maximum-prefix below is only a defensive backstop (source-audit.md §1, "No BGP policy or limits").
+! frr version line derived from frr_image; revisit if frr_image moves to digest pinning.
+frr version {{ frr_image.split(":")[-1] }}
 frr defaults traditional
-hostname evpn-appliance
+hostname {{ inventory_hostname }}
 log syslog informational
 no ipv6 forwarding
 !
@@ -16,13 +19,14 @@ router bgp {{ bgp.onprem_asn }}
  neighbor {{ tunnel.cloud_ip }} description infra-relay
  !
  address-family ipv4 unicast
-  network {{ tunnel.onprem_ip | regex_replace('\.\d+$', '.0') }}/24
+  network {{ tunnel.network_cidr | default('10.44.44.0/24') }}
   neighbor {{ tunnel.cloud_ip }} activate
   neighbor {{ tunnel.cloud_ip }} soft-reconfiguration inbound
  exit-address-family
  !
  address-family l2vpn evpn
   neighbor {{ tunnel.cloud_ip }} activate
+  neighbor {{ tunnel.cloud_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
   advertise-all-vni
 {% for s in stretches %}
 {% set vni = 10000 + s.vlan %}
@@ -37,6 +41,6 @@ router bgp {{ bgp.onprem_asn }}
  exit-address-family
 exit
 !
-ip route {{ tunnel.onprem_ip | regex_replace('\.\d+$', '.0') }}/24 blackhole
+ip route {{ tunnel.network_cidr | default('10.44.44.0/24') }} blackhole
 !
 end

@@ -67,7 +67,9 @@
   changed_when: _br_add.rc == 0
 
 - name: Assign IPs to bridge SVIs
-  ansible.builtin.command: ip addr add {{ item.cloud_gateway }}/24 dev br-vni{{ 10000 + item.vlan }}
+  ansible.builtin.command: >-
+    ip addr add {{ item.cloud_gateway }}/{{ item.subnet | ansible.utils.ipaddr('prefix') }}
+    dev br-vni{{ 10000 + item.vlan }}
   loop: "{{ stretches }}"
   loop_control:
     label: "{{ item.cloud_gateway }} on br-vni{{ 10000 + item.vlan }}"

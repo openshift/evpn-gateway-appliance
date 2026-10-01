@@ -107,10 +107,10 @@
 - name: Assign IP in namespace
   ansible.builtin.command: >
     ip netns exec vm-{{ item.name }}
-    ip addr add {{ item.subnet | regex_replace('\.0/24$', '.10/24') }} dev eth0
+    ip addr add {{ item.subnet | ansible.utils.ipaddr('network') | ansible.utils.ipmath(10) }}/{{ item.subnet | ansible.utils.ipaddr('prefix') }} dev eth0
   loop: "{{ stretches }}"
   loop_control:
-    label: "vm-{{ item.name }} {{ item.subnet | regex_replace('.0/24', '.10') }}"
+    label: "vm-{{ item.name }} {{ item.subnet | ansible.utils.ipaddr('network') | ansible.utils.ipmath(10) }}"
   register: _ns_ip
   failed_when: _ns_ip.rc != 0 and 'already' not in _ns_ip.stderr and 'File exists' not in _ns_ip.stderr
   changed_when: _ns_ip.rc == 0
