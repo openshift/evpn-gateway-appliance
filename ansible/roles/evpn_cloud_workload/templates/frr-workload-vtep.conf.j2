@@ -1,0 +1,41 @@
+! Workload VPC Router — EVPN VTEP endpoint
+! Managed by Ansible — do not edit manually
+frr version 10.3.1
+frr defaults traditional
+hostname workload-router
+log syslog informational
+no ipv6 forwarding
+!
+router bgp {{ bgp.workload_asn }}
+ bgp router-id {{ private_ip }}
+ bgp log-neighbor-changes
+ no bgp ebgp-requires-policy
+ no bgp default ipv4-unicast
+ !
+ neighbor {{ hostvars['infra-router'].private_ip }} remote-as {{ bgp.infra_asn }}
+ neighbor {{ hostvars['infra-router'].private_ip }} description infra-relay
+ neighbor {{ hostvars['infra-router'].private_ip }} ebgp-multihop 4
+ !
+ address-family ipv4 unicast
+  network {{ private_ip }}/32
+  neighbor {{ hostvars['infra-router'].private_ip }} activate
+  neighbor {{ hostvars['infra-router'].private_ip }} soft-reconfiguration inbound
+ exit-address-family
+ !
+ address-family l2vpn evpn
+  neighbor {{ hostvars['infra-router'].private_ip }} activate
+  advertise-all-vni
+{% for s in stretches %}
+{% set vni = 10000 + s.vlan %}
+  vni {{ vni }}
+   rd {{ private_ip }}:{{ vni }}
+   rt import {{ bgp.workload_asn }}:{{ vni }}
+   rt import {{ bgp.onprem_asn }}:{{ vni }}
+   rt export {{ bgp.workload_asn }}:{{ vni }}
+   advertise-svi-ip
+  exit-vni
+{% endfor %}
+ exit-address-family
+exit
+!
+end

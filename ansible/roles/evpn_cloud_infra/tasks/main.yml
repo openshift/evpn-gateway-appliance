@@ -1,0 +1,114 @@
+---
+- name: Generate/load WireGuard keys
+  ansible.builtin.include_tasks: wireguard_keys.yml
+  when: tunnel.type == 'wireguard'
+
+- name: Install packages (skipped on bootc images)
+  ansible.builtin.dnf:
+    name: >-
+      {{ ['podman', 'tcpdump', 'traceroute', 'mtr', 'bind-utils']
+         + (['wireguard-tools'] if tunnel.type == 'wireguard' else []) }}
+    state: present
+  when: ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
+
+- name: Enable IP forwarding
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-ip-forward.conf
+    reload: true
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv4.conf.all.forwarding
+
+- name: Deploy WireGuard server config
+  ansible.builtin.template:
+    src: wg-server.conf.j2
+    dest: /etc/wireguard/wg0.conf
+    mode: "0600"
+  notify: restart wireguard
+  when: tunnel.type == 'wireguard'
+
+- name: Enable and start WireGuard
+  ansible.builtin.systemd:
+    name: wg-quick@wg0
+    state: started
+    enabled: true
+  when: tunnel.type == 'wireguard'
+
+- name: Clean up any stale VXLAN/bridge interfaces
+  ansible.builtin.shell: |
+    for iface in $(ip -o link show | grep -oP '(br-vni\w+|vxlan\w+|br-evpn)'); do
+      ip link del "$iface" 2>/dev/null || true
+    done
+  changed_when: false
+
+- name: Ensure FRR directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/frr, mode: '0755' }
+    - { path: /var/run/frr, mode: '0777' }
+
+- name: Deploy FRR daemons config
+  ansible.builtin.copy:
+    dest: /etc/frr/daemons
+    mode: "0644"
+    content: |
+      bgpd=yes
+      ospfd=no
+      ospf6d=no
+      ripd=no
+      ripngd=no
+      isisd=no
+      pimd=no
+      ldpd=no
+      nhrpd=no
+      eigrpd=no
+      babeld=no
+      sharpd=no
+      pbrd=no
+      bfdd=yes
+      fabricd=no
+      vrrpd=no
+      pathd=no
+  notify: restart frr
+
+- name: Deploy FRR vtysh config
+  ansible.builtin.copy:
+    dest: /etc/frr/vtysh.conf
+    mode: "0644"
+    content: "service integrated-vtysh-config\n"
+
+- name: Deploy FRR config (EVPN relay)
+  ansible.builtin.template:
+    src: frr-infra-relay.conf.j2
+    dest: /etc/frr/frr.conf
+    mode: "0644"
+  notify: restart frr
+
+- name: Start FRR via systemd service (bootc image)
+  ansible.builtin.systemd:
+    name: frr-container.service
+    state: started
+    enabled: true
+  when: ansible_facts.services is defined and 'frr-container.service' in ansible_facts.services
+  register: _frr_systemd
+
+- name: Start FRR via podman directly (non-bootc)
+  containers.podman.podman_container:
+    name: frr
+    image: "{{ frr_image }}"
+    state: started
+    restart_policy: always
+    privileged: true
+    network: host
+    volumes:
+      - /etc/frr:/etc/frr:Z
+      - /var/run/frr:/var/run/frr:Z
+  when: _frr_systemd is skipped
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers

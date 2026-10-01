@@ -1,0 +1,15 @@
+---
+aws_region: eu-west-1
+project_name: evpn-poc
+
+# VPC CIDRs
+infra_vpc_cidr: 10.100.0.0/16
+workload_vpc_cidr: 10.200.0.0/16
+
+# Instance config
+router_instance_type: t3.small
+ssh_key_name: bgp-poc
+
+# AMI — CentOS Stream 9 (override with bootc AMI when available)
+# If empty, the role looks up the latest CentOS Stream 9 AMI
+router_ami: ""

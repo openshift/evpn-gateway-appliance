@@ -1,0 +1,51 @@
+# ── Tunnel ────────────────────────────────────────────────────
+# Supported types:
+#   wireguard      — dev/test, terminates on infra EC2
+#   ipsec          — Site-to-Site VPN, TGW cloud-side, Libreswan on-prem
+#                    requires on-prem public IP for Customer Gateway
+#   direct-connect — production, DX partner + jumbo MTU
+#
+# MTU modes:
+#   safe           — underlay MTU ≥ 1550, no clamping (default)
+#   unsafe         — underlay MTU < 1550, TCP MSS clamping + DF bit,
+#                    UDP > MTU is dropped, live migration will not work
+tunnel:
+  type: wireguard          # or 'ipsec' or 'direct-connect'
+  mtu_mode: unsafe         # safe requires underlay MTU ≥ 1550
+  onprem_ip: 10.44.44.1    # WG: tunnel address. IPSec/DX: VTEP loopback
+  cloud_ip: 10.44.44.2     # WG: tunnel address. IPSec/DX: ignored
+  port: 51820              # WG only
+
+# ── BGP ───────────────────────────────────────────────────────
+bgp:
+  onprem_asn: 65044
+  infra_asn: 65100
+  workload_asn: 65200
+
+# ── VLAN Stretches ────────────────────────────────────────────
+stretches:
+  - vlan: 100
+    name: production
+    subnet: 10.42.1.0/24
+    onprem_gateway: 10.42.1.1
+    cloud_gateway: 10.42.1.2
+
+  - vlan: 200
+    name: staging
+    subnet: 10.42.2.0/24
+    onprem_gateway: 10.42.2.1
+    cloud_gateway: 10.42.2.2
+
+  - vlan: 300
+    name: management
+    subnet: 10.42.3.0/24
+    onprem_gateway: 10.42.3.1
+    cloud_gateway: 10.42.3.2
+
+# ── Monitoring ────────────────────────────────────────────────
+monitoring:
+  frr_exporter: true
+  node_exporter: true
+
+# ── FRR container image ──────────────────────────────────────
+frr_image: quay.io/frrouting/frr:10.5.3

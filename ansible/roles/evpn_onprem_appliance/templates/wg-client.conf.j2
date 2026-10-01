@@ -1,0 +1,9 @@
+[Interface]
+PrivateKey = {{ wg_client_private }}
+Address = {{ tunnel.onprem_ip }}/24
+
+[Peer]
+PublicKey = {{ wg_server_public }}
+Endpoint = {{ hostvars['infra-router'].ansible_host }}:{{ tunnel.port }}
+AllowedIPs = {{ tunnel.cloud_ip }}/32, 10.100.0.0/16, 10.200.0.0/16, 10.128.0.0/16
+PersistentKeepalive = 25

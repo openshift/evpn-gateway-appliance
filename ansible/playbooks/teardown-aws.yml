@@ -1,0 +1,12 @@
+---
+# Destroy all AWS infrastructure. Irreversible.
+# Usage: ansible-playbook playbooks/teardown-aws.yml
+
+- name: Teardown AWS infrastructure
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Include teardown tasks
+      ansible.builtin.include_role:
+        name: evpn_aws_infra
+        tasks_from: teardown

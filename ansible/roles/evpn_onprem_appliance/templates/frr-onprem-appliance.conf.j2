@@ -1,0 +1,42 @@
+! On-prem EVPN Appliance — VTEP endpoint
+! Managed by Ansible — do not edit manually
+frr version 10.3.1
+frr defaults traditional
+hostname evpn-appliance
+log syslog informational
+no ipv6 forwarding
+!
+router bgp {{ bgp.onprem_asn }}
+ bgp router-id {{ tunnel.onprem_ip }}
+ bgp log-neighbor-changes
+ no bgp ebgp-requires-policy
+ no bgp default ipv4-unicast
+ !
+ neighbor {{ tunnel.cloud_ip }} remote-as {{ bgp.infra_asn }}
+ neighbor {{ tunnel.cloud_ip }} description infra-relay
+ !
+ address-family ipv4 unicast
+  network {{ tunnel.onprem_ip | regex_replace('\.\d+$', '.0') }}/24
+  neighbor {{ tunnel.cloud_ip }} activate
+  neighbor {{ tunnel.cloud_ip }} soft-reconfiguration inbound
+ exit-address-family
+ !
+ address-family l2vpn evpn
+  neighbor {{ tunnel.cloud_ip }} activate
+  advertise-all-vni
+{% for s in stretches %}
+{% set vni = 10000 + s.vlan %}
+  vni {{ vni }}
+   rd {{ tunnel.onprem_ip }}:{{ vni }}
+   rt import {{ bgp.onprem_asn }}:{{ vni }}
+   rt import {{ bgp.workload_asn }}:{{ vni }}
+   rt export {{ bgp.onprem_asn }}:{{ vni }}
+   advertise-svi-ip
+  exit-vni
+{% endfor %}
+ exit-address-family
+exit
+!
+ip route {{ tunnel.onprem_ip | regex_replace('\.\d+$', '.0') }}/24 blackhole
+!
+end

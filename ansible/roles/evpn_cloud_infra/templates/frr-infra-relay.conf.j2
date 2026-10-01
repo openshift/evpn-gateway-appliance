@@ -1,0 +1,38 @@
+! Infra VPC Router — EVPN route relay (NOT a VTEP)
+! Managed by Ansible — do not edit manually
+frr version 10.3.1
+frr defaults traditional
+hostname infra-router
+log syslog informational
+no ipv6 forwarding
+!
+router bgp {{ bgp.infra_asn }}
+ bgp router-id {{ private_ip }}
+ bgp log-neighbor-changes
+ no bgp ebgp-requires-policy
+ no bgp default ipv4-unicast
+ !
+ neighbor {{ hostvars['workload-router'].private_ip }} remote-as {{ bgp.workload_asn }}
+ neighbor {{ hostvars['workload-router'].private_ip }} description workload-vtep
+ neighbor {{ hostvars['workload-router'].private_ip }} ebgp-multihop 4
+ !
+ neighbor {{ tunnel.onprem_ip }} remote-as {{ bgp.onprem_asn }}
+ neighbor {{ tunnel.onprem_ip }} description onprem-appliance
+ !
+ address-family ipv4 unicast
+  network {{ private_ip }}/32
+  neighbor {{ hostvars['workload-router'].private_ip }} activate
+  neighbor {{ hostvars['workload-router'].private_ip }} soft-reconfiguration inbound
+  neighbor {{ tunnel.onprem_ip }} activate
+  neighbor {{ tunnel.onprem_ip }} soft-reconfiguration inbound
+ exit-address-family
+ !
+ address-family l2vpn evpn
+  neighbor {{ hostvars['workload-router'].private_ip }} activate
+  neighbor {{ hostvars['workload-router'].private_ip }} next-hop-unchanged
+  neighbor {{ tunnel.onprem_ip }} activate
+  neighbor {{ tunnel.onprem_ip }} next-hop-unchanged
+ exit-address-family
+exit
+!
+end

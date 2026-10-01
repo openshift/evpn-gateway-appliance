@@ -1,0 +1,132 @@
+---
+# Tear down all AWS infrastructure created by this role.
+# Usage: ansible-playbook playbooks/teardown-aws.yml
+
+- name: Find EC2 instances
+  amazon.aws.ec2_instance_info:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Project": "{{ project_name }}"
+      instance-state-name: ["running", "stopped"]
+  register: _instances
+
+- name: Terminate EC2 instances
+  amazon.aws.ec2_instance:
+    instance_ids: "{{ _instances.instances | map(attribute='instance_id') | list }}"
+    state: absent
+    region: "{{ aws_region }}"
+    wait: true
+  when: _instances.instances | length > 0
+
+- name: Find TGW attachments
+  community.aws.ec2_transit_gateway_vpc_attachment_info:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Project": "{{ project_name }}"
+  register: _tgw_attachments
+
+- name: Delete TGW attachments
+  community.aws.ec2_transit_gateway_vpc_attachment:
+    id: "{{ item.transit_gateway_attachment_id }}"
+    state: absent
+    region: "{{ aws_region }}"
+  loop: "{{ _tgw_attachments.attachments }}"
+  loop_control:
+    label: "{{ item.transit_gateway_attachment_id }}"
+  when: _tgw_attachments.attachments | length > 0
+
+- name: Pause for TGW attachment cleanup
+  ansible.builtin.pause:
+    seconds: 30
+  when: _tgw_attachments.attachments | length > 0
+
+- name: Find Transit Gateways
+  community.aws.ec2_transit_gateway_info:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Project": "{{ project_name }}"
+  register: _tgws
+
+- name: Delete Transit Gateways
+  community.aws.ec2_transit_gateway:
+    transit_gateway_id: "{{ item.transit_gateway_id }}"
+    state: absent
+    region: "{{ aws_region }}"
+    wait: true
+  loop: "{{ _tgws.transit_gateways }}"
+  loop_control:
+    label: "{{ item.transit_gateway_id }}"
+  when: _tgws.transit_gateways | length > 0
+
+- name: Find Security Groups
+  amazon.aws.ec2_security_group_info:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Project": "{{ project_name }}"
+  register: _sgs
+
+- name: Delete Security Groups
+  amazon.aws.ec2_security_group:
+    group_id: "{{ item.group_id }}"
+    state: absent
+    region: "{{ aws_region }}"
+  loop: "{{ _sgs.security_groups }}"
+  loop_control:
+    label: "{{ item.group_name }}"
+  when: _sgs.security_groups | length > 0
+
+- name: Find Subnets
+  amazon.aws.ec2_vpc_subnet_info:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Project": "{{ project_name }}"
+  register: _subnets
+
+- name: Delete Subnets
+  amazon.aws.ec2_vpc_subnet:
+    vpc_subnet_id: "{{ item.id }}"
+    state: absent
+    region: "{{ aws_region }}"
+  loop: "{{ _subnets.subnets }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: _subnets.subnets | length > 0
+
+- name: Find IGWs
+  amazon.aws.ec2_vpc_igw_info:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Project": "{{ project_name }}"
+  register: _igws
+
+- name: Delete IGWs
+  amazon.aws.ec2_vpc_igw:
+    vpc_id: "{{ item.attachments[0].vpc_id }}"
+    state: absent
+    region: "{{ aws_region }}"
+  loop: "{{ _igws.internet_gateways }}"
+  loop_control:
+    label: "{{ item.internet_gateway_id }}"
+  when: _igws.internet_gateways | length > 0
+
+- name: Find VPCs
+  amazon.aws.ec2_vpc_net_info:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Project": "{{ project_name }}"
+  register: _vpcs
+
+- name: Delete VPCs
+  amazon.aws.ec2_vpc_net:
+    vpc_id: "{{ item.id }}"
+    state: absent
+    region: "{{ aws_region }}"
+    purge_cidrs: true
+  loop: "{{ _vpcs.vpcs }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: _vpcs.vpcs | length > 0
+
+- name: Done
+  ansible.builtin.debug:
+    msg: "All AWS infrastructure for {{ project_name }} has been destroyed."
