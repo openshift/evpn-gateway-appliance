@@ -1,0 +1,120 @@
+---
+argument_specs:
+  main:
+    short_description: Configure the on-prem EVPN appliance (VTEP, VLAN trunk, tunnel).
+    description:
+      - Brings up the on-prem side of the EVPN fabric: the WireGuard client
+        (dev/test transport), the VLAN trunk (simulated veth/namespaces or a
+        physical interface), per-stretch VXLAN interfaces and bridges, and
+        FRR configured as the on-prem VTEP.
+    options:
+      infra_relay_host:
+        type: str
+        required: true
+        description: >-
+          Inventory hostname of the infra-VPC relay; used as the WireGuard
+          endpoint (its ansible_host) when tunnel.type is wireguard.
+      tunnel:
+        type: dict
+        required: true
+        description: Transport configuration shared across appliance/infra/workload roles.
+        options:
+          type:
+            type: str
+            required: true
+            choices: [wireguard, ipsec, direct-connect]
+            description: >-
+              Transport type. Only wireguard is implemented; it is dev/test
+              only. ipsec and direct-connect are declared but not yet
+              implemented (context.md).
+          port:
+            type: int
+            description: WireGuard listen port (wireguard transport only).
+          onprem_ip:
+            type: str
+            required: true
+            description: Tunnel-side address of the on-prem appliance (also used as its VTEP/BGP router-id).
+          cloud_ip:
+            type: str
+            required: true
+            description: Tunnel-side address of the infra relay this appliance peers with.
+          network_cidr:
+            type: str
+            default: 10.44.44.0/24
+            description: CIDR covering onprem_ip/cloud_ip; used in the FRR on-prem BGP network statement and blackhole route. Update if onprem_ip/cloud_ip change off their defaults.
+      infra_vpc_cidr:
+        type: str
+        default: 10.100.0.0/16
+        description: Infra VPC CIDR; added to the WireGuard client's AllowedIPs (inventory/group_vars/all.yml).
+      workload_vpc_cidr:
+        type: str
+        default: 10.200.0.0/16
+        description: Workload VPC CIDR; added to the WireGuard client's AllowedIPs (inventory/group_vars/all.yml).
+      ocp_pod_network_cidr:
+        type: str
+        default: 10.128.0.0/16
+        description: OCP pod network CIDR in the workload VPC; added to the WireGuard client's AllowedIPs. Override to match your cluster (OpenShift default cluster network is 10.128.0.0/14).
+      stretches:
+        type: list
+        elements: dict
+        required: true
+        description: VLAN-to-VNI stretches this appliance terminates.
+        options:
+          vlan:
+            type: int
+            required: true
+            description: VLAN ID; the VNI is always 10000 + vlan.
+          name:
+            type: str
+            required: true
+            description: Human-readable stretch name.
+          subnet:
+            type: str
+            required: true
+            description: IPv4 /24 subnet for this stretch.
+          onprem_gateway:
+            type: str
+            required: true
+            description: Gateway IP assigned to the on-prem bridge SVI for this stretch.
+          cloud_gateway:
+            type: str
+            required: true
+            description: Gateway IP assigned on the cloud workload side for this stretch.
+      trunk_interface:
+        type: str
+        required: true
+        description: >-
+          "simulate" to build a veth/namespace trunk for local testing
+          (tasks/simulate.yml), or a real interface name to attach a
+          physical trunk port (tasks/physical.yml; unvalidated against real
+          hardware per source-audit.md).
+      frr_image:
+        type: str
+        required: true
+        description: >-
+          Container image reference for the FRR VTEP when not running on a
+          bootc image with frr-container.service baked in. Pin by tag or
+          digest; see source-audit.md §2 for the floating-tag finding
+          against the prototype's default.
+      bgp:
+        type: dict
+        required: true
+        description: ASNs for the three-tier BGP EVPN fabric.
+        options:
+          onprem_asn:
+            type: int
+            required: true
+          infra_asn:
+            type: int
+            required: true
+          workload_asn:
+            type: int
+            required: true
+          max_prefix:
+            type: int
+            default: 1000
+            description: >-
+              Defensive EVPN neighbor maximum-prefix limit. Not a
+              substitute for real route-map/prefix-list policy
+              (source-audit.md §1, "No BGP policy or limits" — tracked,
+              not resolved by this default).

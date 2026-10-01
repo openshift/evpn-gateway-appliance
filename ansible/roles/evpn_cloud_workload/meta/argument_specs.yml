@@ -1,0 +1,63 @@
+---
+argument_specs:
+  main:
+    short_description: Configure the workload-VPC standalone EVPN VTEP.
+    description:
+      - Builds per-stretch VXLAN interfaces and bridges in the workload VPC
+        and runs FRR as the cloud-side VTEP, peering with the infra relay.
+      - This standalone VTEP validated the original proof of concept.
+        It is removed from the production design, where OCP-native EVPN is
+        the workload VTEP instead — do not assume this role is part of the
+        supported production path (context.md, "The prototype at a glance").
+      - Expects C(private_ip) to be set as a hostvar on the host this role
+        runs against (used as the VTEP's own BGP router-id and RD).
+    options:
+      infra_relay_host:
+        type: str
+        required: true
+        description: Inventory hostname of the infra-VPC relay peer; must have a private_ip hostvar.
+      stretches:
+        type: list
+        elements: dict
+        required: true
+        description: VLAN-to-VNI stretches this VTEP terminates, matching the on-prem side.
+        options:
+          vlan:
+            type: int
+            required: true
+          name:
+            type: str
+            required: true
+          subnet:
+            type: str
+            required: true
+          onprem_gateway:
+            type: str
+            required: true
+          cloud_gateway:
+            type: str
+            required: true
+      bgp:
+        type: dict
+        required: true
+        options:
+          onprem_asn:
+            type: int
+            required: true
+          infra_asn:
+            type: int
+            required: true
+          workload_asn:
+            type: int
+            required: true
+          max_prefix:
+            type: int
+            default: 1000
+            description: >-
+              Defensive EVPN neighbor maximum-prefix limit. Not a
+              substitute for real route-map/prefix-list policy
+              (source-audit.md §1, "No BGP policy or limits").
+      frr_image:
+        type: str
+        required: true
+        description: Container image reference for the FRR VTEP (non-bootc hosts). Pin by tag or digest.

@@ -1,0 +1,63 @@
+---
+# Generate WireGuard keys on first run, load from cache on subsequent runs.
+# Keys are stored in {{ playbook_dir }}/.wg-keys/keys.yml (gitignored).
+# no_log: true throughout — these tasks handle private key material directly (source-audit.md §1).
+
+- name: Check for existing WireGuard keys
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../.wg-keys/keys.yml"
+  register: wg_keys_file
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate WireGuard keys
+  when: not wg_keys_file.stat.exists
+  delegate_to: localhost
+  become: false
+  run_once: true
+  no_log: true
+  block:
+    - name: Create .wg-keys directory
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../.wg-keys"
+        state: directory
+        mode: "0700"
+      no_log: false
+
+    - name: Generate server private key
+      ansible.builtin.command: wg genkey
+      register: _wg_server_priv
+      changed_when: true
+
+    - name: Derive server public key
+      ansible.builtin.shell: echo "{{ _wg_server_priv.stdout }}" | wg pubkey
+      register: _wg_server_pub
+      changed_when: false
+
+    - name: Generate client private key
+      ansible.builtin.command: wg genkey
+      register: _wg_client_priv
+      changed_when: true
+
+    - name: Derive client public key
+      ansible.builtin.shell: echo "{{ _wg_client_priv.stdout }}" | wg pubkey
+      register: _wg_client_pub
+      changed_when: false
+
+    - name: Save keys to file
+      ansible.builtin.copy:
+        content: |
+          wg_server_private: "{{ _wg_server_priv.stdout }}"
+          wg_server_public: "{{ _wg_server_pub.stdout }}"
+          wg_client_private: "{{ _wg_client_priv.stdout }}"
+          wg_client_public: "{{ _wg_client_pub.stdout }}"
+        dest: "{{ playbook_dir }}/../.wg-keys/keys.yml"
+        mode: "0600"
+
+- name: Load WireGuard keys
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/../.wg-keys/keys.yml"
+  delegate_to: localhost
+  run_once: true
+  no_log: true

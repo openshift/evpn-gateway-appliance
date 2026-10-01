@@ -1,0 +1,11 @@
+---
+# line-length relaxed to fit long AWS CLI command strings instead of reflowing existing task content.
+extends: default
+
+rules:
+  line-length:
+    max: 160
+    level: warning
+  truthy:
+    allowed-values: ["true", "false", "yes", "no"]
+  comments-indentation: disable

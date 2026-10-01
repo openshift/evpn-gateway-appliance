@@ -1,0 +1,71 @@
+---
+argument_specs:
+  main:
+    short_description: Configure the infra-VPC EVPN relay (WireGuard server + FRR relay).
+    description:
+      - Terminates the dev/test WireGuard tunnel from the on-prem appliance
+        and runs FRR as a route relay (not a VTEP) between the on-prem
+        appliance and the workload-VPC VTEP, using next-hop-unchanged so
+        VTEP IPs are preserved end-to-end.
+    options:
+      workload_vtep_host:
+        type: str
+        required: true
+        description: Inventory hostname of the workload-VPC VTEP peer; must have a private_ip hostvar.
+      tunnel:
+        type: dict
+        required: true
+        description: Transport configuration shared across appliance/infra/workload roles.
+        options:
+          type:
+            type: str
+            required: true
+            choices: [wireguard, ipsec, direct-connect]
+          port:
+            type: int
+            description: WireGuard listen port (wireguard transport only).
+          onprem_ip:
+            type: str
+            required: true
+            description: Expected tunnel-side address of the on-prem appliance peer.
+          cloud_ip:
+            type: str
+            required: true
+            description: Address this relay terminates the tunnel on.
+          network_cidr:
+            type: str
+            default: 10.44.44.0/24
+            description: Only its prefix length is read here, for the WireGuard interface Address= line (wireguard transport only).
+      bgp:
+        type: dict
+        required: true
+        options:
+          onprem_asn:
+            type: int
+            required: true
+          infra_asn:
+            type: int
+            required: true
+          workload_asn:
+            type: int
+            required: true
+          max_prefix:
+            type: int
+            default: 1000
+            description: >-
+              Defensive EVPN neighbor maximum-prefix limit. Not a
+              substitute for real route-map/prefix-list policy
+              (source-audit.md §1, "No BGP policy or limits").
+      frr_image:
+        type: str
+        required: true
+        description: Container image reference for the FRR relay (non-bootc hosts). Pin by tag or digest.
+      stretches:
+        type: list
+        elements: dict
+        required: true
+        description: Only subnet is read here, to build the WireGuard server's AllowedIPs (wireguard transport only); must match the on-prem/workload stretch list.
+        options:
+          subnet:
+            type: str
+            required: true

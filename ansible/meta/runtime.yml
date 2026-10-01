@@ -1,0 +1,3 @@
+---
+# Required by galaxy-importer (ci-bootstrap-spec.md).
+requires_ansible: ">=2.16.0"

@@ -1,0 +1,42 @@
+---
+# Physical trunk port — attach a real NIC and create VLAN sub-interfaces.
+
+- name: Create trunk bridge
+  ansible.builtin.command: ip link add trunk-br type bridge
+  register: _trunk_br
+  failed_when: _trunk_br.rc != 0 and 'File exists' not in _trunk_br.stderr
+  changed_when: _trunk_br.rc == 0
+
+- name: Bring up trunk bridge
+  ansible.builtin.command: ip link set trunk-br up
+  changed_when: false
+
+- name: Enable VLAN filtering on trunk bridge
+  ansible.builtin.command: ip link set trunk-br type bridge vlan_filtering 1
+  changed_when: false
+
+- name: Add physical interface to trunk bridge
+  ansible.builtin.command: ip link set {{ trunk_interface }} master trunk-br
+  register: _phy_add
+  failed_when: _phy_add.rc != 0 and 'already a member' not in _phy_add.stderr
+  changed_when: _phy_add.rc == 0
+
+- name: Bring up physical interface
+  ansible.builtin.command: ip link set {{ trunk_interface }} up
+  changed_when: false
+
+- name: Create VLAN sub-interfaces on trunk
+  ansible.builtin.command: ip link add link trunk-br name trunk.{{ item.vlan }} type vlan id {{ item.vlan }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "trunk.{{ item.vlan }}"
+  register: _vlan_create
+  failed_when: _vlan_create.rc != 0 and 'File exists' not in _vlan_create.stderr
+  changed_when: _vlan_create.rc == 0
+
+- name: Bring up VLAN sub-interfaces
+  ansible.builtin.command: ip link set trunk.{{ item.vlan }} up
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "trunk.{{ item.vlan }}"
+  changed_when: false

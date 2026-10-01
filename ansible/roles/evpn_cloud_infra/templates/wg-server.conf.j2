@@ -1,0 +1,8 @@
+[Interface]
+PrivateKey = {{ wg_server_private }}
+ListenPort = {{ tunnel.port }}
+Address = {{ tunnel.cloud_ip }}/{{ tunnel.network_cidr | default('10.44.44.0/24') | ansible.utils.ipaddr('prefix') }}
+
+[Peer]
+PublicKey = {{ wg_client_public }}
+AllowedIPs = {{ tunnel.onprem_ip }}/32, {{ stretches | map(attribute='subnet') | join(', ') }}

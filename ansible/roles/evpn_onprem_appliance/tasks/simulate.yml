@@ -1,0 +1,127 @@
+---
+# Create a simulated trunk with veth pairs and network namespaces
+# acting as on-prem VMs per VLAN.
+
+- name: Create trunk bridge
+  ansible.builtin.command: ip link add trunk-br type bridge
+  register: _trunk_br
+  failed_when: _trunk_br.rc != 0 and 'File exists' not in _trunk_br.stderr
+  changed_when: _trunk_br.rc == 0
+
+- name: Bring up trunk bridge
+  ansible.builtin.command: ip link set trunk-br up
+  changed_when: false
+
+- name: Enable VLAN filtering on trunk bridge
+  ansible.builtin.command: ip link set trunk-br type bridge vlan_filtering 1
+  changed_when: false
+
+- name: Create VLAN sub-interfaces on trunk
+  ansible.builtin.command: ip link add link trunk-br name trunk.{{ item.vlan }} type vlan id {{ item.vlan }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "trunk.{{ item.vlan }}"
+  register: _vlan_create
+  failed_when: _vlan_create.rc != 0 and 'File exists' not in _vlan_create.stderr
+  changed_when: _vlan_create.rc == 0
+
+- name: Bring up VLAN sub-interfaces
+  ansible.builtin.command: ip link set trunk.{{ item.vlan }} up
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "trunk.{{ item.vlan }}"
+  changed_when: false
+
+# ── Simulated VMs (network namespaces) ──────────────────────────
+- name: Create network namespaces for simulated VMs
+  ansible.builtin.command: ip netns add vm-{{ item.name }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "vm-{{ item.name }}"
+  register: _ns_create
+  failed_when: _ns_create.rc != 0 and 'File exists' not in _ns_create.stderr
+  changed_when: _ns_create.rc == 0
+
+- name: Create veth pairs
+  ansible.builtin.command: ip link add veth-{{ item.name }} type veth peer name eth0 netns vm-{{ item.name }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "veth-{{ item.name }}"
+  register: _veth_create
+  failed_when: _veth_create.rc != 0 and 'File exists' not in _veth_create.stderr
+  changed_when: _veth_create.rc == 0
+
+- name: Add veth host side to trunk bridge
+  ansible.builtin.command: ip link set veth-{{ item.name }} master trunk-br
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "veth-{{ item.name }} → trunk-br"
+  register: _veth_trunk
+  failed_when: _veth_trunk.rc != 0 and 'already a member' not in _veth_trunk.stderr
+  changed_when: _veth_trunk.rc == 0
+
+- name: Bring up veth host side
+  ansible.builtin.command: ip link set veth-{{ item.name }} up
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "veth-{{ item.name }}"
+  changed_when: false
+
+- name: Configure VLAN on bridge port — remove default VLAN
+  ansible.builtin.command: bridge vlan del vid 1 dev veth-{{ item.name }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "veth-{{ item.name }}"
+  failed_when: false
+  changed_when: false
+
+- name: Configure VLAN on bridge port — assign VLAN as pvid
+  ansible.builtin.command: bridge vlan add vid {{ item.vlan }} dev veth-{{ item.name }} pvid untagged
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "veth-{{ item.name }} VLAN {{ item.vlan }}"
+  changed_when: false
+
+- name: Allow VLAN on trunk bridge
+  ansible.builtin.command: bridge vlan add vid {{ item.vlan }} dev trunk-br self
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "trunk-br VLAN {{ item.vlan }}"
+  changed_when: false
+
+# ── Configure namespace networking ──────────────────────────────
+- name: Bring up loopback in namespace
+  ansible.builtin.command: ip netns exec vm-{{ item.name }} ip link set lo up
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "vm-{{ item.name }}"
+  changed_when: false
+
+- name: Bring up eth0 in namespace
+  ansible.builtin.command: ip netns exec vm-{{ item.name }} ip link set eth0 up
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "vm-{{ item.name }}"
+  changed_when: false
+
+- name: Assign IP in namespace
+  ansible.builtin.command: >
+    ip netns exec vm-{{ item.name }}
+    ip addr add {{ item.subnet | ansible.utils.ipaddr('network') | ansible.utils.ipmath(10) }}/{{ item.subnet | ansible.utils.ipaddr('prefix') }} dev eth0
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "vm-{{ item.name }} {{ item.subnet | ansible.utils.ipaddr('network') | ansible.utils.ipmath(10) }}"
+  register: _ns_ip
+  failed_when: _ns_ip.rc != 0 and 'already' not in _ns_ip.stderr and 'File exists' not in _ns_ip.stderr
+  changed_when: _ns_ip.rc == 0
+
+- name: Set default route in namespace
+  ansible.builtin.command: >
+    ip netns exec vm-{{ item.name }}
+    ip route add default via {{ item.onprem_gateway }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "vm-{{ item.name }} gw {{ item.onprem_gateway }}"
+  register: _ns_route
+  failed_when: _ns_route.rc != 0 and 'already' not in _ns_route.stderr and 'File exists' not in _ns_route.stderr
+  changed_when: _ns_route.rc == 0
