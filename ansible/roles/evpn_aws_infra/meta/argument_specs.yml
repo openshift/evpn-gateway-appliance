@@ -1,0 +1,58 @@
+---
+argument_specs:
+  main:
+    short_description: Provision AWS infrastructure (2 VPCs, TGW, 2 EC2 routers, security groups).
+    description:
+      - Provisions the infra/workload VPCs, TGW, EC2 routers and security groups via the C(aws) CLI rather than C(amazon.aws) modules.
+      - Not certified-content-eligible as written (source-audit.md, "AWS role and certified content").
+    options:
+      aws_region:
+        type: str
+        default: eu-west-1
+      project_name:
+        type: str
+        default: evpn-poc
+        description: Used as a resource-name prefix and the Project tag used to find/teardown resources.
+      infra_vpc_cidr:
+        type: str
+        default: 10.100.0.0/16
+        description: Role default here; also consumed by evpn_onprem_appliance's WireGuard AllowedIPs, so set it once in inventory/group_vars/all.yml if you override it.
+      workload_vpc_cidr:
+        type: str
+        default: 10.200.0.0/16
+        description: Role default here; also consumed by evpn_onprem_appliance's WireGuard AllowedIPs, so set it once in inventory/group_vars/all.yml if you override it.
+      router_instance_type:
+        type: str
+        default: t3.small
+      ssh_key_name:
+        type: str
+        default: bgp-poc
+        description: Must already exist in the target AWS account/region.
+      router_ami:
+        type: str
+        default: ""
+        description: If empty, looks up the latest public CentOS Stream 9 AMI (owner 125523088429 — public CentOS account, not a secret).
+      evpn_aws_infra_admin_cidr:
+        type: str
+        default: ""
+        description: CIDR allowed SSH/WireGuard admin ingress. Required unless evpn_aws_infra_allow_open_admin_cidr is set (source-audit.md §1).
+      evpn_aws_infra_allow_open_admin_cidr:
+        type: bool
+        default: false
+        description: Explicitly allow 0.0.0.0/0 admin ingress. Disposable labs only; never in CI.
+      tunnel:
+        type: dict
+        required: true
+        description: Only port and network_cidr are read here, to scope security-group rules and TGW routes.
+        options:
+          type:
+            type: str
+            required: true
+            choices: [wireguard, ipsec, direct-connect]
+          port:
+            type: int
+            description: WireGuard listen port, opened on the infra SG when type is wireguard.
+          network_cidr:
+            type: str
+            default: 10.44.44.0/24
+            description: CIDR covering tunnel.onprem_ip/cloud_ip; routed over the TGW and scoped into the admin-plane SG rules. Update if onprem_ip/cloud_ip change off their defaults.

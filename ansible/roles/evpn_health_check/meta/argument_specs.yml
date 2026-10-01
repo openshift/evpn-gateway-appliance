@@ -1,0 +1,50 @@
+---
+argument_specs:
+  main:
+    short_description: Validate EVPN fabric health (BGP sessions, EVPN prefixes, connectivity).
+    description:
+      - Read-only validation suite. Tasks are conditional on inventory
+        group membership (C(cloud_infra), C(cloud_workload),
+        C(onprem_appliances)), so it is safe to apply to C(hosts: all).
+    options:
+      infra_relay_host:
+        type: str
+        required: true
+        description: Inventory hostname of the infra-VPC relay; checked as a BGP/EVPN peer from the workload side.
+      workload_vtep_host:
+        type: str
+        required: true
+        description: Inventory hostname of the workload-VPC VTEP; checked as a BGP/EVPN peer from the infra side.
+      stretches:
+        type: list
+        elements: dict
+        required: true
+        description: Must match the stretches deployed by the appliance/workload roles.
+        options:
+          vlan:
+            type: int
+            required: true
+          name:
+            type: str
+            required: true
+          subnet:
+            type: str
+            required: true
+          onprem_gateway:
+            type: str
+            required: true
+          cloud_gateway:
+            type: str
+            required: true
+      tunnel:
+        type: dict
+        required: true
+        options:
+          type:
+            type: str
+            required: true
+            choices: [wireguard, ipsec, direct-connect]
+          cloud_ip:
+            type: str
+            required: true
+            description: Checked as the on-prem appliance's BGP peer.

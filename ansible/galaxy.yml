@@ -1,0 +1,41 @@
+---
+# PLACEHOLDER namespace/name — kickoff-decisions.md #5 (collection name/shape/layout) is still open.
+namespace: redhat
+name: evpn_gateway_appliance
+version: 0.1.0
+readme: README.md
+authors:
+  - OpenShift Core Networking
+description: >-
+  Deploy and configure the EVPN Gateway Appliance (EGA): on-prem appliance,
+  AWS infra/workload relays, and the BGP EVPN fabric connecting them.
+license:
+  - Apache-2.0
+tags:
+  - networking
+  - evpn
+  - bgp
+  - frr
+  - aws
+repository: https://github.com/openshift/evpn-gateway-appliance
+homepage: https://github.com/openshift/evpn-gateway-appliance
+issues: https://github.com/openshift/evpn-gateway-appliance/issues
+
+# community.aws (teardown only) blocks certified-content classification (source-audit.md).
+dependencies:
+  containers.podman: ">=1.10.0"
+  ansible.posix: ">=1.5.0"
+  amazon.aws: ">=7.0.0"
+  community.aws: ">=7.0.0"
+  ansible.utils: ">=2.10.0"   # ipsubnet/ipaddr/ipmath filters; was used but undeclared (source-audit.md-style gap, fixed here).
+
+# Deny-list, no negation — keep lab/dev-only paths out of the published tarball (source-audit.md §0).
+build_ignore:
+  - inventory/
+  - ansible.cfg
+  - .wg-keys/
+  - "*.retry"
+  - .github/
+  - .ansible-lint
+  - .yamllint
+  - tools/

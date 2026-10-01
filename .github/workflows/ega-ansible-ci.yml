@@ -1,0 +1,88 @@
+---
+# Source CI for ansible/: lint, syntax-check, collection build + install, tarball allowlist check (ci-bootstrap-spec.md).
+# NOTE: GitHub Actions is off by default for `openshift` org repos until requested (kickoff-decisions.md, "Source CI"); staged and ready to run once enabled.
+name: EVPN Gateway Appliance — Ansible CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ansible/**"
+      - ".github/workflows/ega-ansible-ci.yml"
+  pull_request:
+    paths:
+      - "ansible/**"
+      - ".github/workflows/ega-ansible-ci.yml"
+
+defaults:
+  run:
+    working-directory: ansible
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Pinned to versions ci-bootstrap-spec.md measured this collection against.
+      - name: Install tooling
+        run: pip install "ansible-core==2.21.4" "ansible-lint==26.8.0" "yamllint==1.38.0"
+
+      - name: yamllint
+        run: yamllint -c .yamllint .
+
+      - name: ansible-lint
+        run: ansible-lint -c .ansible-lint roles playbooks
+
+      - name: Playbook syntax check
+        run: |
+          for pb in playbooks/*.yml; do
+            echo "::group::syntax-check $pb"
+            ansible-playbook --syntax-check "$pb" || exit 1
+            echo "::endgroup::"
+          done
+
+  build-and-install:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tooling
+        run: pip install "ansible-core==2.21.4"
+
+      - name: Build collection tarball
+        run: ansible-galaxy collection build --force
+
+      - name: Assert tarball contains only approved paths
+        run: ./tools/check-collection-tarball.sh ./*.tar.gz
+
+      # Install into a clean collections root, not the source checkout, which can hide packaging defects.
+      - name: Install tarball into a clean environment
+        run: |
+          mkdir -p /tmp/collections
+          ansible-galaxy collection install ./*.tar.gz -p /tmp/collections
+
+      - name: Install declared collection dependencies
+        run: |
+          ansible-galaxy collection install \
+            containers.podman ansible.posix amazon.aws community.aws ansible.utils \
+            -p /tmp/collections
+
+      - name: Smoke-test the installed collection
+        env:
+          ANSIBLE_COLLECTIONS_PATH: /tmp/collections
+        run: |
+          cd /tmp
+          ansible-doc -t role -l | grep -i evpn || {
+            echo "::error::installed collection's roles are not discoverable";
+            exit 1;
+          }

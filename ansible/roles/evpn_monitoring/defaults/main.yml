@@ -1,0 +1,4 @@
+---
+# Pinned, verified release tags, not :latest (source-audit.md §2, "Floating Image References"). Still community images pending kickoff-decisions.md #10.
+evpn_monitoring_frr_exporter_image: docker.io/tynany/frr_exporter:v1.12.0
+evpn_monitoring_node_exporter_image: quay.io/prometheus/node-exporter:v1.9.1
