@@ -1,0 +1,26 @@
+[Unit]
+Description=Prometheus Node Exporter
+After=payload-load.service
+Requires=payload-load.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+ExecStartPre=-/usr/bin/podman rm -f node_exporter
+ExecStart=/usr/bin/podman run \
+    --name node_exporter \
+    --network host \
+    --rm \
+    -v /proc:/host/proc:ro \
+    -v /sys:/host/sys:ro \
+    -v /:/rootfs:ro \
+    node-exporter:embedded \
+    --path.procfs=/host/proc \
+    --path.sysfs=/host/sys \
+    --path.rootfs=/rootfs \
+    --web.listen-address=127.0.0.1:9100
+ExecStop=/usr/bin/podman stop node_exporter
+
+[Install]
+WantedBy=multi-user.target
