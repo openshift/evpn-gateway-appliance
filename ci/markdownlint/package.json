@@ -1,0 +1,12 @@
+{
+  "name": "ega-markdown-ci",
+  "private": true,
+  "dependencies": {
+    "markdownlint-cli2": "0.23.3"
+  },
+  "overrides": {
+    "markdownlint-cli2": {
+      "smol-toml": "1.9.0"
+    }
+  }
+}
