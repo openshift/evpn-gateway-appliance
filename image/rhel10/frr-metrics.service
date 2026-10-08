@@ -1,0 +1,11 @@
+[Unit]
+Description=FRR metrics
+After=frr.service
+
+[Service]
+Restart=always
+RestartSec=10
+ExecStart=/usr/bin/frr-metrics
+
+[Install]
+WantedBy=multi-user.target

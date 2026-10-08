@@ -1,0 +1,15 @@
+# Runtime container pullspecs for the bootc image (source-audit §2, pipeline-spec payload).
+# CI must fail if digest is missing or does not match tag (see hack/resolve-payload-digests.go).
+#
+# frr_metrics is not a runtime container. The RPM image copies /frr-metrics from this
+# 4.22 image. 4.23 and 5.x binaries exit outside Kubernetes (decision 16).
+rhel10:
+  # Same OCP 4.22 assembly until openshift5/* is published (source-evidence §9).
+  node_exporter:
+    repository: registry.redhat.io/openshift4/ose-prometheus-node-exporter-rhel9
+    tag: v4.22.0-202609291750.p2.g3e0eb33.assembly.stream.el9
+    digest: sha256:7d2884dc16f902e31b897d475d3e0dc09bc735df16b22544d0fefc4396a0ca48
+  frr_metrics:
+    repository: registry.redhat.io/openshift4/frr-rhel9
+    tag: v4.22.0-202609221726.p2.g1277b23.assembly.stream.el9
+    digest: sha256:82fd7cc0123f6286bad46231a9939799ae79c30b9369047d2ffd109dacefa76e
