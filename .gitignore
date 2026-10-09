@@ -1,2 +1,17 @@
 __pycache__/
 *.pyc
+
+# Generated locally when running the ansible/ collection from a source
+# checkout; never commit real host IPs/keys (source-audit.md §0).
+ansible/inventory/hosts.yml
+ansible/.wg-keys/
+ansible/**/*.retry
+
+# Ansible collection build output
+ansible/*.tar.gz
+
+# ansible-lint / ansible-compat local cache (created by `make check-ansible`)
+ansible/.ansible/
+
+# OS
+.DS_Store

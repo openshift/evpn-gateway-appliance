@@ -1,0 +1,7 @@
+# Python dependencies for the control node / execution environment.
+#
+# Consumed by ansible-builder when building an execution environment, and recognized
+# by galaxy-importer. boto3/botocore back the amazon.aws modules used by the
+# AWS provisioning and teardown paths.
+boto3
+botocore

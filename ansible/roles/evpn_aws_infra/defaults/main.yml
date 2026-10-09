@@ -1,0 +1,22 @@
+---
+aws_region: eu-west-1
+project_name: evpn-poc
+
+# VPC CIDRs — also fall back to these same values in evpn_onprem_appliance's
+# WireGuard AllowedIPs template; override once in inventory/group_vars/all.yml
+# to keep both roles in sync if you change them.
+infra_vpc_cidr: 10.100.0.0/16
+workload_vpc_cidr: 10.200.0.0/16
+
+# Instance config
+router_instance_type: t3.small
+ssh_key_name: bgp-poc
+
+# AMI — CentOS Stream 10 (set router_ami to pin a specific image)
+# If empty, the role looks up the latest CentOS Stream 10 AMI
+router_ami: ""
+
+# Required: CIDR allowed SSH/WireGuard admin ingress. No safe default (source-audit.md §1, "SSH open to 0.0.0.0/0").
+evpn_aws_infra_admin_cidr: ""
+# Set true only for a disposable, fully isolated lab; never in CI.
+evpn_aws_infra_allow_open_admin_cidr: false

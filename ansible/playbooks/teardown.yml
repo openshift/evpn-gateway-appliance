@@ -1,0 +1,102 @@
+---
+# Remove all EVPN appliance components. Does NOT destroy cloud infrastructure.
+# Usage: ansible-playbook playbooks/teardown.yml
+
+- name: Teardown on-prem appliance
+  hosts: onprem_appliances
+  become: true
+  tasks:
+    - name: Stop and remove FRR container
+      containers.podman.podman_container:
+        name: frr
+        state: absent
+      ignore_errors: true
+
+    - name: Stop and remove frr_exporter container
+      containers.podman.podman_container:
+        name: frr_exporter
+        state: absent
+      ignore_errors: true
+
+    - name: Stop and remove node_exporter container
+      containers.podman.podman_container:
+        name: node_exporter
+        state: absent
+      ignore_errors: true
+
+    - name: Stop WireGuard
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove simulated VM namespaces
+      ansible.builtin.command: ip netns del vm-{{ item.name }}
+      changed_when: false
+      loop: "{{ stretches }}"
+      loop_control:
+        label: "vm-{{ item.name }}"
+      ignore_errors: true
+
+    - name: Remove bridges, VXLAN, VLAN interfaces
+      ansible.builtin.shell: |
+        {% for s in stretches %}
+        {% set vni = 10000 + s.vlan %}
+        ip link del br-vni{{ vni }} 2>/dev/null || true
+        ip link del vxlan{{ vni }} 2>/dev/null || true
+        ip link del trunk.{{ s.vlan }} 2>/dev/null || true
+        {% endfor %}
+        ip link del trunk-br 2>/dev/null || true
+      changed_when: false
+
+    - name: Remove FRR config
+      ansible.builtin.file:
+        path: /etc/frr
+        state: absent
+
+- name: Teardown cloud workload
+  hosts: cloud_workload
+  become: true
+  tasks:
+    - name: Stop and remove FRR container
+      containers.podman.podman_container:
+        name: frr
+        state: absent
+      ignore_errors: true
+
+    - name: Remove bridges and VXLAN interfaces
+      ansible.builtin.shell: |
+        {% for s in stretches %}
+        {% set vni = 10000 + s.vlan %}
+        ip link del br-vni{{ vni }} 2>/dev/null || true
+        ip link del vxlan{{ vni }} 2>/dev/null || true
+        {% endfor %}
+      changed_when: false
+
+    - name: Remove FRR config
+      ansible.builtin.file:
+        path: /etc/frr
+        state: absent
+
+- name: Teardown cloud infra
+  hosts: cloud_infra
+  become: true
+  tasks:
+    - name: Stop and remove FRR container
+      containers.podman.podman_container:
+        name: frr
+        state: absent
+      ignore_errors: true
+
+    - name: Stop WireGuard
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove FRR config
+      ansible.builtin.file:
+        path: /etc/frr
+        state: absent

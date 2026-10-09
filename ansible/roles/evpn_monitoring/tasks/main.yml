@@ -1,0 +1,76 @@
+---
+# On bootc images: services are baked in, just ensure started.
+# On non-bootc: deploy containers directly with shared /var/run/frr.
+#
+# KNOWN OPEN ITEM: both exporters use network: host with no listen-address
+# binding or host firewall, so metrics are unauthenticated on every interface
+# (source-audit.md §1).
+
+- name: Ensure /var/run/frr exists on host
+  ansible.builtin.file:
+    path: /var/run/frr
+    state: directory
+    mode: "0775"
+  when: monitoring.frr_exporter | default(false)
+
+# ── frr_exporter ───────────────────────────────────────────────
+- name: Start frr-exporter via systemd (bootc image)
+  ansible.builtin.systemd:
+    name: frr-exporter.service
+    state: started
+    enabled: true
+  when:
+    - monitoring.frr_exporter | default(false)
+    - ansible_facts.services is defined
+    - "'frr-exporter.service' in ansible_facts.services"
+  register: _frr_exp_systemd
+
+- name: Deploy frr_exporter via podman (non-bootc)
+  containers.podman.podman_container:
+    name: frr_exporter
+    image: "{{ evpn_monitoring_frr_exporter_image }}"
+    state: started
+    restart_policy: always
+    network: host
+    command: >
+      --collector.bgpl2vpn
+      --collector.bfd
+      --frr.vtysh
+      --frr.vtysh.path=/usr/bin/vtysh
+    volumes:
+      - /etc/frr:/etc/frr:ro
+      - /var/run/frr:/var/run/frr:ro
+  when:
+    - monitoring.frr_exporter | default(false)
+    - _frr_exp_systemd is skipped
+
+# ── node_exporter ──────────────────────────────────────────────
+- name: Start node-exporter via systemd (bootc image)
+  ansible.builtin.systemd:
+    name: node-exporter.service
+    state: started
+    enabled: true
+  when:
+    - monitoring.node_exporter | default(false)
+    - ansible_facts.services is defined
+    - "'node-exporter.service' in ansible_facts.services"
+  register: _node_exp_systemd
+
+- name: Deploy node_exporter via podman (non-bootc)
+  containers.podman.podman_container:
+    name: node_exporter
+    image: "{{ evpn_monitoring_node_exporter_image }}"
+    state: started
+    restart_policy: always
+    network: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command: >
+      --path.procfs=/host/proc
+      --path.sysfs=/host/sys
+      --path.rootfs=/rootfs
+  when:
+    - monitoring.node_exporter | default(false)
+    - _node_exp_systemd is skipped

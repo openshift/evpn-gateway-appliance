@@ -1,0 +1,9 @@
+[Interface]
+PrivateKey = {{ wg_client_private }}
+Address = {{ tunnel.onprem_ip }}/{{ tunnel.network_cidr | default('10.44.44.0/24') | ansible.utils.ipaddr('prefix') }}
+
+[Peer]
+PublicKey = {{ wg_server_public }}
+Endpoint = {{ hostvars[infra_relay_host].ansible_host }}:{{ tunnel.port }}
+AllowedIPs = {{ tunnel.cloud_ip }}/32, {{ infra_vpc_cidr | default('10.100.0.0/16') }}, {{ workload_vpc_cidr | default('10.200.0.0/16') }}, {{ ocp_pod_network_cidr | default('10.128.0.0/16') }}
+PersistentKeepalive = 25

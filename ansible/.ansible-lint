@@ -1,0 +1,15 @@
+---
+# var-naming[no-role-prefix] (83 of 113 findings) skipped as tracked debt: renaming shared vars (tunnel, bgp, stretches) is a breaking API change needing coordination, not a mechanical fix. Revisit before first publication.
+# risky-shell-pipe / ignore-errors kept as warnings, not skipped — real, fixable findings not yet addressed.
+profile: production
+
+skip_list:
+  - var-naming[no-role-prefix]
+
+warn_list:
+  - risky-shell-pipe
+  - ignore-errors
+
+exclude_paths:
+  - inventory/hosts.yml.j2
+  - .wg-keys/

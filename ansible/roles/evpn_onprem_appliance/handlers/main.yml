@@ -1,0 +1,19 @@
+---
+- name: Restart WireGuard
+  ansible.builtin.systemd:
+    name: wg-quick@wg0
+    state: restarted
+
+- name: Restart FRR
+  containers.podman.podman_container:
+    name: frr
+    state: started
+    restart: true
+    image: "{{ frr_image }}"
+    privileged: true
+    network: host
+    restart_policy: always
+    volumes:
+      - /etc/frr:/etc/frr:Z
+      - /var/run/frr:/var/run/frr:Z
+      - /var/run/frr:/var/run/frr:Z

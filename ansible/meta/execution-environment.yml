@@ -1,0 +1,8 @@
+---
+# Points ansible-builder at this collection's control-node dependency files when building
+# an execution environment. Ansible collection (Galaxy) dependencies come from galaxy.yml;
+# this file declares the Python and system (OS) packages that galaxy.yml cannot express.
+version: 3
+dependencies:
+  python: requirements.txt
+  system: bindep.txt

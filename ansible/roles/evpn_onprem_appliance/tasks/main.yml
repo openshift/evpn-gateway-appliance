@@ -1,0 +1,187 @@
+---
+- name: Generate/load WireGuard keys
+  # include_role (not a playbook_dir-relative path) so this resolves correctly once installed from a collection (ci-bootstrap-spec.md, "Cross-role include").
+  ansible.builtin.include_role:
+    name: evpn_cloud_infra
+    tasks_from: wireguard_keys
+  when: tunnel.type == 'wireguard'
+
+- name: Install packages (skipped on bootc images)
+  ansible.builtin.dnf:
+    name: >-
+      {{ ['podman', 'tcpdump', 'traceroute', 'mtr', 'bind-utils']
+         + (['wireguard-tools'] if tunnel.type == 'wireguard' else []) }}
+    state: present
+  when: ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
+
+- name: Enable IP forwarding
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-ip-forward.conf
+    reload: true
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv4.conf.all.forwarding
+
+- name: Deploy WireGuard client config
+  ansible.builtin.template:
+    src: wg-client.conf.j2
+    dest: /etc/wireguard/wg0.conf
+    mode: "0600"
+  notify: Restart WireGuard
+  when: tunnel.type == 'wireguard'
+
+- name: Enable and start WireGuard
+  ansible.builtin.systemd:
+    name: wg-quick@wg0
+    state: started
+    enabled: true
+  when: tunnel.type == 'wireguard'
+
+# ── Trunk + VLAN setup ──────────────────────────────────────────
+- name: Set up simulated trunk (veth + namespaces)
+  ansible.builtin.include_tasks: simulate.yml
+  when: trunk_interface == "simulate"
+
+- name: Set up physical trunk
+  ansible.builtin.include_tasks: physical.yml
+  when: trunk_interface != "simulate"
+
+# ── Per-stretch VXLAN + Bridge ──────────────────────────────────
+- name: Create VXLAN interfaces
+  ansible.builtin.command: >
+    ip link add vxlan{{ 10000 + item.vlan }} type vxlan
+    id {{ 10000 + item.vlan }}
+    local {{ tunnel.onprem_ip }}
+    dstport 4789
+    nolearning
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "VNI {{ 10000 + item.vlan }} ({{ item.name }})"
+  register: _vxlan_create
+  failed_when: _vxlan_create.rc != 0 and 'File exists' not in _vxlan_create.stderr
+  changed_when: _vxlan_create.rc == 0
+
+- name: Bring up VXLAN interfaces
+  ansible.builtin.command: ip link set vxlan{{ 10000 + item.vlan }} up
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "vxlan{{ 10000 + item.vlan }}"
+  changed_when: false
+
+- name: Create per-VNI bridges
+  ansible.builtin.command: ip link add br-vni{{ 10000 + item.vlan }} type bridge
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "br-vni{{ 10000 + item.vlan }}"
+  register: _br_create
+  failed_when: _br_create.rc != 0 and 'File exists' not in _br_create.stderr
+  changed_when: _br_create.rc == 0
+
+- name: Bring up bridges
+  ansible.builtin.command: ip link set br-vni{{ 10000 + item.vlan }} up
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "br-vni{{ 10000 + item.vlan }}"
+  changed_when: false
+
+- name: Add VLAN sub-interface to bridge
+  ansible.builtin.command: ip link set trunk.{{ item.vlan }} master br-vni{{ 10000 + item.vlan }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "trunk.{{ item.vlan }} → br-vni{{ 10000 + item.vlan }}"
+  register: _trunk_add
+  failed_when: _trunk_add.rc != 0 and 'already a member' not in _trunk_add.stderr
+  changed_when: _trunk_add.rc == 0
+
+- name: Add VXLAN to bridge
+  ansible.builtin.command: ip link set vxlan{{ 10000 + item.vlan }} master br-vni{{ 10000 + item.vlan }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "vxlan{{ 10000 + item.vlan }} → br-vni{{ 10000 + item.vlan }}"
+  register: _vx_add
+  failed_when: _vx_add.rc != 0 and 'already a member' not in _vx_add.stderr
+  changed_when: _vx_add.rc == 0
+
+- name: Assign IPs to bridge SVIs
+  ansible.builtin.command: >-
+    ip addr add {{ item.onprem_gateway }}/{{ item.subnet | ansible.utils.ipaddr('prefix') }}
+    dev br-vni{{ 10000 + item.vlan }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.onprem_gateway }} on br-vni{{ 10000 + item.vlan }}"
+  register: _ip_add
+  failed_when: _ip_add.rc != 0 and 'already' not in _ip_add.stderr and 'File exists' not in _ip_add.stderr
+  changed_when: _ip_add.rc == 0
+
+# ── FRR ────────────────────────────────────────────────────────
+- name: Ensure FRR directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/frr, mode: '0755' }
+    - { path: /var/run/frr, mode: '0777' }
+
+- name: Deploy FRR daemons config
+  ansible.builtin.copy:
+    dest: /etc/frr/daemons
+    mode: "0644"
+    content: |
+      bgpd=yes
+      ospfd=no
+      ospf6d=no
+      ripd=no
+      ripngd=no
+      isisd=no
+      pimd=no
+      ldpd=no
+      nhrpd=no
+      eigrpd=no
+      babeld=no
+      sharpd=no
+      pbrd=no
+      bfdd=yes
+      fabricd=no
+      vrrpd=no
+      pathd=no
+  notify: Restart FRR
+
+- name: Deploy FRR vtysh config
+  ansible.builtin.copy:
+    dest: /etc/frr/vtysh.conf
+    mode: "0644"
+    content: "service integrated-vtysh-config\n"
+
+- name: Deploy FRR config (on-prem VTEP)
+  ansible.builtin.template:
+    src: frr-onprem-appliance.conf.j2
+    dest: /etc/frr/frr.conf
+    mode: "0644"
+  notify: Restart FRR
+
+- name: Start FRR via systemd service (bootc image)
+  ansible.builtin.systemd:
+    name: frr-container.service
+    state: started
+    enabled: true
+  when: ansible_facts.services is defined and 'frr-container.service' in ansible_facts.services
+  register: _frr_systemd
+
+- name: Start FRR via podman directly (non-bootc)
+  containers.podman.podman_container:
+    name: frr
+    image: "{{ frr_image }}"
+    state: started
+    restart_policy: always
+    privileged: true
+    network: host
+    volumes:
+      - /etc/frr:/etc/frr:Z
+      - /var/run/frr:/var/run/frr:Z
+  when: _frr_systemd is skipped
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers

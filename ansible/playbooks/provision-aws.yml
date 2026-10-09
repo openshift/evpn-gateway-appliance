@@ -1,0 +1,27 @@
+---
+# Provision AWS infrastructure (VPCs, TGW, EC2) and update inventory.
+#
+# Requires AWS credentials in environment:
+#   source <(aws configure export-credentials --format env)
+#   export AWS_DEFAULT_REGION=eu-west-1
+#
+# Usage: ansible-playbook playbooks/provision-aws.yml
+
+- name: Provision AWS infrastructure
+  hosts: localhost
+  gather_facts: false
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
+    AWS_SESSION_TOKEN: "{{ lookup('env', 'AWS_SESSION_TOKEN') }}"
+    AWS_DEFAULT_REGION: "{{ aws_region | default('eu-west-1') }}"
+  roles:
+    - evpn_aws_infra
+
+  post_tasks:
+    - name: Update inventory file with new IPs
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../inventory/hosts.yml.j2"
+        dest: "{{ playbook_dir }}/../inventory/hosts.yml"
+        mode: "0644"
+      when: infra_public_ip is defined and workload_public_ip is defined

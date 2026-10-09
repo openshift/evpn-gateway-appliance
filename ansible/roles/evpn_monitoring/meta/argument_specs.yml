@@ -1,0 +1,29 @@
+---
+argument_specs:
+  main:
+    short_description: Deploy frr_exporter and node_exporter for Prometheus scraping.
+    description:
+      - Starts the bootc image's baked-in systemd units if present, falling
+        back to running the exporters directly via Podman otherwise.
+    options:
+      monitoring:
+        type: dict
+        required: true
+        description: Which exporters to deploy.
+        options:
+          frr_exporter:
+            type: bool
+            default: false
+            description: Deploy the FRR exporter.
+          node_exporter:
+            type: bool
+            default: false
+            description: Deploy the node exporter.
+      evpn_monitoring_frr_exporter_image:
+        type: str
+        default: docker.io/tynany/frr_exporter:v1.12.0
+        description: Container image for the FRR exporter. Pin by tag or digest.
+      evpn_monitoring_node_exporter_image:
+        type: str
+        default: quay.io/prometheus/node-exporter:v1.9.1
+        description: Container image for the node exporter. Pin by tag or digest.

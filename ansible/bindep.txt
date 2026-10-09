@@ -1,0 +1,10 @@
+# System (OS) package dependencies for the control node / execution environment.
+#
+# Consumed by ansible-builder when building an execution environment, and recognized
+# by galaxy-importer. These are CONTROL-SIDE packages only — e.g. the WireGuard CLI,
+# used for local key generation in evpn_cloud_infra/tasks/wireguard_keys.yml (run with
+# delegate_to: localhost).
+#
+# Packages required ON the managed routers/appliance (podman, FRR, wireguard-tools there)
+# are installed by the roles at runtime, not here.
+wireguard-tools [platform:rpm]

@@ -1,0 +1,75 @@
+---
+argument_specs:
+  main:
+    short_description: Provision AWS infrastructure (2 VPCs, transit gateway, 2 EC2 routers, security groups).
+    description:
+      - Provisions the infra and workload VPCs, the transit gateway, the EC2 routers and their security groups.
+    options:
+      aws_region:
+        type: str
+        default: eu-west-1
+        description: AWS region to provision the infrastructure in.
+      project_name:
+        type: str
+        default: evpn-poc
+        description: Resource-name prefix and project tag identifying the created resources.
+      infra_vpc_cidr:
+        type: str
+        default: 10.100.0.0/16
+        description: CIDR block for the infra VPC.
+      workload_vpc_cidr:
+        type: str
+        default: 10.200.0.0/16
+        description: CIDR block for the workload VPC.
+      router_instance_type:
+        type: str
+        default: t3.small
+        description: EC2 instance type for the infra and workload routers.
+      ssh_key_name:
+        type: str
+        default: bgp-poc
+        description: Name of an EC2 key pair for SSH access; must already exist in the target AWS account and region.
+      router_ami:
+        type: str
+        default: ""
+        description: AMI ID for the routers. If left empty, the latest CentOS Stream 10 x86_64 AMI published by the CentOS project is looked up automatically.
+      evpn_aws_infra_admin_cidr:
+        type: str
+        default: ""
+        description: CIDR allowed inbound for SSH and WireGuard admin access. Required unless evpn_aws_infra_allow_open_admin_cidr is set.
+      evpn_aws_infra_allow_open_admin_cidr:
+        type: bool
+        default: false
+        description: Explicitly allow admin ingress from 0.0.0.0/0. For disposable labs only.
+      tunnel:
+        type: dict
+        required: true
+        required_if:
+          - [type, wireguard, [port]]
+        description: >-
+          Transport configuration parameters for the tunnel between on-prem and
+          cloud; type, port and network_cidr are used to configure the security
+          groups and transit-gateway routes.
+        options:
+          type:
+            type: str
+            required: true
+            choices: [wireguard, ipsec, direct-connect]
+            description: Transport type. Determines which transport-specific security-group rules are applied.
+          port:
+            type: int
+            description: WireGuard listen port. Opened on the infra security group.
+          network_cidr:
+            type: str
+            default: 10.44.44.0/24
+            description: CIDR covering the tunnel addresses (onprem_ip and cloud_ip). Allowed through the security groups and routed over the transit gateway.
+          onprem_ip:
+            type: str
+            description: Tunnel address of the on-prem appliance. Part of the shared playbook configuration model; not used by this role.
+          cloud_ip:
+            type: str
+            description: Tunnel address of the infra relay. Part of the shared playbook configuration model; not used by this role.
+          mtu_mode:
+            type: str
+            choices: [safe, unsafe]
+            description: Intended underlay MTU regime. Part of the shared playbook configuration model; not used by this role.

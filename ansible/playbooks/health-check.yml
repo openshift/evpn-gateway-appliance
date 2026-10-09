@@ -1,0 +1,9 @@
+---
+# Validation only — no changes made.
+# Usage: ansible-playbook playbooks/health-check.yml
+
+- name: Run health checks
+  hosts: all
+  become: true
+  roles:
+    - evpn_health_check

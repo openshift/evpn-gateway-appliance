@@ -1,0 +1,100 @@
+---
+argument_specs:
+  main:
+    short_description: Configure the cloud-side EVPN relay (terminates the on-prem transport and configures FRR).
+    description:
+      - Terminates the transport from the on-prem appliance and configures FRR
+        as a route relay (not a VTEP) between the on-prem appliance and the
+        workload-VPC VTEP, using next-hop-unchanged so VTEP IPs are preserved
+        end-to-end.
+    options:
+      workload_vtep_host:
+        type: str
+        required: true
+        description: Inventory hostname of the workload-VPC VTEP peer; its private_ip host variable is used as the BGP neighbor address.
+      private_ip:
+        type: str
+        required: true
+        description: Private IP of the host this role runs on; used as the FRR relay's BGP router-id.
+      tunnel:
+        type: dict
+        required: true
+        required_if:
+          - [type, wireguard, [cloud_ip, port]]
+        description: >-
+          Transport configuration parameters for the tunnel between on-prem and
+          cloud; type, onprem_ip, cloud_ip, port and network_cidr are used to
+          configure the transport endpoint and the FRR relay.
+        options:
+          type:
+            type: str
+            required: true
+            choices: [wireguard, ipsec, direct-connect]
+            description: Transport type. Determines which transport-specific configuration is applied.
+          onprem_ip:
+            type: str
+            required: true
+            description: Tunnel address of the on-prem appliance. Used as the FRR relay's BGP neighbor.
+          cloud_ip:
+            type: str
+            description: Tunnel address of the infra relay. Used as the WireGuard server's local address.
+          port:
+            type: int
+            description: WireGuard listen port. Set on the WireGuard server interface.
+          network_cidr:
+            type: str
+            default: 10.44.44.0/24
+            description: CIDR covering the tunnel addresses (onprem_ip and cloud_ip). Its prefix length sets the WireGuard interface address.
+          mtu_mode:
+            type: str
+            choices: [safe, unsafe]
+            description: Intended underlay MTU regime. Part of the shared playbook configuration model; not used by this role.
+      bgp:
+        type: dict
+        required: true
+        description: ASNs and limits for the three-tier BGP EVPN fabric.
+        options:
+          onprem_asn:
+            type: int
+            required: true
+            description: BGP ASN of the on-prem appliance.
+          infra_asn:
+            type: int
+            required: true
+            description: BGP ASN of the infra relay.
+          workload_asn:
+            type: int
+            required: true
+            description: BGP ASN of the workload VTEP.
+          max_prefix:
+            type: int
+            default: 1000
+            description: Defensive maximum-prefix limit applied to EVPN neighbors.
+      frr_image:
+        type: str
+        required: true
+        description: Container image reference for the FRR relay. Pin by tag or digest.
+      stretches:
+        type: list
+        elements: dict
+        required: true
+        description: >-
+          VLAN stretches extended between on-prem and cloud; the same list must
+          be configured consistently across the fabric roles. Only subnet is
+          used here, for the WireGuard AllowedIPs.
+        options:
+          subnet:
+            type: str
+            description: IPv4 /24 subnet for this stretch. Added to the WireGuard server AllowedIPs.
+          vlan:
+            type: int
+            description: VLAN ID; the VNI is always 10000 + vlan. Part of the shared playbook configuration model; not used by this role.
+          name:
+            type: str
+            description: Human-readable stretch name. Part of the shared playbook configuration model; not used by this role.
+          onprem_gateway:
+            type: str
+            description: Gateway IP on the on-prem bridge SVI for this stretch. Part of the shared playbook configuration model; not used by this role.
+          cloud_gateway:
+            type: str
+            description: Gateway IP on the cloud workload side for this stretch. Part of the shared playbook configuration model; not used by this role.

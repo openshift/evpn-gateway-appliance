@@ -1,0 +1,22 @@
+---
+# line-length max 160 matches ansible-lint's built-in default (plain yamllint defaults to 80);
+# all task content is wrapped to fit, so this is a hard limit, not a warning.
+extends: default
+
+
+rules:
+  line-length:
+    max: 160
+  truthy:
+    allowed-values: ["true", "false", "yes", "no"]
+  comments-indentation: disable
+  # Match ansible-lint's expected yamllint settings so it does not flag this
+  # config as incompatible (which otherwise disables its --fix mode).
+  comments:
+    min-spaces-from-content: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+  # Allow idiomatic Ansible flow-mappings, e.g. `- { path: /etc/frr, mode: '0755' }`.
+  braces:
+    max-spaces-inside: 1

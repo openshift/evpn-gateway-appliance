@@ -1,0 +1,75 @@
+---
+argument_specs:
+  main:
+    short_description: Validate EVPN fabric health (BGP sessions, EVPN prefixes, connectivity).
+    description:
+      - >-
+        Read-only validation suite. Tasks are conditional on inventory group
+        membership (cloud_infra, cloud_workload, onprem_appliances), so it is
+        safe to run against all hosts.
+    options:
+      infra_relay_host:
+        type: str
+        required: true
+        description: Inventory hostname of the infra-VPC relay; its private_ip host variable is checked as a BGP/EVPN peer from the workload side.
+      workload_vtep_host:
+        type: str
+        required: true
+        description: Inventory hostname of the workload-VPC VTEP; its private_ip host variable is checked as a BGP/EVPN peer from the infra side.
+      stretches:
+        type: list
+        elements: dict
+        required: true
+        description: VLAN stretches extended between on-prem and cloud; the same list must be configured consistently across the fabric roles.
+        options:
+          vlan:
+            type: int
+            required: true
+            description: VLAN ID; the VNI is always 10000 + vlan. Checked for the expected remote VTEP on its VNI.
+          name:
+            type: str
+            required: true
+            description: Human-readable stretch name. Used in check labels and the per-stretch test namespace name.
+          subnet:
+            type: str
+            required: true
+            description: IPv4 /24 subnet for this stretch. Used to derive a target IP for the cross-stretch connectivity test.
+          onprem_gateway:
+            type: str
+            required: true
+            description: Gateway IP on the on-prem bridge SVI for this stretch. Pinged to verify on-prem gateway reachability.
+          cloud_gateway:
+            type: str
+            required: true
+            description: Gateway IP on the cloud workload side for this stretch. Pinged to verify cloud gateway reachability.
+      tunnel:
+        type: dict
+        required: true
+        description: >-
+          Transport configuration parameters for the tunnel between on-prem and
+          cloud; type, cloud_ip and onprem_ip are used to check the BGP/EVPN
+          peers.
+        options:
+          type:
+            type: str
+            required: true
+            choices: [wireguard, ipsec, direct-connect]
+            description: Transport type. Determines which transport-specific checks run.
+          cloud_ip:
+            type: str
+            required: true
+            description: Tunnel address of the infra relay. Checked as the on-prem appliance's BGP peer.
+          onprem_ip:
+            type: str
+            required: true
+            description: Tunnel address of the on-prem appliance. Checked as the infra relay's BGP/EVPN peer.
+          port:
+            type: int
+            description: WireGuard listen port. Part of the shared playbook configuration model; not used by this role.
+          network_cidr:
+            type: str
+            description: CIDR covering the tunnel addresses (onprem_ip and cloud_ip). Part of the shared playbook configuration model; not used by this role.
+          mtu_mode:
+            type: str
+            choices: [safe, unsafe]
+            description: Intended underlay MTU regime. Part of the shared playbook configuration model; not used by this role.
