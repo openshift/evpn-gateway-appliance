@@ -1,13 +1,19 @@
 # CI image for the static source checks (`make verify`).
 # Pinned base + tool versions for reproducible, auditable builds.
 # ansible-core 2.21 requires Python >= 3.12.
-FROM registry.ci.openshift.org/ocp/ubi-python-312:9
+FROM registry.access.redhat.com/ubi9/python-312:latest
+
+# Marks this as the CI image; the Makefile detects it to run the checks directly
+# instead of building/entering a container (delegation recursion guard).
+ENV EGA_IN_CI_IMAGE=1
 
 # Run as root
 USER 0
 
 # Install necessary package dependencies
-RUN dnf install -y git && dnf clean all
+# git: the checks run `git ls-files`.
+# jq: corpus snippet tests (test-snippets.py).
+RUN dnf install -y git jq && dnf clean all
 
 # Configure git to allow operations in any directory (for CI purposes)
 RUN git config --system --add safe.directory '*'

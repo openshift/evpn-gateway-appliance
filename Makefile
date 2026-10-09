@@ -1,40 +1,57 @@
-.PHONY: verify check
-
-# Static source checks. The single entry point CI runs; add more as prerequisites.
-verify: check
-
-# Public-safety gate for this PUBLIC repository.
+# Entry point + container delegation. By default the requested target(s) run inside the
+# pinned CI image (Dockerfile.ci) for parity with CI; the real targets live in rules.mk.
 #
-#   make check              full run (corpus link/pin checks need network + authenticated gh)
-#   make check OFFLINE=1    skip the network/gh checks (link + pin resolution)
-#   make check TERMS=path   also screen for customer/partner/account names listed in `path`
-#                           (keep that file OUTSIDE the repo; never commit it)
+#   make <target>              run <target> inside the CI image (built first)
+#   make <target> USE_IMAGE=0  run on the host with local tools instead
+#   make image                 just build the CI image
 #
-# The corpus checkers (check-all.sh and friends) and check-public-safe.py are stdlib-only
-# Python; they need just python3 plus curl/gh at runtime for the network checks.
+# OFFLINE is forwarded into the container; TERMS (a file kept outside the repo) is
+# bind-mounted read-only and its in-container path passed through.
 
-TOOLS := plans/context/evpn-aws/tools
-TERMS ?=
+USE_IMAGE ?= 1
+IMAGE ?= evpn-gateway-appliance-ci:local
+CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+comma := ,
 
-check: private SHELL := /bin/bash
-check: private .SHELLFLAGS := -o pipefail -c
+# One container run. $(1) = goals to run inside (empty -> the image's default goal).
+CONTAINER_RUN = $(CONTAINER_ENGINE) run --rm \
+	$(if $(TERMS),-v $(abspath $(TERMS)):/terms:ro$(comma)Z,) \
+	$(IMAGE) make $(1) OFFLINE=$(OFFLINE) $(if $(TERMS),TERMS=/terms,)
 
-check:
-	# 1. Corpus checkers over the planning docs: link + anchor + pin resolution,
-	#    embedded-snippet tests, and public-safe (check-all.sh bundles them).
-	$(TOOLS)/check-all.sh $(if $(OFFLINE),--offline,)
-	# 2. Public-exposure scan over tracked and new-but-not-ignored files (emails, non-doc
-	#    IPs, AWS account IDs, keys/tokens, secret assignments, internal links).
-	#    --exclude-standard keeps gitignored local artifacts (generated inventory, keys)
-	#    out. --allow-private skips RFC1918 lab addrs; annotate known-public values with
-	#    an inline `public-safe: ok`.
-	git ls-files -z -c -o --exclude-standard | xargs -0 -r python3 $(TOOLS)/check-public-safe.py --allow-private $(if $(TERMS),--terms $(TERMS),)
+# Delegate to the image unless we are already inside it (EGA_IN_CI_IMAGE is set in
+# Dockerfile.ci) or the user opted out with USE_IMAGE=0.
+ifndef EGA_IN_CI_IMAGE
+ifeq ($(USE_IMAGE),1)
+DELEGATE := 1
+endif
+endif
 
-.PHONY: lint-yaml
-check: lint-yaml
-lint-yaml: SHELL := /bin/bash
-lint-yaml: .SHELLFLAGS := -o pipefail -c
+ifeq ($(DELEGATE),1)
+ifeq ($(MAKECMDGOALS),)
+# Bare `make`: delegate with no goal so the container uses rules.mk's own default goal.
+.DEFAULT_GOAL := container-default
+.PHONY: container-default
+container-default: image
+	$(call CONTAINER_RUN,)
+else
+# Forward the named goals into a single container run: the first builds the image and
+# runs them, the rest are no-ops. `image` is never forwarded (it builds on the host).
+FWD := $(filter-out image,$(MAKECMDGOALS))
+ifneq ($(FWD),)
+.PHONY: $(FWD)
+$(firstword $(FWD)): image
+	$(call CONTAINER_RUN,$(FWD))
+$(filter-out $(firstword $(FWD)),$(FWD)):
+	@:
+endif
+endif
+else
+include rules.mk
+endif
 
-lint-yaml:
-	command -v yamllint >/dev/null
-	git ls-files -z -c -o --exclude-standard -- '*.yml' '*.yaml' '*.yamllint' | xargs -0 -r yamllint -c .yamllint --
+# Build the pinned CI image (host-side; needs podman/docker). Defined last so that on the
+# non-delegate path rules.mk's first target stays the natural default goal.
+.PHONY: image
+image:
+	@test -n "$(CONTAINER_ENGINE)" || { echo "no podman/docker found; use USE_IMAGE=0 to run on the host" >&2; exit 1; }
+	$(CONTAINER_ENGINE) build -f Dockerfile.ci -t $(IMAGE) .

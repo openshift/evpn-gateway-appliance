@@ -1,0 +1,10 @@
+# Build context for Dockerfile.ci. Keep .git (the checks run `git ls-files`).
+# Hand-maintained mirror of the heavy/sensitive .gitignore paths — keep in sync.
+**/__pycache__/
+*.pyc
+.DS_Store
+ansible/.ansible/
+ansible/*.tar.gz
+ansible/**/*.retry
+ansible/.wg-keys/
+ansible/inventory/hosts.yml
