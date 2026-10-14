@@ -1,0 +1,11 @@
+[Unit]
+Description=Load embedded container images
+Before=node-exporter.service frr-container.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/evpn-appliance/payload-load.sh
+
+[Install]
+WantedBy=multi-user.target

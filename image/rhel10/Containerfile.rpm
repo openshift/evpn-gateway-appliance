@@ -1,0 +1,62 @@
+# FRR alternate: host RPM. node-exporter is embedded, same as Containerfile.
+#   podman build -f Containerfile.rpm --secret id=dockerconfig,src=$HOME/.docker/config.json --build-arg BOOTC_BASE=... .
+ARG BOOTC_BASE=registry.redhat.io/rhel10/rhel-bootc
+FROM ${BOOTC_BASE}
+
+ARG NODE_EXPORTER_IMAGE=registry.redhat.io/openshift4/ose-prometheus-node-exporter-rhel9@sha256:7d2884dc16f902e31b897d475d3e0dc09bc735df16b22544d0fefc4396a0ca48
+ARG FRR_METRICS_IMAGE=registry.redhat.io/openshift4/frr-rhel9@sha256:82fd7cc0123f6286bad46231a9939799ae79c30b9369047d2ffd109dacefa76e
+
+RUN dnf install -y \
+    wireguard-tools \
+    libreswan \
+    tcpdump \
+    traceroute \
+    mtr \
+    bind-utils \
+    python3 \
+    iproute \
+    frr \
+    \
+    podman \
+    skopeo \
+    && dnf clean all
+
+# Keep the RPM's daemons file. Replacing it drops vtysh_enable and the
+# per-daemon bind options the package ships.
+RUN sed -i \
+    -e 's/^bgpd=no/bgpd=yes/' \
+    -e 's/^bfdd=no/bfdd=yes/' \
+    /etc/frr/daemons
+
+COPY --from=${FRR_METRICS_IMAGE} /frr-metrics /usr/bin/frr-metrics
+
+RUN mkdir -p /etc/systemd/system/frr.service.d && cat > /etc/systemd/system/frr.service.d/wait-for-config.conf <<'EOF'
+# Ansible writes frr.conf later; the stock unit would start without it.
+[Unit]
+ConditionPathExists=/etc/frr/frr.conf
+EOF
+
+RUN --mount=type=secret,id=dockerconfig,target=/root/.docker/config.json \
+    mkdir -p /usr/lib/containers-image-cache/node-exporter \
+    && skopeo copy --preserve-digests \
+        "docker://${NODE_EXPORTER_IMAGE}" \
+        dir:/usr/lib/containers-image-cache/node-exporter
+
+RUN cat > /etc/sysctl.d/99-ip-forward.conf <<'EOF'
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.forwarding = 1
+EOF
+
+RUN mkdir -p /etc/wireguard && chmod 700 /etc/wireguard
+
+COPY payload-load.sh /usr/libexec/evpn-appliance/payload-load.sh
+COPY payload-load.service /etc/systemd/system/payload-load.service
+COPY node-exporter.service /etc/systemd/system/node-exporter.service
+COPY frr-metrics.service /etc/systemd/system/frr-metrics.service
+
+RUN chmod 755 /usr/libexec/evpn-appliance/payload-load.sh \
+    && systemctl enable frr.service frr-metrics.service payload-load.service node-exporter.service
+
+LABEL description="EVPN Migration Appliance"
+LABEL version="0.1.0"
+LABEL prototype=frr-rpm

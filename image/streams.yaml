@@ -1,0 +1,15 @@
+# Bootc stream inventory for Konflux Components and local builds.
+# One subdir per stream (image/<stream>/Containerfile). Add rhel9 when that major is in scope.
+# Pin bootcImage to digest in CI once registry access is proven.
+# See plans/context/evpn-aws/containerfile-refactor-spec.md (Component design).
+streams:
+  rhel10:
+    containerfile: image/rhel10/Containerfile
+    gitContext: image/rhel10
+    bootcImage: registry.redhat.io/rhel10/rhel-bootc
+    # CI build-arg. Same Containerfile: --build-arg BOOTC_BASE=<bootcImageCi>
+    bootcImageCi: quay.io/centos-bootc/centos-bootc:stream10
+    frrRpmWhenPackaged: frr
+    notes: >-
+      Platform bases (rhel-bootc-aws, rhel-bootc-kvm) may become separate
+      bootc Components for AWS vs on-prem; start from generic rhel-bootc.
