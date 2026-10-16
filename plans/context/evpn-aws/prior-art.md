@@ -382,12 +382,13 @@ is New and points to a separate internal `rhel-image-tests` migration; its
 implementation was unavailable for this audit.
 
 [`osbuild/cloud-cleaner` at `135b45d`](https://github.com/osbuild/cloud-cleaner/blob/135b45d/aws.py)
-is a starting point for EC2 instances, self-owned AMIs and EBS snapshots.
+is a historical cleanup example for EC2 instances, self-owned AMIs and EBS snapshots.
 Its default six-hour age rule permits deletion of untagged resources unless
 protected by `persist=true`; it neither checks run liveness nor follows inventory
-pagination, and catches deletion errors without failing the process. Add explicit
-ownership/lease checks, complete inventory, failure monitoring and the remaining
-EVPN resource types before reuse.
+pagination, and catches deletion errors without failing the process. It does not qualify an
+EVPN reaper. Prefer the selected backend or an owned cleanup service; prove ownership/leases,
+complete inventory, failed deletions and resource coverage before adding residual glue
+([lifecycle contract](bib-configuration-spec.md#disk-validation-and-aws-lifecycle)).
 
 ## OpenShift CI adapters
 

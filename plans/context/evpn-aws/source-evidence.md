@@ -1,7 +1,7 @@
 # EVPN CI/CD — source evidence
 
-Audit refreshed **2026-09-24** and rechecked **2026-09-29**; inspected revisions
-are recorded below. This document explains the consequential choices in the
+Baseline refreshed **2026-09-24** and rechecked **2026-09-29**, with scoped follow-ups
+through **2026-10-16** below. This document explains the consequential choices in the
 [pipeline plan](pipeline-spec.md). [Prior art](prior-art.md) identifies reusable
 files; the focused specs define implementation acceptance.
 
@@ -14,9 +14,40 @@ The requirements baseline is [OCPSTRAT-3413](https://redhat.atlassian.net/browse
 read
 for those 29 records and the related work cited here. On September 29 every direct
 child was still To Do and unassigned, and every cited Jira status and GitHub PR
-state was rechecked. Related work was found through networking, Konflux, bootc,
-collection and release searches, so this is not an exhaustive account of either
-Jira or platform capabilities.
+state was rechecked. Those dated observations are baselines, not today's remote state.
+Related work came from networking, Konflux, bootc, collection and release searches; this is
+not an exhaustive inventory of Jira or platform capability.
+
+**Requirements refresh, 2026-10-13:** authenticated read-only `acli` reads covered
+OCPSTRAT-3413, HPSTRAT-714, CORENET-7498, all 26 requirement stories, CORENET-7615
+and CORENET-7622. At that refresh the 26 were To Do; CORENET-7500 had no description. CORENET-7622
+is Closed; CORENET-7620/7621 track the product imports and CORENET-7664 tracks standard source lint.
+Assignments have begun. Raw records stay outside this public repository.
+
+**Scoped requirements refresh, 2026-10-16:** CORENET-7615 requires plan review and listing
+open decisions and the three Jira conflicts with proposed owners; recording decisions is
+follow-up work, not a closure criterion. CORENET-7507 is Closed with YAML/Ansible lint as its
+acceptance criteria. CORENET-7667 now owns per-role Molecule scenarios, VNI/ASN/transport
+validation and approved Hub/Galaxy publication. The epic child search also shows 7506 and
+7508 In Progress; the other original requirement stories remain To Do. These reads update
+the work map without claiming a fresh review of every requirement or external source.
+
+**Repository refresh, 2026-10-15:** main is `31cfdbb9`; source Make/YAML, the runner
+switch, local image delegation and collection #7 have merged; image sources are open in
+PR #16 (opened 2026-10-15), and #6 is on hold. [Source CI](ci-source.md#where-things-stand)
+records the current checks and runner. The retired custom image checkers' reproduced false
+passes remain dated evidence, not a replacement work queue.
+Source verification does not qualify an appliance build, deployment or release.
+
+Local native controls found the collection checksum-chain gap and qualified offline
+verification on synthetic core 2.21.4 artifacts ([integrity](ci-bootstrap-spec.md#collection-content-integrity)).
+They also tightened the [Snapshot illustration](pipeline-spec.md#candidate-snapshot) against
+newline digest suffixes/multiple JSON documents and reproduced the
+[native result formatter's limits](ci-bootstrap-spec.md#test-placement).
+AWS/OCP documentation was rechecked for transport MTU/authentication and the bare-metal EVPN
+support boundary. Upstream PR status/source follow-ups below distinguish merged fixes from
+deployed capability. These are source, host and documentation findings; no product build,
+FIPS topology, cloud import or release was qualified.
 
 Evidence is deliberately distinguished:
 
@@ -196,10 +227,14 @@ before proceeding.
 ITS runs with different Snapshot/forge references. The crash-recovery fix in
 [STONEINTG-1732](https://redhat.atlassian.net/browse/STONEINTG-1732) is present in
 `snapshot_adapter.go` at `11cc455b`, but [STONEINTG-1825](https://redhat.atlassian.net/browse/STONEINTG-1825)
-reports another duplicate path; its [PR #1713](https://github.com/konflux-ci/integration-service/pull/1713)
-remains open. The checked status controller still requests reruns for absent
-status entries. Isolate resources by run UID and bind qualification to the
-accepted attempt; neither Jira closure nor one green forge check proves that binding.
+reports another duplicate path. Its [PR #1713](https://github.com/konflux-ci/integration-service/pull/1713)
+merged on 2026-10-05 at `2508848c`. Source review on October 8 confirms the
+[status adapter](https://github.com/konflux-ci/integration-service/blob/2508848c0ee92ee1896de755ea38b586070348de/internal/controller/statusreport/statusreport_adapter.go)
+removed that missing-status rerun-label path; the
+[Snapshot adapter](https://github.com/konflux-ci/integration-service/blob/2508848c0ee92ee1896de755ea38b586070348de/internal/controller/snapshot/snapshot_adapter.go)
+now propagates scenario-list errors instead of continuing with an empty list. Deployment is
+unchecked. Isolate resources by run UID and bind qualification to the accepted attempt;
+merged code alone does not prove the deployed recovery behavior.
 
 Conforma has real test-attestation support, but its checked
 [required-task rules](https://github.com/conforma/policy/blob/ac72407d/policy/release/tasks/tasks.rego)
@@ -221,7 +256,8 @@ design work does not establish a deployed gate for EVPN's own suites.
 [KONFLUX-14242](https://redhat.atlassian.net/browse/KONFLUX-14242) shows why attested source
 correlation alone does not authorize a
 release branch/commit. Current-branch-tip equality also races subsequent merges.
-Conforma does not currently block on CVEs:
+The reviewed KRD policies exclude one CVE rule; this alone does not establish the
+effective EVPN policy or deployed CVE enforcement:
 [KONFLUX-7113](https://redhat.atlassian.net/browse/KONFLUX-7113) added `cve.cve_blockers`
 to the exclusions of KRD's policies, including both root policies, and 249 of the
 412 ECP objects in cached KRD `8c18efee29` carry it (248 in an exclude list; 245 of
@@ -726,7 +762,7 @@ runner-orphan quota exhaustion. CIV supplies exact-AMI assertions, but its refac
 collector merges only present XML and its main tests include mutable-RHEL assumptions.
 
 Forge merge checks need demonstrated coverage: exercise the current commit, delayed
-triggers, replacement commits and retries. Repeat nudges:
+triggers, replacement commits and retries. Updater incidents:
 [KONFLUX-15909](https://redhat.atlassian.net/browse/KONFLUX-15909)/[KFLUXSPRT-9022](https://redhat.atlassian.net/browse/KFLUXSPRT-9022)
 describe stranded bot branches on GitLab; token rotation can also
 stop new MRs. MintMaker defaults to `.tekton/` and may miss custom/script references.
@@ -775,7 +811,7 @@ private-VIF wording. MTU depends on the actual path: AWS
 supports at most a 1446-byte tunnel MTU (1406–1446 by algorithm, per the
 [customer gateway best-practices
 table](https://docs.aws.amazon.com/vpn/latest/s2svpn/cgw-best-practice.html)), no jumbo frames
-and no PMTUD, so full 1500-byte inner frames over IPv4 VXLAN need DX.
+and no PMTUD, so a 1500-byte workload IP MTU over IPv4 VXLAN needs jumbo DX.
 [Published OCP 4.22 EVPN
 support](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/advanced_networking/bgp-evpn-for-user-defined-networks)
 is bare-metal only. AWS interoperability tests cannot authorize product support.
@@ -834,9 +870,9 @@ breakdown (§1.5.12, §3.1.2) names; §3.1.1 and §3.1.3 name the community FRR 
 node-exporter images, which is where CORENET-7505's "approved upstream" wording
 comes from. The design's rationale, that its FRR container is "the same upstream
 image used by OVN-Kubernetes and FRR-K8s in OpenShift", holds only for upstream
-kind CI. The metrics exporter shells out to
-`/usr/bin/vtysh` ([`vtysh.go`](https://github.com/openshift/frr/blob/1277b238/cmd/metrics/vtysh/vtysh.go)),
-so it works beside a host-installed FRR. The Containerfile builds it with
+kind CI. The metrics exporter queries FRR through
+`/usr/bin/vtysh` ([`vtysh.go`](https://github.com/openshift/frr/blob/1277b238/cmd/metrics/vtysh/vtysh.go)).
+The Containerfile builds it with
 `CGO_ENABLED=0`, but ART's builder overrides that: `go version -m` on `/frr-metrics`
 from `openshift4/frr-rhel9:v4.22.0-202609221726.p2.g1277b23.assembly.stream.el9`
 (amd64; `frr10-10.4.3-3.el9_8.2`, CPE `cpe:/a:redhat:openshift:4.22::el9`) reports

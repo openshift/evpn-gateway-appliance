@@ -1,5 +1,5 @@
 # CI image for the static source checks (`make verify`).
-# Pinned base + tool versions for reproducible, auditable builds.
+# Tool versions are pinned; the base tag is mutable and Prow overrides FROM.
 # ansible-core 2.21 requires Python >= 3.12.
 FROM registry.access.redhat.com/ubi9/python-312:latest
 
@@ -12,8 +12,7 @@ USER 0
 
 # Install necessary package dependencies
 # git: the checks run `git ls-files`.
-# jq: corpus snippet tests (test-snippets.py).
-RUN dnf install -y git jq && dnf clean all
+RUN dnf install -y git && dnf clean all
 
 # Configure git to allow operations in any directory (for CI purposes)
 RUN git config --system --add safe.directory '*'

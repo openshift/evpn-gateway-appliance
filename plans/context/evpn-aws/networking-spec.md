@@ -38,8 +38,9 @@ actually handles each packet before asserting MTU or HA.
    contract does not allow enabling EVPN on an existing CUDN. Include deleting and
    recreating an EVPN CUDN, which teardown and rollback exercise:
    [OCPBUGS-128482](https://redhat.atlassian.net/browse/OCPBUGS-128482) and
-   [OCPBUGS-128494](https://redhat.atlassian.net/browse/OCPBUGS-128494) (New, 4.22.14)
-   report stale VRF interfaces blocking node network startup and an old
+   [OCPBUGS-128494](https://redhat.atlassian.net/browse/OCPBUGS-128494)
+   (4.22.14; ASSIGNED and New respectively on 2026-10-08) report stale VRF interfaces
+   blocking node network startup and an old
    management-port address persisting until ovnkube-node restarts.
    OCP 4.22 documents only `Unmanaged` VTEP mode and recommends a dummy-interface
    address for redundant peering. The product design uses each node's primary VPC
@@ -56,14 +57,21 @@ actually handles each packet before asserting MTU or HA.
    Test CUDN MTU, TCP MSS, DF behavior and oversized-UDP drop without fragmentation
    before AWS reassembly (CORENET-7514/6982). The design's 1550 threshold is correct
    for its case: VXLAN over IPv4 adds 50 bytes (outer IPv4, UDP, VXLAN and the inner
-   Ethernet header), so full 1500-byte inner frames need a 1550-byte underlay, which
-   only DX can provide. AWS Site-to-Site VPN supports a tunnel MTU of 1446 bytes at
-   most, 1406–1446 depending on cipher, hash and NAT traversal, with no jumbo frames
+   Ethernet header), so a 1500-byte workload IP MTU needs a 1550-byte underlay IP MTU.
+   This assumes no inner VLAN tag or outer IPv4 options; measure the actual encapsulation
+   ([VXLAN format](https://www.rfc-editor.org/rfc/rfc7348.html#section-5)).
+   Only jumbo DX supplies that budget among the required transports. AWS Site-to-Site VPN
+   supports a tunnel MTU of 1446 bytes at most, 1406–1446 depending on cipher, hash and NAT traversal, with no jumbo frames
    and no Path MTU Discovery, so the inner MTU is the configured tunnel MTU minus
    50 (1396 at best; the design's 1399/1349 do not match AWS's current table).
    WireGuard's usual 1420-byte interface leaves 1370. These paths require the
-   design's reduced-MTU mode with MSS clamping and a matching CUDN MTU. TGW's own
-   MSS clamping sees only the outer UDP of VXLAN, so it does not satisfy 7514
+   design's reduced-MTU mode with MSS clamping and a matching CUDN MTU. Clamp inner
+   TCP in both directions: at an inner MTU of 1396, MSS is at most 1356 for IPv4
+   and 1336 for IPv6, subtracting the fixed headers per
+   [RFC 6691](https://www.rfc-editor.org/rfc/rfc6691.html#section-2). AWS's table describes TCP directly
+   inside IPsec; its MSS values do not include VXLAN. TGW's own MSS clamping sees
+   only the outer UDP of VXLAN, so it does not satisfy 7514. Prove the chosen hook
+   sees inner SYN/SYN-ACK packets and uses the overlay budget. MSS does not constrain UDP
    ([AWS VPN MTU](https://docs.aws.amazon.com/vpn/latest/s2svpn/vpn-limits.html#vpn-quotas-mtu),
    [algorithm table](https://docs.aws.amazon.com/vpn/latest/s2svpn/cgw-best-practice.html),
    [TGW MTU/MSS](https://docs.aws.amazon.com/vpc/latest/tgw/transit-gateway-quotas.html#mtu-quotas)).
@@ -74,21 +82,27 @@ actually handles each packet before asserting MTU or HA.
    100 Mbps. Aggregation across tunnels (ECMP) needs a transit-gateway VPN with
    dynamic routing. VXLAN adds a header to every frame, so record the packet-rate
    ceiling as well as bandwidth in CORENET-7523's per-transport limits.
-4. Correct CORENET-7501's "private VIF and TGW associations" criterion with its
-   owner before implementing it: a Direct Connect gateway associated with a TGW
-   needs a transit VIF, while private VIFs attach DX gateways to virtual private
+4. Implement CORENET-7501 using the transit VIF required for a TGW-associated DX gateway; correct its
+   "private VIF and TGW associations" wording in Jira in parallel. A Direct Connect
+   gateway associated with a TGW needs a transit VIF, while private VIFs attach DX gateways to virtual private
    gateways. The prototype's lab Terraform repeats the private-VIF assumption
    ([source audit](source-audit.md#3-configuration--structure-mismatches)). Verify routes,
    peer ASNs, allowed prefixes and failover on the corrected path.
    Transit VIFs and TGW carry at most 8500 bytes; the design's 9001 is a
    private-VIF value. A transit VIF left at its 1500 default cannot carry VXLAN
-   with 1500-byte inner frames, so preflight must read the VIF's configured MTU and
+   with a 1500-byte workload IP MTU, so preflight must read the VIF's configured MTU and
    jumbo capability. AWS uses a 1500-byte MTU when a Site-to-Site VPN advertises the
-   same route, which matters if VPN backs up DX.
+   same route, so if VPN backs up DX, size workload MTU/MSS for the smallest
+   approved path and test established flows during failover: a new SYN clamp does
+   not renegotiate an existing session's MSS.
    TGW performs PMTUD only for traffic entering from VPC and Connect attachments
    ([AWS VIF
    MTU](https://docs.aws.amazon.com/directconnect/latest/UserGuide/WorkingWithVirtualInterfaces.html),
    [TGW MTU](https://docs.aws.amazon.com/vpc/latest/tgw/transit-gateway-quotas.html)).
+   Record the underlay BGP peer separately from EVPN peers: AWS enables mandatory
+   TCP-MD5 on the VIF. If the appliance terminates it, qualify it in the chosen
+   FIPS configuration; otherwise record the customer router's responsibility
+   ([authentication contract](containerfile-refactor-spec.md#required-outcomes)).
 5. Persist deployment-owned networking across reboot, and scope teardown to those
    resources. The source builds its bridges and VXLAN devices with ephemeral
    `ip link` commands and never sets `neigh_suppress`. NetworkManager has no
@@ -120,8 +134,9 @@ actually handles each packet before asserting MTU or HA.
 8. Replace `frr_exporter` with `frr-metrics` (CORENET-7499) only after deciding how
    the 5.x binary, which exits outside Kubernetes, runs on an appliance, and close
    the coverage gap it opens for CORENET-7504's VNI/MAC views and VTEP/DF alerts.
-   Candidate tests assert that every dashboard query returns data, so agree the
-   metric source first ([coverage and options](pipeline-spec.md#metrics-corenet-74997504)).
+   Agree the metric source and expected labels first. Candidate tests must distinguish
+   missing required series from intentionally empty healthy/conditional query results;
+   use the native rule-test contract in [metrics](pipeline-spec.md#metrics-corenet-74997504).
 
 Sources: [AWS VPC Route
 Server](https://docs.aws.amazon.com/vpc/latest/userguide/dynamic-routing-route-server.html),

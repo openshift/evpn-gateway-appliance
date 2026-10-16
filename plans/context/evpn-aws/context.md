@@ -2,7 +2,8 @@
 
 EVPN Gateway Appliance (EGA) enables the use of EVPN with OpenShift in public clouds.
 
-Requirements and status checked on 2026-09-29. This is planning context for the
+Requirements baseline rechecked on 2026-10-13; collection-CI scope and epic child statuses
+refreshed on 2026-10-16. This is planning context for the
 proposed delivery design, not a support statement or an ownership assignment.
 
 ## Scope
@@ -32,12 +33,17 @@ The intended product consists of:
 The prototype lives in an internal GitLab repository. Its public home,
 [`openshift/evpn-gateway-appliance`](https://github.com/openshift/evpn-gateway-appliance),
 was created on 2026-09-28 (DPP-22292). It holds a license, an `OWNERS` file naming four approvers
-and reviewers
-(added 2026-09-29) and these planning documents; no product source has been imported.
+and reviewers (added 2026-09-29), these planning documents, a `Makefile` and CI image definitions.
+The Ansible collection merged with #7 on 2026-10-14. Image sources are open in #16 (opened
+2026-10-15, bound OCP 4.22 payload images); #6 is on hold, and #3 closed as superseded.
+[Source CI](ci-source.md#where-things-stand) lists the checks that now run. Green source verify does not establish
+image-build or deployment behavior. Repository #8/#12 and release#86670 merged;
+Prow now uses PR-built `Dockerfile.ci`. Local Make delegates by default, with host
+checks available through `USE_IMAGE=0`.
 
 ## The prototype at a glance
 
-The only implementation today is the internal prototype
+The source baseline summarized here is the internal prototype
 [`evpn-on-cloud` at `1c8e88873af8`](https://gitlab.cee.redhat.com/datucker/evpn-on-cloud/-/tree/1c8e88873af8)
 (2026-09-08). Its `docs/evpn-task-breakdown.md` is where every CORENET-7499–7524 story
 comes from, and the source audit and networking handoff cite its files and lines.
@@ -71,13 +77,16 @@ implements only the WireGuard transport ([source audit](source-audit.md)).
 # Verify auth
 acli jira auth status
 
-# List all direct children of the EVPN epic (26 as of 2026-09-29)
+# List all direct children of the EVPN epic (26 on 2026-09-29; 27 on 2026-09-30, see Stories)
 acli jira workitem search --jql 'parent = CORENET-7498' \
   --fields "key,summary,status,assignee" --paginate --csv
 
 # View a single ticket
 acli jira workitem view CORENET-7505
 ```
+
+`view` returns a limited field set. Request custom fields explicitly with `--fields`
+before treating absent sprint, point or acceptance data as unset.
 
 ### Parent feature and epic
 
@@ -89,14 +98,31 @@ acli jira workitem view CORENET-7505
 
 ### Stories
 
-All 26 direct children of CORENET-7498 (7499–7524) were To Do and unassigned on
-2026-09-29. Release engineering's scope is [7505](https://redhat.atlassian.net/browse/CORENET-7505)
+The 2026-10-16 read-only child search shows CORENET-7507 Closed, 7506 and 7508 In Progress,
+and the other original requirement stories (7499–7524) To Do. Collection lint is complete
+under 7507; [CORENET-7667](https://redhat.atlassian.net/browse/CORENET-7667) now tracks
+Molecule, VNI/ASN/transport validation and publication.
+[CORENET-7615](https://redhat.atlassian.net/browse/CORENET-7615) tracks review and landing
+of these documents. Its criteria require review of the artifact graph, gates and proposed
+responsibilities, and listing open decisions and the three cited Jira conflicts with proposed
+owners. Recording decisions as their owners make them is follow-up work, not a closure
+criterion. Release engineering's proposed scope is [7505](https://redhat.atlassian.net/browse/CORENET-7505)
 (pin component images), [7506](https://redhat.atlassian.net/browse/CORENET-7506)
 (appliance image CI), [7507](https://redhat.atlassian.net/browse/CORENET-7507)
-(collection CI) and [7522](https://redhat.atlassian.net/browse/CORENET-7522)
+(completed collection lint), 7667 (remaining collection CI) and [7522](https://redhat.atlassian.net/browse/CORENET-7522)
 (publish release artifacts). The other stories supply the acceptance evidence the
 release gates consume ([pipeline plan](pipeline-spec.md#required-gates)). The
 [delivery plan](delivery-plan.md) lists every story with its next proof.
+
+The 2026-10-13 read-only refresh covered the feature/outcome/epic, all 26 requirement
+stories, CORENET-7615 and CORENET-7622. CI criteria still require standard image/Ansible
+lint, builds/publication, per-role Molecule scenarios, input validation and simulated EVPN behavior;
+they add no scanner migration or additional orchestration framework. Other epic work includes import
+stories CORENET-7620/7621, completed Prow onboarding CORENET-7622 and
+[CORENET-7664](https://redhat.atlassian.net/browse/CORENET-7664) for standard source lint.
+A later October 13 refresh found CORENET-7515 explicitly requires a collection split
+between production and emulation/test harnesses; the [delivery contract](pipeline-spec.md#outcome-and-ownership)
+retains that boundary. Use live tickets to confirm ownership and scheduling.
 
 ### Documentation and prior-art tickets
 
@@ -107,11 +133,8 @@ release gates consume ([pipeline plan](pipeline-spec.md#required-gates)). The
 | [CORENET-7409](https://redhat.atlassian.net/browse/CORENET-7409) | BGP Cloud Connector Konflux onboarding (prior art) | Closed |
 | [RHELDST-25935](https://redhat.atlassian.net/browse/RHELDST-25935) | Create RHEL AI Pulp repo for disk images (prior art) | Closed |
 
-The feature, epic, all direct children and documentation ticket were rechecked
-with `acli` on 2026-09-29. CORENET-7500 has no description yet; the stories were
-generated from the task breakdown, whose section numbers each story cites. Re-run the search before
-accepting ownership or
-scheduling work; prior-art evidence and dates are recorded in the audit.
+The documentation and prior-art status baseline is 2026-09-29; evidence and dates
+are recorded in the audit. Requirement stories cite the task breakdown that generated them.
 
 Use the linked feature/epic for current contacts and
 [the decision list](kickoff-decisions.md) to agree responsibility for each gate.
@@ -147,7 +170,7 @@ Use [`prior-art.md`](prior-art.md) for exact files and the
 
 | Repository | Use |
 | --- | --- |
-| [openshift/evpn-gateway-appliance](https://github.com/openshift/evpn-gateway-appliance) | Canonical public repository (license, `OWNERS` and these documents until the reviewed import); the inspected prototype is internal [`evpn-on-cloud`](https://gitlab.cee.redhat.com/datucker/evpn-on-cloud) |
+| [openshift/evpn-gateway-appliance](https://github.com/openshift/evpn-gateway-appliance) | Canonical public repository (license, `OWNERS`, these documents, the `Makefile` and the CI build image, with product source arriving in reviewed pieces); the inspected prototype is internal [`evpn-on-cloud`](https://gitlab.cee.redhat.com/datucker/evpn-on-cloud) |
 | [openshift/release](https://github.com/openshift/release) | Prow and OpenShift CI configuration for the repository |
 | [konflux-release-data](https://gitlab.cee.redhat.com/releng/konflux-release-data) | Tenant source definitions and separate managed stage/prod publication objects |
 | [build-definitions](https://github.com/konflux-ci/build-definitions), [container-build-catalog](https://github.com/konflux-ci/container-build-catalog) | BIB, index, source and standard build-task contracts |

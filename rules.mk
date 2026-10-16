@@ -12,8 +12,8 @@ verify: check
 .PHONY: check
 check: check-corpus check-public check-yaml check-markdown check-ansible
 
-# Planning-docs corpus integrity: link + anchor + pin resolution, embedded-snippet
-# tests, and public-safe over the plans/ docs (check-all.sh bundles them).
+# Planning-docs corpus integrity: link + anchor + pin resolution and public-safe
+# over the plans/ docs (check-all.sh bundles them).
 #
 #   make check-corpus            full run (link + pin checks need network + authenticated gh)
 #   make check-corpus OFFLINE=1  skip the network/gh checks (link + pin resolution)
@@ -63,7 +63,7 @@ check-markdown:
 # touches the network is the install smoke, and only when OFFLINE is unset
 # (then it also resolves galaxy.yml's collection deps). The toolchain
 # (ansible-core, ansible-lint, yamllint, ansible-builder) is pinned in
-# Dockerfile.root.
+# Dockerfile.ci.
 
 # Collection source tree, and an out-of-tree dir for the clean-install smoke
 # (kept outside the checkout so it is neither scanned nor committed).

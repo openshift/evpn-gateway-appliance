@@ -1,8 +1,10 @@
 # EVPN Gateway Appliance (EGA) — productization critical path
 
-Checked 2026-09-29 from Jira (CORENET-7400 and its children, PLMPGM-6293, RELENG-503/589/596).
-These are the steps that take calendar time from other teams and do not depend on
-engineering progress, so they should start first. Dates are the tickets' own; the
+Baseline checked 2026-09-29 from Jira (CORENET-7400 and its children, PLMPGM-6293, RELENG-503/589/596);
+RELENG-596's status rechecked 2026-10-08.
+These are the requests that take calendar time from other teams. Start the applicable
+requests alongside small source-CI changes; confirm the product home before requesting
+identities or processes already owned by an existing offering. They do not gate source lint. Dates are the tickets' own; the
 plan's owners are proposals. [Decisions](kickoff-decisions.md) lists the inputs to settle,
 and [source evidence](source-evidence.md#10-production-identity-precedents) records the
 repository-side precedents (KRD `prodsec` test, product-definitions, advisories).
@@ -12,11 +14,11 @@ repository-side precedents (KRD `prodsec` test, product-definitions, advisories)
 BGP Cloud Connector followed PLMPGM-6293, "Productization - Konflux (EPIC) Template": twelve
 numbered tasks for an OLM operator, cloned with the Jira UI Clone dialog (not the API, which
 loses the child tasks) and dated to GA at about start + 60 days. CORENET-7400 is that clone.
-No EVPN productization epic exists yet (none found under CORENET-7498 or by search).
+The September 29 survey found no EVPN productization epic; confirm current onboarding with PM.
 
 | Template task | Applies to EGA? |
 | --- | --- |
-| 01 Operations Readiness Form (branding, export compliance, SKU), 02 Privacy Impact Assessment, 03 ProdSec onboarding and RH-SDL, 08 Eng ID → SKU, 10 QE, 11 docs | Yes, unchanged |
+| 01 Operations Readiness Form (branding, export compliance, SKU), 02 Privacy Impact Assessment, 03 ProdSec onboarding and RH-SDL, 08 Eng ID → SKU, 10 QE, 11 docs | Confirm applicability and existing coverage with the offering owners; retain the required approvals and QE/docs outcomes, without duplicating completed onboarding |
 | 04 Jira project | Skip: CORENET exists. Ask for an OCPBUGS component or other bug home for customers |
 | 05 Cicada | Partly: the bootc repository fits. Bundle repositories and `fbc_opt_in` do not. Disk downloads and any Hub or AMI channel have no template task ([channels](bib-configuration-spec.md#customer-delivery-channels)) |
 | 06 Konflux | Yes, with the [artifact graph](pipeline-spec.md#artifact-graph-and-candidate-integrity) in place of operator, bundle and FBC |
@@ -48,20 +50,23 @@ EARF document; ask the export team which section covers a bootc appliance and co
 Reading the timeline:
 
 - **Konflux work overlapped the approvals.** Stage releases ran from Aug 17 while the
-  export form, SKU mapping and SDL were open. Only production waited on them.
+  export form, SKU mapping and SDL were open. This timeline does not prove each
+  approval blocked production: SKU mapping trailed GA and export clearance was
+  unconfirmed. Obtain EGA's explicit release requirements from the responsible owners.
 - **The Operations Readiness task closed after the Eng ID existed** (Sep 28 against Aug 11),
   and RELENG-503 records no name approvals: its marketing, branding/legal and program-manager
   boxes are unchecked, with marketing marked "Not needed for operators". RELENG-589, a
   non-operator product, had all three checked. The internal Engineering ID guide still says
-  name approval comes first, and EGA is not an operator, so plan on the full approval set and
-  start it first; the precedent shows the ID request need not wait for the form's closure.
+  name approval comes first for a new identity. If EGA needs a separate offering, confirm its
+  required approvals with PM; the precedent shows the ID request need not wait for the form's closure.
 - **A draft RPA can carry the request.** RELENG-589 (Sep 15 → 25, 10 days) linked a draft
   RPA MR with placeholder product ID, advisory metadata and Pyxis paths; the reviewer also
   asked whether its proposed short name, already approved by the brand team, collided with an
   existing certification name. Check the proposed short name for collisions before filing.
 - **A product without its own SKU still needs an Eng ID** to publish through Pyxis
-  (RELENG-596, a bootc product, reopened Sep 28 and still New). If EGA rides an existing offering, decide
-  that in the [product-home row](kickoff-decisions.md) first; it selects whose ID, CPE and stream apply.
+  (RELENG-596, a bootc product, reopened Sep 28 and Closed as of Oct 8). If EGA rides an
+  existing offering, decide that in the [product-home row](kickoff-decisions.md) first;
+  it selects whose ID, CPE and stream apply.
 - **Late-arriving records are non-blocking only if PM says so.** SKU mapping and lifecycle
   enablement trailed GA for BGP Cloud Connector; record the same call for EGA explicitly.
 
@@ -85,12 +90,18 @@ EGA's supported architectures before filing.
 
 ## Order of work
 
+Confirm the product home and existing coverage first. Start the missing requests below
+in parallel as their inputs become ready; reuse the offering's approvals and identities.
+
 1. **PM, now:** official name, short name and brand approval; the Operations Readiness Form;
    the export form, opened at least 30–60 days before the first customer release; the PIA.
 2. **Product Security, now:** an assigned engineer, the RH-SDL tracker, the CPE request and a
    product-definitions entry. The KRD `prodsec/<tenant>.yaml` template and every production
    RPA depend on them.
-3. **Releng, when a tenant exists:** the Eng ID request with a draft RPA; delivery repositories
-   in Cicada; stage ReleasePlans and RPAs. Disk downloads also need the content set, Pulp and
-   Content Gateway requests from [source evidence](source-evidence.md#10-production-identity-precedents).
+3. **Releng, as the request inputs are ready:** request the Eng ID after name approval,
+   PM acknowledgment and architecture/environment choices; tenant creation is not a
+   prerequisite in the checked SOP. A draft RPA may accompany the request. Start delivery
+   repository/channel requests in parallel; stage ReleasePlans and RPAs need their tenant
+   and channel inputs. Disk downloads also need the content set, Pulp and Content Gateway
+   requests from [source evidence](source-evidence.md#10-production-identity-precedents).
 4. **PM, in parallel:** Eng ID → SKU mapping, lifecycle page, support tier, bug and RFE routing.

@@ -276,16 +276,23 @@ label requirement; validate the bootc's final labels against its effective polic
    backend or direct EC2 API. Canary two different disk builds from the same
    source commit to prove a stale AMI cannot pass.
    Test architecture, boot mode, ENA/storage settings and launch access on the
-   intended instance type. Capture console/serial logs, FRR state, routes and
-   packet captures before cleanup, following the [evidence visibility
+   intended instance type. Retain boot/health diagnostics before cleanup; collect
+   FRR state, routes and packet captures where selected checks or failure investigation
+   need them, following the [evidence visibility
    contract](ci-bootstrap-spec.md#evidence-visibility).
 4. Prove cleanup on success, failure, timeout and cancellation, including partial
-   deployment. Keep a durable resource ledger plus an independently scheduled,
-   ownership-scoped reaper. Cover instances, AMIs, snapshots, volumes, keys,
+   deployment. Reuse backend cleanup and retained per-run resource records with
+   ownership tags, plus an owned scheduled reaper for leaks that survive the run.
+   A record retained through cancellation/reaper expiry can be the ledger; no new
+   database/service is implied. Cover instances, AMIs, snapshots, volumes, keys,
    security groups, import buckets/objects and helper infrastructure.
    Protect active tests; require an expired lease or confirmed run termination.
    Check every inventory page and report failed deletions and remaining resources;
-   a zero process exit alone is insufficient.
+   a zero process exit alone is insufficient. Retain creation IDs and reconcile
+   service-native inventories: AWS [GetResources](https://docs.aws.amazon.com/resourcegroupstagging/latest/APIReference/API_GetResources.html)
+   omits resources that were never tagged, so tag-only discovery cannot prove partial-create cleanup.
+   Qualify the chosen cleanup service's coverage before writing residual SDK glue;
+   count any custom state/lease/deletion handling in the source-CI budget.
 
 ### Booted identity
 
@@ -297,7 +304,8 @@ test preparation and each upgrade/rollback. Verify the reported origin separatel
 target origin; it does not describe the current deployment after upgrades.
 Use the selected RHEL version's schema, rejecting missing identity evidence.
 [Bootc's status
-test](https://github.com/bootc-dev/bootc/blob/44c7024e/tmt/tests/booted/test-upgrade-check-status.nu),
+implementation](https://github.com/bootc-dev/bootc/blob/44c7024ec6e80d02fa9627dc7a81c7729cbad0b0/crates/lib/src/status.rs),
+[schema](https://github.com/bootc-dev/bootc/blob/44c7024ec6e80d02fa9627dc7a81c7729cbad0b0/crates/lib/src/spec.rs),
 [installation record](https://github.com/bootc-dev/bootc/blob/44c7024e/crates/lib/src/install/aleph.rs).
 
 ### Test backends

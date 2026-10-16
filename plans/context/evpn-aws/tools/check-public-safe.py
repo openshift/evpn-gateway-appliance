@@ -7,8 +7,8 @@ identifiers are fine here; customer data, credentials and personal contact detai
 
 Detects: email addresses, non-documentation IPv4 addresses, 12-digit AWS account IDs,
 cloud/API tokens and private keys, SSH public keys, support-case numbers,
-`password = value` assignments, and links to internal chat, private documents and
-ServiceNow tickets. Every non-binary file is scanned whatever its name or extension
+`password = value` assignments, and links to selected chat and private document services.
+Every non-binary file is scanned whatever its name or extension
 (Containerfiles, Terraform, Jinja templates), so it can also vet a source snapshot before
 an import. `--allow-private` skips RFC 1918, carrier-grade NAT and link-local addresses,
 which are noise in lab examples but can still identify a customer network in a doc. Customer, partner and account names cannot be detected by

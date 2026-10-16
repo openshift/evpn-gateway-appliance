@@ -10,11 +10,24 @@ access implementation. The controlling release sequence is
 | Area | Required proof |
 | --- | --- |
 | Base and packages | Approved digest-pinned RHEL bootc base and package-access path; record installed RPM versions/repository inputs as well as source revision. Validate final image labels against the effective EC policy, including product identity/CPE and CI-provided metadata. |
-| Runtime payload | a single inventory of Red Hat–built inputs for the chosen [payload option](pipeline-spec.md#runtime-payload-corenet-7505); a digest-pinned `frr-metrics` binary; health checks in Ansible without an extra container (CORENET-7505) |
+| Runtime payload | reviewed native declarations and resolved build evidence for Red Hat–built inputs under the chosen [payload option](pipeline-spec.md#runtime-payload-corenet-7505); a digest-pinned `frr-metrics` binary; health checks in Ansible without an extra container (CORENET-7505) |
 | Configuration | no generated inventory, private keys, baked user SSH key, mutable image ref, or secret-bearing build output |
 | Networking | configuration survives reboot; supported transport/MTU selection validates before mutation; resources removed only by deployment ownership markers |
-| Access | an approved launch-time access path for each disk format, without a baked credential: EC2 metadata for the AMI, and a hypervisor mechanism for on-prem disks, such as the vSphere guestinfo/OVF properties Portal's vmdk reads at first boot, or a cloud-init seed for KVM; no shared default password |
+| Access | an approved launch-time access path for each disk format, without a baked credential: an approved AWS mechanism for the AMI (for example, EC2 metadata), and a hypervisor mechanism for on-prem disks, such as the vSphere guestinfo/OVF properties Portal's vmdk reads at first boot, or a cloud-init seed for KVM; no shared default password |
 | Operations | defined health endpoint/log path and observable failure behavior; the selected systemd/container-management implementation is tested on bootc |
+
+Use native `systemd-analyze verify` for authored units/drop-ins when the selected image
+build supplies their dependency/executable paths. Validate against that image's filesystem
+and supported systemd version; do not substitute an unrelated host's installed services or
+write a unit-file parser. Where supported, use `--recursive-errors=yes --man=no --generators=no`
+so verification warnings fail without documentation/generator side effects. Source-only
+runs are diagnostic when required image executables are absent. This belongs in the native
+image validation lane, not a speculative extra source-CI tool/job.
+
+Without `--recursive-errors=yes`, an unknown directive only warns and exits 0 (host
+systemd 258.11, 2026-10-12; option added in v250, see
+[`23799eb9`, man/systemd-analyze.xml](https://github.com/systemd/systemd/blob/23799eb9be13c9726c707c9fd7239d99dc25889d/man/systemd-analyze.xml)).
+Passing verification does not prove boot, handler ownership or network behavior.
 
 Run the selected bootc version's `container lint` after the final filesystem
 changes, failing errors and unapproved warnings (`--fatal-warnings` where supported).
@@ -48,6 +61,24 @@ Keep Ansible-owned configuration and image-owned defaults explicit; test migrati
 and rollback with retained state. [Filesystem contract](https://bootc.dev/bootc/bootc-filesystem.7.html),
 [build lint](https://developers.redhat.com/articles/2025/02/26/best-practices-building-bootable-containers).
 
+**PR #6 review, 2026-10-12:** its proposed
+[`67524c74`, `image/rhel10/Containerfile`](https://github.com/openshift/evpn-gateway-appliance/blob/67524c74561280138e12fa55b4439ac131f7f8f7/image/rhel10/Containerfile)
+writes image-owned units/drop-ins under `/etc/systemd/system`. The
+[maintainer's placement question](https://github.com/openshift/evpn-gateway-appliance/pull/6#discussion_r4210638961)
+fits the proposed ownership split: put image-owned units in `/usr/lib/systemd/system` and
+local Ansible overrides in `/etc/systemd/system`. Upstream
+[`724d18a2`, `man/systemd.unit.xml`](https://github.com/systemd/systemd/blob/724d18a22ac466b058a104de69bf7226acec4729/man/systemd.unit.xml)
+defines their precedence. #16 places its generated Quadlet units under
+`/usr/share/containers/systemd/`. Confirm the chosen layout on the RHEL base and test image
+updates with a retained local override; this review is not boot or upgrade qualification.
+
+The [public CentOS mirror suggestion](https://github.com/openshift/evpn-gateway-appliance/pull/6#discussion_r4210828876)
+is a Prow test-base proposal. CI's [external-image policy](https://docs.ci.openshift.org/how-tos/external-images/#mirror-private-images)
+does not support central mirroring of external private images. Recheck authenticated RHEL
+registry/build access separately. Qualify any public mirror, replacement
+base and payload access before selecting that lane. A CentOS smoke does not qualify RHEL
+package contents, FIPS or support; retain an authenticated build on the chosen RHEL base.
+
 Define CORENET-7511's supported FIPS configuration for the selected RHEL version
 and architectures. Its image must set `fips=1` through `/usr/lib/bootc/kargs.d/`
 and enable the FIPS userspace crypto policy, following
@@ -58,25 +89,34 @@ Technology Preview ([CentOS Stream 9
 kernel](https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9/-/commit/840b99a9),
 [RHEL 9.7
 notes](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/9.7_release_notes/technology-previews)).
-An always-FIPS generic image therefore cannot run the WireGuard dev/test
-transport. Choose one: keep FIPS a separate image variant and test lane, or run
-development and lab topologies over IPsec. Also decide whether `wireguard-tools`
-belongs in the supported image. The same kernels disable their `md5` hash in FIPS
-mode, and TCP-MD5 BGP signatures depend on it. FRR's only session authentication is
+An always-FIPS generic image cannot run the WireGuard dev/test transport. Options are
+WireGuard tests in explicitly non-FIPS development environments, development and lab
+topologies over IPsec, or a separate FIPS variant and test lane; a separately shipped
+variant needs approval under decision 12. Lab results do not qualify production FIPS behavior.
+Also decide whether `wireguard-tools` belongs in the supported image. The same kernels
+disable their `md5` hash in FIPS mode, and TCP-MD5 BGP signatures depend on it. FRR's only session authentication is
 that MD5 password (TCP-AO is an open feature request, FRRouting/frr#7240), and GTSM
 (`ttl-security`) limits reach without authenticating. CORENET-7511's BGP authentication
-therefore needs a FIPS-mode answer on both peers and its own test: sessions carried
-inside IPsec are the candidate on the VPN path, and the Direct Connect path needs an
-answer agreed with Product Security
+therefore needs a FIPS-mode answer for each actual session, agreed with Product Security
 ([crypto
 manager](https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9/-/blob/a78a602ce2/crypto/testmgr.c)).
+Separate the EVPN overlay peers from AWS underlay routing peers. IPsec can protect
+the VPN path's sessions, but does not authenticate an unrelated DX VIF session.
+AWS [requires TCP-MD5 on Direct Connect VIFs](https://docs.aws.amazon.com/directconnect/latest/UserGuide/WorkingWithVirtualInterfaces.html);
+record whether the appliance or an external customer router terminates that session.
+DX also [provides no encryption by default](https://docs.aws.amazon.com/directconnect/latest/UserGuide/encryption-in-transit.html).
+Do not infer authentication or encryption from private connectivity. Qualify each
+chosen peer/protection path without silently disabling FIPS or adding an unapproved
+encrypted-DX variant with different MTU and performance limits.
 On that configuration's candidate qcow2/AMI, assert `/proc/sys/crypto/fips_enabled`
 is `1` and `update-crypto-policies --show` is `FIPS`; then exercise deployment, SSH/key rotation,
 supported BGP authentication, applicable VPN operations, reboot and upgrade in
 that mode. Scan the final image and every runtime payload with pinned
 [`check-payload`](https://github.com/openshift/check-payload) on each platform;
 OpenShift CI's `fips-check-image-scan` step runs it on an unpacked image, as
-BGP Cloud Connector does. A static Go binary such as upstream `frr-metrics` fails it.
+BGP Cloud Connector does. The inspected upstream `frr-metrics` v0.0.26 failed its
+CGO check; certified native Go FIPS modules are another supported scanner path
+([evidence](source-evidence.md#9-payload-platform-and-ocp-test-inputs)).
 A scanner pass or a FIPS-enabled base alone does not prove the workflows above.
 Use the [MicroShift/RHTAS examples](prior-art.md#fips-build-and-test-examples);
 do not use `fips-mode-setup --check` or the presence of a particular dracut module
@@ -120,9 +160,9 @@ Libreswan, FRR, nmstate or greenboot.
   Portal's lockfiles are useful examples; keep EVPN's build hermetic with package
   signature checks on.
 - **Refresh.** Regenerate with base/input/repository changes in the same reviewed PR; run
-  required checks on the resulting commit. Prove both MintMaker updates and any native
-  component nudges refresh the correct lockfile: the former's `refresh-rpm-lockfiles`
-  preset does not supply the latter's update step. Accept an unchanged lockfile only with
+  required checks on the resulting commit. Prove the selected update paths refresh the
+  correct lockfile. If using MintMaker, its `refresh-rpm-lockfiles` preset does not supply
+  a native Component nudge's update step. Accept an unchanged lockfile only with
   successful resolution/validation against the new inputs, rather than requiring a file
   diff or exempting bot branches. Scope RPM inputs/prefetch to the Component and verify
   subdirectory output/commit paths; a skipped updater is not successful refresh
@@ -169,20 +209,31 @@ delta (cloud-init, `nm-cloud-setup`, Amazon time/SSH settings). A vSphere
 deliverable needs vmdk/ova and its own reviewed guest-integration delta
 ([platform evidence](source-evidence.md#9-payload-platform-and-ocp-test-inputs)).
 
+Agree the image/collection service contract with that first payload. The
+[source audit](source-audit.md#1-security--identity-findings) records the container-versus-host
+FRR lifecycle conflict between the proposed images (#6, #16) and the merged collection. Start one native host scenario
+for the selected image and installed collection: deployment and notified restart must use
+the intended lifecycle, preserve image-owned defaults and work after reboot. Do not use
+a build result or role lint as that proof, or add a general inventory validator to bridge
+two different payload designs. The non-releasing build can still qualify independently.
+
 The base stream sets the update cadence and an end date. RHEL 9 offers
 `rhel9/rhel-bootc` and EUS streams such as `rhel9-eus/rhel-9.8-bootc`;
 `rhel-9.4-bootc` reached end of life on 2026-08-25. RHEL 10 has defined platform
 bases, including `rhel10/rhel-bootc-aws` and `rhel10/rhel-bootc-kvm`, though
 registry.redhat.io served neither on 2026-09-29. Deriving from those would replace EVPN-owned
-platform deltas, but would make the
-AWS and on-prem images separate bootc Components. If FRR comes from the RHEL
-package, RHEL 9 must be 9.8 or later (EUS: `rhel9-eus/rhel-9.8-bootc`) until 9.6
-delivery lands. Record the chosen stream, its end date and the planned minor-version
-move, and keep refreshes inside KONFLUX-15693's errata windows once that gate ships
-([base evidence](source-evidence.md#11-bootc-specific-build-behavior)).
+platform deltas, but would make the AWS and on-prem images separate bootc Components. Only
+if FRR came from the RHEL package would RHEL 9 have to be 9.8 or later in the checked baseline (EUS:
+`rhel9-eus/rhel-9.8-bootc`) until 9.6 delivery lands. Record the chosen stream, its end date and
+the planned minor-version move, and keep refreshes inside KONFLUX-15693's errata windows once
+that gate ships ([base evidence](source-evidence.md#11-bootc-specific-build-behavior)).
 
-With the OCP-image option, run `frr-rhel9` by digest as the FRR container and
-use the `/frr-metrics` in that same image. With the package option, install
+Under the OCP-image direction from the 2026-10-01 review ([decision
+record](kickoff-decisions.md#already-settled)), run `frr-rhel9` by digest as the FRR container
+and use the `/frr-metrics` in that same image; the review also requires changing it to need no
+cluster and to export EVPN metrics. #16 (2026-10-15) follows option A with the 4.22 image as
+bound Quadlet containers; #6, now on hold, proposed the package option for RHEL 10, which would
+change the recorded direction and needs an owner/date decision before it is treated as approved. Under that option, install
 `frr10` (RHEL 9) or `frr` (RHEL 10) in the Containerfile, enable `frr.service`, and
 copy `/frr-metrics` with a digest-pinned `COPY --from` of `frr-rhel9` (OCP has no
 separate frr-k8s image), so that updaters and the SBOM track it. The package's
@@ -193,9 +244,15 @@ run enforcing and check
 for AVC denials from FRR, the metrics binary and any container-run payload. Verify each
 binary's architecture per platform.
 
-Image references must be declared once in a reviewable inventory that is used by
-the Containerfile, Ansible, and BIB configuration. CI rejects a mismatch or a
-floating reference. Whether runtime images are preseeded or pulled at boot is a
+Keep image references in the native input that actually consumes them: Containerfile
+`FROM`/`ARG` for build payloads, BIB's wrapper for its builder/source/origin, and the
+collection's approved release reference for deployment. Prefer one declaration per input
+and native updater support. Record the effective resolved digests in build provenance/SBOM
+and retained candidate evidence. The plan does not require a shared YAML/env inventory,
+a converter into three formats, or an inventory validator before the native build.
+Where two consumers truly need the same value, use their existing dependency/update
+mechanism first and assert only a demonstrated residual mismatch. CI rejects floating
+release inputs at the consuming build/policy boundary. Whether runtime images are preseeded or pulled at boot is a
 product decision: the selected behavior must be tested both with the stated
 registry-egress policy and after reboot.
 Retain the prior payload through failed upgrade/rollback and test registry failure
@@ -247,20 +304,27 @@ AMI test rather than treating a Containerfile build as proof.
 
 ## Source stop-ships
 
-Before the [public import](source-audit.md#0-public-import) (access and generated
-material) and any publishing build (the rest), remove or correct:
+Before the [public import](source-audit.md#0-public-import), remove private access
+and generated material. Keep credentials and baked access out of artifacts/logs, and
+review build execution risks before running it. Contain unresolved runtime
+exposures in the selected test scope before deployment; the security and functional
+findings below must be resolved before a supported release:
 
 - personal/public fallback SSH access, tracked generated inventory, controller
   plaintext private keys, and `no_log` omissions around secret material;
 - global host-key bypasses, broad public SSH/BGP rules, and secret values in
   CI logs;
-- privileged or host-wide runtime containers, unauthenticated metrics listeners on every
+- unreviewed runtime privileges or host mounts, unauthenticated metrics listeners on every
   interface, and BGP peers with no inbound policy or limits ([source
   audit](source-audit.md#1-security--identity-findings));
 - selectable but unimplemented transports, unsafe default MTU/DF/MSS choices,
   ephemeral network state, and broad interface cleanup patterns; and
 - the legacy standalone cloud workload VTEP in the production path
   (CORENET-7515).
+
+A bounded non-releasing build can proceed before transport/feature completeness
+with reviewed source, build inputs and execution scope. Record its build evidence
+separately from runtime qualification.
 
 The source must make the production topology configurable from validated OCP
 frr-k8s peer data. A single hard-coded lab router or current three-node
@@ -270,8 +334,10 @@ health-check topology is not a product interface.
 
 1. Non-releasing Konflux bootc build produces an approved digest, SBOM, and
    Snapshot from the reviewed source.
-2. Collection/source CI checks image-reference consistency, schema, lint,
-   secret scanning, and collection build/install before the image is published.
+2. Native image-source lint, secret scanning and image-reference consistency pass
+   before publishing the candidate image. Collection lint/build/install and runtime
+   argument/preflight rejection qualify the collection paired with that candidate;
+   collection packaging is not a prerequisite for a non-releasing image build.
 3. The qcow2 derivative boots and recovers service/network configuration after
    reboot.
 4. The raw derivative imports as an AMI that boots in AWS and reports the

@@ -12,7 +12,7 @@ exists and must be tested. The data plane here is VXLAN (24-bit VNI).
 
 | Term | Plain English |
 | ------ | --------------- |
-| VTEP | Node interface that wraps/unwraps VXLAN packets |
+| VTEP | Tunnel endpoint that wraps/unwraps VXLAN packets |
 | VNI | VXLAN tenant ID (like a VLAN ID but 24-bit) |
 | FRR / frr-k8s | FRRouting BGP daemon; frr-k8s is its K8s DaemonSet wrapper |
 | MAC-VRF | L2 tenant domain in EVPN |
@@ -21,14 +21,14 @@ exists and must be tested. The data plane here is VXLAN (24-bit VNI).
 | P-CUDN | Primary Cluster UDN — the one exposed via EVPN |
 | RouteAdvertisements CR | Links a network to a BGP config in OVN-K |
 | Type-1 route | BGP advertisement of an Ethernet Auto-Discovery route (for multihoming) |
-| Type-2 route | BGP advertisement of a MAC+IP (L2 EVPN) |
+| Type-2 route | BGP advertisement of a MAC, optionally with its IP address (L2 EVPN) |
 | Type-3 route | BGP advertisement for inclusive multicast (BUM traffic) |
 | Type-4 route | BGP advertisement of an Ethernet Segment (for multihoming designated forwarder election) |
 | Type-5 route | BGP advertisement of an IP prefix (L3 EVPN) |
 | ARP suppression | Nodes can answer ARP locally for known BGP-learned bindings, reducing flooding |
 | BUM traffic | Broadcast/Unknown/Multicast — carried by controlled replication; not eliminated by EVPN |
 | IRB | Integrated Routing and Bridging — L2+L3 in one node |
-| bootc | Image-mode RHEL — the appliance OS; built like a container |
+| bootc | Tool that installs and updates an OS from a container image; the appliance uses image-mode RHEL |
 
 ## Deployment topology
 
@@ -60,8 +60,9 @@ BGP EVPN: appliance ⇄ relay ⇄ workers.  VXLAN data: appliance ⇄ workers di
 
 ## AWS packet-path distinction
 
-The diagram shows the production DX and VPN paths, where the relay carries only
-BGP. In the WireGuard lab (development only) the tunnel terminates on the relay,
+The diagram shows the proposed DX and VPN paths from the task breakdown, where the
+relay carries only BGP; it is not proof of an approved or deployed production topology.
+In the WireGuard lab (development only) the tunnel terminates on the relay,
 which is then in the forwarding path, so lab results do not describe production
 throughput, MTU or failover.
 

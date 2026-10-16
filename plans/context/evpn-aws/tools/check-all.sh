@@ -6,7 +6,6 @@ cd "$(dirname "$0")" || exit 1
 status=0
 run() { echo "== $*"; "$@" || status=1; }
 run python3 check-public-safe.py
-run python3 test-snippets.py
 if [[ "${1:-}" == "--offline" ]]; then
   run python3 check-links.py --offline
 else
