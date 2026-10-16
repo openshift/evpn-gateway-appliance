@@ -1,0 +1,17 @@
+[Unit]
+ConditionPathExists=/etc/frr/frr.conf
+
+[Container]
+Image=@PAYLOAD_IMAGE@
+Network=host
+Volume=/etc/frr:/etc/frr:Z
+Volume=/var/run/frr:/var/run/frr:Z
+PodmanArgs=--privileged
+GlobalArgs=--storage-opt=additionalimagestore=/usr/lib/bootc/storage
+ContainerName=frr
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
