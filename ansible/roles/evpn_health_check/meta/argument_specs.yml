@@ -8,14 +8,31 @@ argument_specs:
         membership (cloud_infra, cloud_workload, onprem_appliances), so it is
         safe to run against all hosts.
     options:
+      standalone_workload_vtep:
+        type: bool
+        default: false
+        description: >-
+          Set to true when using the standalone evpn_cloud_workload role
+          (dev/test only). When false (default), the standalone workload VTEP
+          health checks are skipped and OCP-native EVPN checks run instead
+          (if ocp_vtep_peer_ip is defined). See CORENET-7515.
+      ocp_vtep_peer_ip:
+        type: str
+        description: >-
+          IP address of the OCP-native EVPN peer (frr-k8s node). When defined,
+          the infra relay health checks verify the BGP session and EVPN prefix
+          exchange with this peer. Required for production OCP 4.22+ EVPN
+          deployments; ignored when standalone_workload_vtep is true.
       infra_relay_host:
         type: str
         required: true
         description: Inventory hostname of the infra-VPC relay; its private_ip host variable is checked as a BGP/EVPN peer from the workload side.
       workload_vtep_host:
         type: str
-        required: true
-        description: Inventory hostname of the workload-VPC VTEP; its private_ip host variable is checked as a BGP/EVPN peer from the infra side.
+        description: >-
+          Inventory hostname of the standalone workload-VPC VTEP; its private_ip
+          host variable is checked as a BGP/EVPN peer from the infra side.
+          Only used when standalone_workload_vtep is true (dev/test).
       stretches:
         type: list
         elements: dict
