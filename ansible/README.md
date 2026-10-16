@@ -22,12 +22,13 @@ meta/execution-environment.yml      Execution-environment dependency pointers
 roles/
 ├── evpn_onprem_appliance/          On-prem: VLAN trunk, VXLAN, FRR VTEP
 ├── evpn_cloud_infra/               Infra VPC: WireGuard server, FRR relay
-├── evpn_cloud_workload/            Workload VPC: standalone FRR VTEP (dev/test — see role README)
+├── evpn_cloud_workload/            Workload VPC: standalone FRR VTEP (dev/test only — OCP 4.22 native EVPN replaces this in production; see CORENET-7515)
 ├── evpn_aws_infra/                 AWS provisioning (VPCs, TGW, EC2, security groups)
 ├── evpn_monitoring/                frr_exporter + node_exporter
 └── evpn_health_check/              Read-only validation suite
 playbooks/
-├── deploy.yml                      Full deploy, idempotent
+├── deploy.yml                      Production deploy (infra relay + on-prem appliance), idempotent
+├── deploy-dev.yml                  Dev/test only: standalone VTEP (see CORENET-7515)
 ├── health-check.yml                Validation only
 ├── provision-aws.yml               Provision AWS infra, update inventory
 ├── teardown.yml                    Remove appliance/relay/VTEP configuration
@@ -64,6 +65,16 @@ The machine running these playbooks needs:
 system dependencies from `requirements.txt`, `bindep.txt` and
 `meta/execution-environment.yml`.)
 
+## Production vs dev/test
+
+In production, OCP 4.22+ native EVPN (frr-k8s / CUDNs) is the workload
+VTEP. The production `deploy.yml` deploys the infra relay and on-prem
+appliance; it does not deploy the standalone cloud VTEP.
+
+The standalone `evpn_cloud_workload` role is retained for lab and
+migration-validation use via `deploy-dev.yml`. It is not part of the
+supported production design (CORENET-7515).
+
 ## Quick start (from a source checkout)
 
 ```bash
@@ -71,8 +82,13 @@ cd ansible
 # Provision AWS infra and generate the inventory (run at least once):
 ansible-playbook playbooks/provision-aws.yml
 # (or hand-edit inventory/hosts.yml from inventory/hosts.yml.j2)
+
+# Production deployment (OCP 4.22+ native EVPN as workload VTEP):
 ansible-playbook playbooks/deploy.yml
 ansible-playbook playbooks/health-check.yml
+
+# Dev/test only — standalone VTEP for lab/migration validation:
+# ansible-playbook playbooks/deploy-dev.yml
 ```
 
 ## Required variables

@@ -22,9 +22,20 @@ tunnel:
   port: 51820              # WG only
 
 # ── Fabric peer hostnames ───────────────────────────────────────
-# Must name an actual host in the cloud_infra / cloud_workload inventory groups.
 infra_relay_host: infra-router
-workload_vtep_host: workload-router
+
+# ── Standalone workload VTEP (dev/test only — CORENET-7515) ────
+# In production, OCP 4.22+ native EVPN is the workload VTEP.
+# Set standalone_workload_vtep to true only when using deploy-dev.yml
+# with the evpn_cloud_workload role for lab/migration validation.
+standalone_workload_vtep: false
+workload_vtep_host: workload-router  # Only used when standalone_workload_vtep is true.
+
+# ── OCP-native EVPN peer (production) ──────────────────────────
+# Set ocp_vtep_peer_ip to the IP of the OCP frr-k8s node peering with
+# the infra relay.  Health checks use this to verify the BGP session
+# and EVPN prefix exchange.
+# ocp_vtep_peer_ip: 10.200.x.x
 
 # ── Cloud network CIDRs (shared by evpn_aws_infra provisioning and the onprem WireGuard client's AllowedIPs) ──
 # All optional — templates fall back to these same values if left unset; set here once to keep both roles in sync if you change them.

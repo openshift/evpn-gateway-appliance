@@ -15,6 +15,9 @@ all:
           ansible_user: ec2-user
           private_ip: {{ infra_private_ip }}
 
+    # Dev/test only — standalone VTEP for lab/migration validation.
+    # In production, OCP 4.22+ native EVPN is the workload VTEP (CORENET-7515).
+    # Remove or leave empty when using deploy.yml with OCP-native EVPN.
     cloud_workload:
       hosts:
         workload-router:
