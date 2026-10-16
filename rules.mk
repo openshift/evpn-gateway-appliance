@@ -8,9 +8,10 @@ SHELL := /bin/bash
 verify: check
 
 # Static source checks aggregating the planning-docs corpus integrity, the
-# public-safety scan, the repo-wide yaml and Markdown lint, and the Ansible collection checks.
+# public-safety scan, the repo-wide yaml, Markdown and python lint, and the Ansible
+# collection checks.
 .PHONY: check
-check: check-corpus check-public check-yaml check-markdown check-ansible
+check: check-corpus check-public check-yaml check-markdown check-python check-ansible
 
 # Planning-docs corpus integrity: link + anchor + pin resolution, embedded-snippet
 # tests, and public-safe over the plans/ docs (check-all.sh bundles them).
@@ -55,6 +56,15 @@ check-yaml:
 .PHONY: check-markdown
 check-markdown:
 	git ls-files -z -c -o --exclude-standard -- '*.md' | sed -z 's/^/:/' | xargs -0 -r markdownlint-cli2 --config .markdownlint-cli2.jsonc --
+
+# Repo-wide Python lint with Ruff (installed in Dockerfile.ci). --config applies the root
+# .ruff.toml everywhere, so a Ruff config in a subdirectory can't override it; --no-cache
+# because Ruff fails if it can't write a cache, and the image's source tree is read-only.
+# Prefix paths with ./ so a missing @name.py cannot become a Ruff response file.
+# Clear an inherited report destination so host checks cannot overwrite source files.
+.PHONY: check-python
+check-python:
+	git ls-files -z -c -o --exclude-standard -- '*.py' | sed -z 's|^|./|' | xargs -0 -r env -u RUFF_OUTPUT_FILE ruff check --no-cache --config .ruff.toml --
 
 # ── Ansible collection source checks ─────────────────────────────────────────
 # Lint, playbook syntax, collection build + tarball allowlist, and a clean-env
