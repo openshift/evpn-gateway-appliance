@@ -1,6 +1,7 @@
 # CI image for the static source checks (`make verify`).
-# Pinned base + tool versions for reproducible, auditable builds.
 # ansible-core 2.21 requires Python >= 3.12.
+# The base is not pinned: Prow replaces it with its mutable ubi-python-312:9 image.
+# hadolint ignore=DL3007
 FROM registry.access.redhat.com/ubi9/python-312:latest
 
 # Marks this as the CI image; the Makefile detects it to run the checks directly
@@ -11,19 +12,20 @@ ENV EGA_IN_CI_IMAGE=1
 USER 0
 
 # Install necessary package dependencies
-# git: the checks run `git ls-files`.
+# git: the checks run `git ls-files`; trust the root-owned checkout for any runtime UID.
 # jq: corpus snippet tests (test-snippets.py).
-RUN dnf install -y git jq && dnf clean all
+# Package versions are not pinned; they follow the base image's repositories.
+# hadolint ignore=DL3041
+RUN dnf install -y git jq && dnf clean all && \
+    git config --system --add safe.directory '*'
 
-# Configure git to allow operations in any directory (for CI purposes)
-RUN git config --system --add safe.directory '*'
-
-# Pinned lint/build toolchain (matches the collection's CI pins).
+# Pinned lint/build toolchain (the Ansible tools match the collection's CI pins).
 RUN pip install --no-cache-dir \
         ansible-core==2.21.4 \
         ansible-lint==26.8.0 \
         yamllint==1.38.0 \
-        ansible-builder==3.1.1
+        ansible-builder==3.1.1 \
+        hadolint-py==v2.15.1.2
 
 # Collection dependencies, pinned to exact versions for reproducible image builds and
 # so the checks can resolve FQCN modules on the network-less runner. Keep in sync with
@@ -32,7 +34,8 @@ RUN pip install --no-cache-dir \
 # Use a throwaway ANSIBLE_HOME so this root step doesn't leave a root-owned ~/.ansible
 # in the image HOME (a non-root runtime user couldn't write it). Clear the galaxy
 # response cache and delete the throwaway afterward so nothing is left behind.
-RUN export ANSIBLE_HOME="$(mktemp -d)" && \
+RUN ANSIBLE_HOME="$(mktemp -d)" && \
+    export ANSIBLE_HOME && \
     ansible-galaxy collection install -v --no-deps --clear-response-cache \
         --collections-path /usr/share/ansible/collections \
         amazon.aws:11.5.0 \

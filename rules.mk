@@ -8,9 +8,10 @@ SHELL := /bin/bash
 verify: check
 
 # Static source checks aggregating the planning-docs corpus integrity, the
-# public-safety scan, the repo-wide yaml and Markdown lint, and the Ansible collection checks.
+# public-safety scan, the repo-wide yaml, Markdown and Dockerfile lint, and the Ansible
+# collection checks.
 .PHONY: check
-check: check-corpus check-public check-yaml check-markdown check-ansible
+check: check-corpus check-public check-yaml check-markdown check-dockerfiles check-ansible
 
 # Planning-docs corpus integrity: link + anchor + pin resolution, embedded-snippet
 # tests, and public-safe over the plans/ docs (check-all.sh bundles them).
@@ -56,6 +57,14 @@ check-yaml:
 check-markdown:
 	git ls-files -z -c -o --exclude-standard -- '*.md' | sed -z 's/^/:/' | xargs -0 -r markdownlint-cli2 --config .markdownlint-cli2.jsonc --
 
+# Dockerfile lint with Hadolint (installed in Dockerfile.ci). --config and `env -i` keep out
+# host config and HADOLINT_* settings, so exceptions can only be in-file `# hadolint ignore=`
+# pragmas. No -r: Dockerfile.ci always exists, so an empty selection fails. Unused
+# Dockerfile.root is excluded until #13 deletes it.
+.PHONY: check-dockerfiles
+check-dockerfiles:
+	git ls-files -z -c -o --exclude-standard -- ':(glob)**/Dockerfile*' ':(exclude)Dockerfile.root' | xargs -0 env -i PATH="$$PATH" hadolint --config .hadolint.yaml --no-color --
+
 # ── Ansible collection source checks ─────────────────────────────────────────
 # Lint, playbook syntax, collection build + tarball allowlist, and a clean-env
 # install smoke with ansible-builder dependency introspection. Runs under
@@ -63,7 +72,7 @@ check-markdown:
 # touches the network is the install smoke, and only when OFFLINE is unset
 # (then it also resolves galaxy.yml's collection deps). The toolchain
 # (ansible-core, ansible-lint, yamllint, ansible-builder) is pinned in
-# Dockerfile.root.
+# Dockerfile.ci.
 
 # Collection source tree, and an out-of-tree dir for the clean-install smoke
 # (kept outside the checkout so it is neither scanned nor committed).
