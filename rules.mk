@@ -8,9 +8,10 @@ SHELL := /bin/bash
 verify: check
 
 # Static source checks aggregating the planning-docs corpus integrity, the
-# public-safety scan, the repo-wide yaml and Markdown lint, and the Ansible collection checks.
+# public-safety scan, the repo-wide yaml, Markdown and shell lint, and the Ansible
+# collection checks.
 .PHONY: check
-check: check-corpus check-public check-yaml check-markdown check-ansible
+check: check-corpus check-public check-yaml check-markdown check-shell check-ansible
 
 # Planning-docs corpus integrity: link + anchor + pin resolution, embedded-snippet
 # tests, and public-safe over the plans/ docs (check-all.sh bundles them).
@@ -55,6 +56,13 @@ check-yaml:
 .PHONY: check-markdown
 check-markdown:
 	git ls-files -z -c -o --exclude-standard -- '*.md' | sed -z 's/^/:/' | xargs -0 -r markdownlint-cli2 --config .markdownlint-cli2.jsonc --
+
+# Repo-wide shell lint with ShellCheck (installed in Dockerfile.ci). --norc ignores every
+# .shellcheckrc and `env -u` drops options inherited through SHELLCHECK_OPTS, so exceptions
+# can only be in-file `# shellcheck disable=` comments.
+.PHONY: check-shell
+check-shell:
+	git ls-files -z -c -o --exclude-standard -- '*.sh' | xargs -0 -r env -u SHELLCHECK_OPTS shellcheck --norc --
 
 # ── Ansible collection source checks ─────────────────────────────────────────
 # Lint, playbook syntax, collection build + tarball allowlist, and a clean-env
