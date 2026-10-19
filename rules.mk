@@ -8,9 +8,10 @@ SHELL := /bin/bash
 verify: check
 
 # Static source checks aggregating the planning-docs corpus integrity, the
-# public-safety scan, the repo-wide yaml and Markdown lint, and the Ansible collection checks.
+# public-safety scan, the repo-wide yaml, Markdown and Dockerfile lint, and the Ansible
+# collection checks.
 .PHONY: check
-check: check-corpus check-public check-yaml check-markdown check-ansible
+check: check-corpus check-public check-yaml check-markdown check-dockerfiles check-ansible
 
 # Planning-docs corpus integrity: link + anchor + pin resolution and public-safe
 # over the plans/ docs (check-all.sh bundles them).
@@ -55,6 +56,16 @@ check-yaml:
 .PHONY: check-markdown
 check-markdown:
 	git ls-files -z -c -o --exclude-standard -- '*.md' | sed -z 's/^/:/' | xargs -0 -r markdownlint-cli2 --config .markdownlint-cli2.jsonc --
+
+# Dockerfile lint with Hadolint (installed in Dockerfile.ci). --config and `env -i` keep out
+# host config and HADOLINT_* settings. OpenShift rewrites Dockerfile.ci without comments
+# before COPY, dropping its DL3041 pragma. Repeat that reviewed package-version exception
+# only for this root file; every other Dockerfile keeps the native rules and inline pragmas.
+# Dockerfile.ci is required. Unused root Dockerfile.root is excluded until #13 deletes it.
+.PHONY: check-dockerfiles
+check-dockerfiles:
+	env -i PATH="$$PATH" hadolint --config .hadolint.yaml --no-color --ignore DL3041 -- Dockerfile.ci
+	git ls-files -z -c -o --exclude-standard -- ':(glob)**/Dockerfile*' ':(top,exclude,literal)Dockerfile.ci' ':(top,exclude,literal)Dockerfile.root' | xargs -0 -r env -i PATH="$$PATH" hadolint --config .hadolint.yaml --no-color --
 
 # ── Ansible collection source checks ─────────────────────────────────────────
 # Lint, playbook syntax, collection build + tarball allowlist, and a clean-env
