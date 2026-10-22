@@ -1,4 +1,4 @@
-# CI image for the static source checks (`make verify`).
+# CI image for source checks (`make verify`) and VM runtime orchestration.
 # Tool versions are pinned; the base tag is mutable and Prow overrides FROM.
 # ansible-core 2.21 requires Python >= 3.12.
 FROM registry.access.redhat.com/ubi9/python-312:latest
@@ -11,8 +11,10 @@ ENV EGA_IN_CI_IMAGE=1
 USER 0
 
 # Install necessary package dependencies
-# git: the checks run `git ls-files`.
-RUN dnf install -y git && dnf clean all
+# git: source checks and the tested-source archive for the VM runtime job.
+# openssh-clients: transfer that archive and retrieve runtime diagnostics.
+# nss_wrapper-libs: let SSH resolve OpenShift's arbitrary runtime UID.
+RUN dnf install -y git openssh-clients nss_wrapper-libs && dnf clean all
 
 # Configure git to allow operations in any directory (for CI purposes)
 RUN git config --system --add safe.directory '*'

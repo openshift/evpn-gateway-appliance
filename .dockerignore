@@ -1,4 +1,5 @@
-# Build context for Dockerfile.ci. Keep .git (the checks run `git ls-files`).
+# Build context for Dockerfile.ci. Keep .git: the checks run `git ls-files`, and the VM
+# runtime job archives the tested commit with `git archive`.
 # Hand-maintained mirror of the heavy/sensitive .gitignore paths — keep in sync.
 **/__pycache__/
 *.pyc

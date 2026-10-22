@@ -1,0 +1,15 @@
+[Container]
+Image=@PAYLOAD_IMAGE@
+Network=host
+Volume=/proc:/host/proc:ro
+Volume=/sys:/host/sys:ro
+Volume=/:/rootfs:ro
+Exec=--path.procfs=/host/proc --path.sysfs=/host/sys --path.rootfs=/rootfs --web.listen-address=127.0.0.1:9100 --no-collector.accelerator
+GlobalArgs=--storage-opt=additionalimagestore=/usr/lib/bootc/storage
+ContainerName=node_exporter
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

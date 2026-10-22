@@ -1,0 +1,23 @@
+[Unit]
+ConditionPathExists=/etc/frr/frr.conf
+
+[Container]
+Image=@PAYLOAD_IMAGE@
+Network=host
+Volume=/etc/frr:/etc/frr:Z
+Volume=/var/run/frr:/var/run/frr:Z
+# Systemd creates host /run/frr as root and FRR's daemons run as frr, so chown it
+# first. This repeats the payload's Cmd (recheck it on a payload bump) and leaves
+# host /run/frr owned by the payload's numeric frr IDs.
+Exec=/bin/sh -c 'chown frr:frr /var/run/frr && exec /usr/lib/frr/docker-start'
+PodmanArgs=--privileged
+GlobalArgs=--storage-opt=additionalimagestore=/usr/lib/bootc/storage
+ContainerName=frr
+
+[Service]
+# /var/run links to /run. Systemd creates /run/frr on each start and removes it on stop.
+RuntimeDirectory=frr
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

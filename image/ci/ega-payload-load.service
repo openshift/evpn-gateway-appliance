@@ -1,0 +1,8 @@
+[Unit]
+Description=Load EVPN payload images into the nested Podman store
+Before=frr.service node-exporter.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/libexec/ega/payload.py load --units /usr/lib/bootc/bound-images.d --cache /usr/lib/ega/payload-cache
+RemainAfterExit=yes

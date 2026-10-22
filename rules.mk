@@ -3,9 +3,15 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-# The single entry point CI runs (`make verify OFFLINE=1`).
-.PHONY: verify
-verify: check
+# The entry point of Prow's verify job (`make verify OFFLINE=1`).
+.PHONY: verify payload-test runtime-test
+verify: check payload-test runtime-test
+
+payload-test:
+	python3 image/tools/test_payload.py
+
+runtime-test:
+	python3 image/tools/test_runtime.py
 
 # Static source checks aggregating the planning-docs corpus integrity, the
 # public-safety scan, the repo-wide yaml, Markdown and python lint, and the Ansible

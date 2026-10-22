@@ -7,16 +7,25 @@ release lanes are [later CI](ci-bootstrap-spec.md#later-sequence).
 
 ## Where things stand
 
-Rechecked on 2026-10-16 against main `7d7b39c`, after collection
-[#7](https://github.com/openshift/evpn-gateway-appliance/pull/7) and Markdown lint
-[#15](https://github.com/openshift/evpn-gateway-appliance/pull/15) merged.
+Merged state rechecked on 2026-10-20 against main
+[`cada6fb`](https://github.com/openshift/evpn-gateway-appliance/tree/cada6fb689ddd6f23f6a8114e148c0289d90be82).
 
 | Piece | State |
 | --- | --- |
 | Gate | Prow runs `make verify OFFLINE=1`; `verify: check`. `check` runs `check-corpus` (`tools/check-all.sh`: planning links and anchors; revision pins only without `OFFLINE`), `check-public` (public-safety scan), `check-yaml`, `check-markdown` and `check-ansible` (collection lint, playbook syntax, build with tarball allowlist, clean install, Builder introspection and role discovery) |
 | Runner | The merged [release config](https://github.com/openshift/release/blob/fbf3035dcf9869169a86a3658d74085119487570/ci-operator/config/openshift/evpn-gateway-appliance/openshift-evpn-gateway-appliance-main.yaml) builds `ansible-test-runner` from the PR's `Dockerfile.ci`, overriding its base image, and reports required `ci/prow/images` and `ci/prow/verify` (since [release#86670](https://github.com/openshift/release/pull/86670), 2026-10-13) |
 | Tools | `Dockerfile.ci` pins ansible-core, ansible-lint, yamllint, ansible-builder and the four Galaxy dependencies, installs markdownlint-cli2 from `ci/markdownlint/package-lock.json`, and installs Git from the base repositories. Local `make` builds and runs the same image; `USE_IMAGE=0` uses host tools. `Dockerfile.root` is unused (#13 removes it); do not pin tools there |
-| Open | Ruff [#18](https://github.com/openshift/evpn-gateway-appliance/pull/18), ShellCheck [#19](https://github.com/openshift/evpn-gateway-appliance/pull/19) and Hadolint [#20](https://github.com/openshift/evpn-gateway-appliance/pull/20) (drafts), image sources [#16](https://github.com/openshift/evpn-gateway-appliance/pull/16) (opened 2026-10-15; [#6](https://github.com/openshift/evpn-gateway-appliance/pull/6) is on hold), `Dockerfile.root` removal [#13](https://github.com/openshift/evpn-gateway-appliance/pull/13) |
+| Open | Ruff [#18](https://github.com/openshift/evpn-gateway-appliance/pull/18), ShellCheck [#19](https://github.com/openshift/evpn-gateway-appliance/pull/19) and Hadolint [#20](https://github.com/openshift/evpn-gateway-appliance/pull/20), image sources [#16](https://github.com/openshift/evpn-gateway-appliance/pull/16) (opened 2026-10-15; the prerequisite of #21; [#6](https://github.com/openshift/evpn-gateway-appliance/pull/6) is closed), `Dockerfile.root` removal [#13](https://github.com/openshift/evpn-gateway-appliance/pull/13) |
+
+The open image PR [#16](https://github.com/openshift/evpn-gateway-appliance/pull/16)
+adds `payload-test` to `verify`. Runtime PR
+[#21](https://github.com/openshift/evpn-gateway-appliance/pull/21) adds `runtime-test`
+and installs the OpenSSH client and NSS wrapper. Both targets run image-tool
+regression tests. The proposed on-demand `aws-vm-rhel10` job
+([release#87127](https://github.com/openshift/release/pull/87127), runtime step in
+[release#87348](https://github.com/openshift/release/pull/87348)) runs
+`image/tools/test-runtime.sh` on a RHEL VM to build and test the appliance.
+Paired Prow/RHEL AWS qualification remains pending.
 
 Known limits of the current checks:
 
@@ -69,8 +78,8 @@ Each row is independent; take whichever has ready inputs.
 
 | Check | Inputs | Notes |
 | --- | --- | --- |
-| Python and shell: Ruff, ShellCheck | Git-tracked and new unignored `*.py`, `*.sh` | Draft [#18](https://github.com/openshift/evpn-gateway-appliance/pull/18) and [#19](https://github.com/openshift/evpn-gateway-appliance/pull/19); basic rule sets (Ruff `E4,E7,E9,F`) |
-| Dockerfile: hadolint | Git-tracked and new unignored `Dockerfile*`, excluding unused root `Dockerfile.root` | Draft [#20](https://github.com/openshift/evpn-gateway-appliance/pull/20) pins Hadolint 2.15.1 via `hadolint-py`, fixes DL3059/SC2155 and records CI-file exceptions for DL3007/DL3041. Containerfiles are outside CORENET-7664; review product lint with their native build |
+| Python and shell: Ruff, ShellCheck | Git-tracked and new unignored `*.py`, `*.sh` | PRs [#18](https://github.com/openshift/evpn-gateway-appliance/pull/18) and [#19](https://github.com/openshift/evpn-gateway-appliance/pull/19); basic rule sets (Ruff `E4,E7,E9,F`) |
+| Dockerfile: hadolint | Git-tracked and new unignored `Dockerfile*`, excluding unused root `Dockerfile.root` | PR [#20](https://github.com/openshift/evpn-gateway-appliance/pull/20) pins Hadolint 2.15.1 via `hadolint-py`, fixes DL3059/SC2155 and records CI-file exceptions for DL3007/DL3041. Containerfiles are outside CORENET-7664; review product lint with their native build |
 | Ansible lint findings | `ansible/` | Main runs the `production` profile, skips `var-naming[no-role-prefix]` and demotes `risky-shell-pipe`/`ignore-errors` to warnings. Fix the findings and shrink those lists; no new tool |
 | Role-discovery smoke | `check-ansible-install` | Set `ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=false` for `ansible-doc` so a collection on the Python path cannot satisfy the role count ([tool notes](#tool-notes)) |
 
@@ -314,7 +323,7 @@ Checked: 8.30.1, 2026-10-06 (`dir`, inline allow and `.gitleaksignore` rechecked
 
 ### Image sources
 
-- #6 (on hold) at `67524c74`: the [Containerfile](https://github.com/openshift/evpn-gateway-appliance/blob/67524c74561280138e12fa55b4439ac131f7f8f7/image/rhel10/Containerfile)
+- #6 (closed) at `67524c74`: the [Containerfile](https://github.com/openshift/evpn-gateway-appliance/blob/67524c74561280138e12fa55b4439ac131f7f8f7/image/rhel10/Containerfile)
   uses literal `ARG` defaults; nothing in the build reads
   [`payload-images.yaml`](https://github.com/openshift/evpn-gateway-appliance/blob/67524c74561280138e12fa55b4439ac131f7f8f7/image/payload-images.yaml),
   [`payload-images.env`](https://github.com/openshift/evpn-gateway-appliance/blob/67524c74561280138e12fa55b4439ac131f7f8f7/image/rhel10/payload-images.env)

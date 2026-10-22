@@ -1,0 +1,7 @@
+# Lab disk only. Do not pass this file as CONFIG_TOML_FILE for a shipped image.
+# Mount it into bootc-image-builder and pass --config /config.toml.
+
+[[customizations.user]]
+name = "core"
+key = "ssh-ed25519 REPLACE_WITH_PUBLIC_KEY"
+groups = ["wheel"]

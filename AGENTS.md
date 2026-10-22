@@ -24,14 +24,14 @@ images, an AMI and an Ansible collection. This public repository holds the colle
 ## Verify
 
 ```bash
-make check OFFLINE=1              # Prow's gate (make verify OFFLINE=1); Prow swaps the image base
+make verify OFFLINE=1             # Prow's gate: check plus the image tool tests; Prow swaps the image base
 make check OFFLINE=1 TERMS=path   # also screens names listed in a private file outside the repo
 make check USE_IMAGE=0            # no OFFLINE: online link/pin/Galaxy checks; needs host gh auth
 ```
 
 Run the first before committing and before pushing. `USE_IMAGE=0` uses host tools, so results
 can differ from Prow. In a linked Git worktree the image path fails (its copied `.git` points
-outside the build context); run `make check OFFLINE=1 USE_IMAGE=0` there.
+outside the build context); run `make verify OFFLINE=1 USE_IMAGE=0` there.
 
 ## Public repository
 
