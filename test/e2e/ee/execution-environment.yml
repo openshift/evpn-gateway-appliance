@@ -1,0 +1,46 @@
+---
+# Test EE *definition* (ansible-builder build recipe) — distinct from the collection's
+# shipped dependency metadata at ansible/meta/execution-environment.yml, which this build
+# pulls in automatically when it installs the collection (requirements.txt -> boto3/botocore,
+# bindep.txt -> wireguard-tools, and ansible.utils -> netaddr).
+#
+# Purpose: prove the collection's EE metadata actually *builds* into a working EE (deps
+# resolve, wireguard-tools installs on the base, collection importable) — the step beyond
+# `ansible-builder introspect`, which only lists deps. Built by test/e2e/ee/build.sh.
+#
+# Base is CentOS Stream 10: RHEL-10 family (parity with the appliance's rhel10-bootc base),
+# public (no quay auth, unlike the ansible community EE base), and already mirrored in
+# openshift/release (openshift/centos:stream10), so no mirror PR for CI. Because it's a bare
+# OS (not a pre-baked EE base), we bootstrap python/pip and add ansible-runner ourselves.
+# CI overrides the base with the mirrored ref:
+#   ansible-builder build --build-arg EE_BASE_IMAGE=registry.ci.openshift.org/openshift/centos:stream10
+version: 3
+
+images:
+  base_image:
+    name: quay.io/centos/centos:stream10
+
+dependencies:
+  ansible_core:
+    package_pip: ansible-core==2.21.4
+  ansible_runner:
+    package_pip: ansible-runner
+  galaxy:
+    collections:
+      # Path is relative to the build context; the tarball is staged there by
+      # additional_build_files below. build.sh builds it to this stable name.
+      - name: _collection/network-evpn_gateway.tar.gz
+        type: file
+
+# Copy the collection tarball into the build context so the galaxy install can find it
+# (ansible-builder does not auto-stage local files referenced in galaxy requirements).
+additional_build_files:
+  - src: network-evpn_gateway.tar.gz
+    dest: _collection
+
+additional_build_steps:
+  prepend_base:
+    # Bare CentOS Stream has none of these: python3/pip for ansible-builder's bootstrap,
+    # and openssh-clients for the control-node `ssh` ansible uses to reach the nodes (the
+    # ansible community EE base ships it; a bare OS does not).
+    - RUN dnf -y install python3 python3-pip openssh-clients && dnf clean all

@@ -1,7 +1,10 @@
 {
   "config": {
     // MD013 (line length) off: prose has no fixed wrap width and table rows can't wrap.
-    "MD013": false
+    "MD013": false,
+    // MD024 siblings_only: allow the same subheading (Execution model / Contract / Usage) under
+    // different parent sections, e.g. per-entry-point docs; still flags true sibling duplicates.
+    "MD024": { "siblings_only": true }
   },
   // CLAUDE.md starts with an @AGENTS.md import, not the heading MD041 expects.
   "overrides": [

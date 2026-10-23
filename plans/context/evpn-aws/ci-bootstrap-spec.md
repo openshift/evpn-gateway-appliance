@@ -44,7 +44,7 @@ project that holds the other work back.
 | L2 | Native tool-pin extraction as maintenance warrants; update automation later | Existing pins and [qualified extraction](#build-root-update-extraction); owner authorization only for bot activation; any pin-layout change has its own image proof | Dependabot or Renovate | The bot extracts every intended package and image pin; a bump PR has independent candidate-image proof and passes the current-SHA gate. A base-image-only PR does not prove pip coverage |
 | L4 | Destination-required collection import/sanity/docs checks | Approved destination/content class and supported matrix; reviewed tarball and pinned tools | Native importer/sanity commands; optional nox wrapper only for a demonstrated orchestration need | The required destination checks pass on the built artifact; reviewed exceptions are explicit |
 | L3 | Scheduled checks, never merge-blocking: link liveness, pinned-link resolution, fresh-resolution collection compatibility | The corresponding source target and a scheduled runner; no unrelated lint prerequisite ([what may block](#what-may-block-a-pull-request)) | Existing link/pin targets; lychee after coverage parity; scheduled Prow or owner-enabled Actions | A broken link fails the scheduled job with a retained report and blocks no unrelated pull request; automatic issue creation is separate work |
-| L7 | The simulated EVPN topology lane (CORENET-7508), then candidate gates: disk boot, AWS lifecycle, OCP lanes, release policy | Topology: reviewed roles/image and a runner with kernel networking; candidate gates: the artifacts and infrastructure each gate exercises | kind and containerlab as openperouter runs them, or a Konflux VM; the [pipeline plan](pipeline-spec.md#3-integration-gates-and-test-infrastructure) | The lane reports a required, nonzero set of EVPN checks |
+| L7 | The simulated EVPN topology lane (CORENET-7508), then candidate gates: disk boot, AWS lifecycle, OCP lanes, release policy | Topology: reviewed roles/image and a runner with kernel networking; candidate gates: the artifacts and infrastructure each gate exercises | containerlab (as openperouter runs it) from the appliance image, behind runner-agnostic `test/e2e/run_remote.sh` -> `run.sh` (Prow or a VM), not kind; the [pipeline plan](pipeline-spec.md#3-integration-gates-and-test-infrastructure) | The lane reports a required, nonzero set of EVPN checks |
 
 Additional security/workflow engines need a demonstrated coverage gap worth their setup
 and maintenance. Basic native lint and product scenarios proceed without a speculative
@@ -144,7 +144,7 @@ CI glue. Do not maintain a second inventory here. Later custom work has these bo
 | Work | Reuse first | Residual work justified by the requirement |
 | --- | --- | --- |
 | Collection artifacts/publication | Native Ansible build, install, verify and approved publisher; native `manifest` inclusions | Required-content assertions, tested-content identity and customer readback; [artifact contract](#collection-and-ee-artifacts) |
-| Role, health and topology tests | Native role argument/preflight validation and reviewed product health assertions; selected Molecule/containerlab lane | Appliance scenarios and expected-case assertions; [test placement](#test-placement) |
+| Role, health and topology tests | Native role argument/preflight validation and reviewed product health assertions; the containerlab EE lane (CORENET-7508) for health/topology, with pytest/testinfra assertions still to add | Appliance scenarios and expected-case assertions; [test placement](#test-placement) |
 | Candidate/results/policy | Native jq, maintained Konflux formatter and effective Conforma policy | Exact candidate set, nonzero required cases and trusted subject/test revision; [candidate contract](pipeline-spec.md#candidate-snapshot) and [result contract](#test-placement) |
 | AWS lifecycle/leases | Selected backend provisioning, cleanup and durable run records; Boskos only for shared Prow labs | Uncovered appliance assertions and owned-resource cleanup after partial creation/cancellation; [AWS contract](bib-configuration-spec.md#disk-validation-and-aws-lifecycle) |
 | Publication evidence/retention | Release status, managed pipeline results and existing archive services | Binding/retrieval and channel readback that those services do not supply; [evidence](#evidence-visibility) and [readback](pipeline-spec.md#customer-readback) |
@@ -247,6 +247,16 @@ topotest](https://github.com/FRRouting/frr/blob/7fca2819/tests/topotests/bgp_evp
 dual-attaches hosts to two VTEPs with Linux 802.3ad bonds sharing `ad_actor_system`
 and asserts Type-1 routes, ES readiness, MAC learning and DF election. Physical LACP
 qualification remains separate.
+
+CORENET-7508 adopted the containerlab approach: an emulated three-AS fabric (on-prem
+appliance, relay, emulated workload, plus a TGW transit node) built from the appliance image
+and configured by the collection's own `deploy.yml` run in a test EE, validated by its health
+check — not kind, which with real OVN-K belongs to the later OCP interop lanes. The lane runs
+behind runner-agnostic entry points (toolchain pinned in `Dockerfile.ci`, test EE built by
+`make ee-image`) so CI only sets env and collects artifacts: `test/e2e/run.sh` is the inner
+lane, and `test/e2e/run_remote.sh` wraps it for the VM model (exports the base images, ships
+them over SSH, builds on the target, then runs the lane). The openshift/release Prow job
+wiring that calls `run_remote.sh` is the remaining cross-repo TODO.
 
 Those runners also expose KVM: RHEL System Roles tests its networking role in
 CentOS Stream 9/10 VMs and bootc containers across an ansible-core matrix
@@ -520,7 +530,10 @@ shipped artifact. If shipped, pin its base and builder images, generate its cont
 with a pinned `ansible-builder`, and validate the generated Containerfile with
 the target cluster's current build pipeline. Do not assume a generated stage
 name, a raw-tarball OCI workaround, an EC exception, or a particular catalog task
-without a reviewed target-cluster precedent.
+without a reviewed target-cluster precedent. A non-shipped, test-only EE already exists for
+the CORENET-7508 lane (`test/e2e/ee/`, built from the collection's own EE metadata by
+`make ee-image` with a pinned `ansible-builder`); it is distinct from any shipped product EE,
+and this pin-and-validate guidance applies to it.
 
 ## Konflux implementation checks
 

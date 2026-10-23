@@ -1,0 +1,57 @@
+---
+# Shared fabric config for the emulated e2e, mirroring the collection's own
+# inventory/group_vars/all.yml. Monitoring is off for now to shrink the first-deploy
+# surface; enable once the base fabric converges.
+
+tunnel:
+  type: wireguard
+  mtu_mode: unsafe
+  onprem_ip: 10.44.44.1
+  cloud_ip: 10.44.44.2
+  network_cidr: 10.44.44.0/24
+  port: 51820
+
+# Fabric peers — must match host names in cloud_infra / cloud_workload.
+infra_relay_host: infra-router
+workload_vtep_host: workload-router
+
+# These drive the onprem WireGuard client's AllowedIPs, which must cover the workload VTEP
+# (10.200.0.1) so the tunnel admits and routes onprem<->workload VXLAN. With the TGW node
+# the VPCs are real distinct subnets (infra 10.100/16, workload 10.200/16), so these are the
+# collection's natural defaults.
+infra_vpc_cidr: 10.100.0.0/16
+workload_vpc_cidr: 10.200.0.0/16
+ocp_pod_network_cidr: 10.128.0.0/16
+
+bgp:
+  onprem_asn: 65044
+  infra_asn: 65100
+  workload_asn: 65200
+
+stretches:
+  - vlan: 100
+    name: production
+    subnet: 10.42.1.0/24
+    onprem_gateway: 10.42.1.1
+    cloud_gateway: 10.42.1.2
+
+  - vlan: 200
+    name: staging
+    subnet: 10.42.2.0/24
+    onprem_gateway: 10.42.2.1
+    cloud_gateway: 10.42.2.2
+
+  - vlan: 300
+    name: management
+    subnet: 10.42.3.0/24
+    onprem_gateway: 10.42.3.1
+    cloud_gateway: 10.42.3.2
+
+monitoring:
+  # node-exporter has a matching Quadlet in the image, so it takes the systemd path.
+  node_exporter: true
+  # frr_exporter has no Quadlet in the image (would hit the podman fallback); its metrics
+  # validation is deferred to CORENET-7504.
+  frr_exporter: false
+
+frr_image: quay.io/frrouting/frr:10.5.3

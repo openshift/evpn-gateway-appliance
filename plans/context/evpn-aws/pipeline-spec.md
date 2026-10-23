@@ -541,13 +541,24 @@ can be the ledger; this does not require a new database, service or account-wide
 tool. The [AWS lifecycle contract](bib-configuration-spec.md#disk-validation-and-aws-lifecycle)
 defines retention, inventory, expiry and deletion proof; monitor remaining owned resources.
 
+The emulated EVPN lane (CORENET-7508) needs no AWS/lab credentials: it stands up a
+containerlab fabric from the appliance image and runs the collection's `deploy.yml` in a
+test EE, behind runner-agnostic entry points so CI only sets env and collects artifacts —
+portable across Prow and a GitHub Actions VM. `test/e2e/run.sh` is the inner lane (clab
+deploy -> `deploy.yml` -> validate) on a host with a kernel; `test/e2e/run_remote.sh` wraps
+it for the VM model — it exports the injected base images, ships them to the target over SSH,
+builds the EE and appliance images there, then runs the lane. Its toolchain (containerlab,
+pytest, testinfra, skopeo) is pinned in `Dockerfile.ci`; the test EE is built by
+`make ee-image`. The openshift/release Prow job wiring (the ci-operator config that calls
+`run_remote.sh`) is the remaining cross-repo TODO.
+
 ### Required gates
 
 | Required gate before supported production | Acceptance coverage / owner handoff |
 | --- | --- |
 | Source/API | 7499, 7501, 7667: packaging, idempotent deploy/teardown, every shipped role, validation before mutation; real trunk/VMware qualification where supported |
 | Appliance | 7505, 7506, 7511: boot of each approved on-prem format and raw/AMI, reboot persistence, approved payload/egress behavior, security scanning of embedded and runtime-fetched dependencies, launch access, FIPS build/runtime and payload checks on supported architectures, supported BGP authentication, automated SSH key rotation, access restricted to required peers and endpoints, and a bridge exposure review |
-| Simulated EVPN | 7508: appliance + relay, three-AS eBGP, Type-2/3 routes, bidirectional L2/VNI isolation, MTU/MSS; reuse OVN-K EVPN utilities where applicable |
+| Simulated EVPN | 7508: appliance + relay + emulated workload on a containerlab fabric, three-AS eBGP Established, Type-2/3 routes, bidirectional L2 (shipped — configured by the collection's `deploy.yml` in a test EE, validated by its health check). Deferred: VNI isolation (authored as xfail pending an isolation-model decision), internet-mode MTU/MSS to 7514, frr_exporter/metrics to 7504. Still to add: explicit pytest/testinfra assertions and the openshift/release job wiring |
 | DX and VPN | 7500, 7501, 7514, 7520: actual VIF/gateway/route path, inner MTU/DF/MSS, oversized UDP drop without fragmentation, IKE/IPsec, failover and dynamic-BGP/TGW ECMP when claimed; VPN relay outside data path; preflight for UDP reachability, workload MTU, latency/loss baselines and acknowledged internet-mode limits; the WireGuard relay bottleneck measured |
 | HA and lifecycle | 7502, 7503, 7510: on-prem LACP/shared ES, dual-appliance inventory, Type-1/4 and DF/BFD behavior, no duplicate BUM, MAC re-advertisement, FRR-crash, power-loss and cable-pull recovery, relay ECMP, tunnel survival and BGP recovery when a relay returns; pre/post checks, serial peer upgrades, automatic rollback on failed validation, configuration compatibility |
 | OCP interoperability | 7512, 7513, 7515: pinned OCP release, native primary-CUDN/VTEP/FRRConfiguration/RouteAdvertisements APIs, correct prerequisites and peer advertisements, multiple VNIs/RTs and day-2 addition of a new EVPN CUDN; supported policies/services and ARP suppression per the [networking handoff](networking-spec.md#required-handoff-to-ciqe); OCP updates with the fabric connected; no production standalone VTEP |

@@ -52,6 +52,30 @@ RUN tmp="$(mktemp -d)" && \
     rm -rf "$tmp" && \
     ln -s /opt/markdownlint/node_modules/.bin/markdownlint-cli2 /usr/local/bin/markdownlint-cli2
 
+# ── Emulated EVPN e2e lane toolchain (test/e2e; see test/e2e/README.md) ─────────
+# One image runs both the static checks and the e2e lane (no separate Dockerfile.e2e):
+# the delta is small and the heavy bits (FRR, iproute, VXLAN) live in the node images,
+# not here. containerlab + the podman client drive the VM's runtime over a mounted
+# socket; pytest/testinfra assert against the nodes. ansible-core and the collection
+# deps above are reused.
+#
+# podman-remote: ansible's podman connection + testinfra's podman backend reach the
+# mounted host socket. openssh-clients: ansible reaches the nodes over SSH, and test/e2e/
+# run_remote.sh (which runs in this image on Prow) scp/ssh's to the VM. skopeo: run_remote.sh
+# exports the base images to tarballs. iproute/iputils/tcpdump/nmap-ncat: dataplane probes.
+RUN dnf install -y podman-remote skopeo openssh-clients iproute iputils tcpdump nmap-ncat && dnf clean all
+
+# containerlab, pinned. 0.81.1 is the latest release as of 2026-10-19.
+RUN bash -c "$(curl -fsSL https://get.containerlab.dev)" -- -v 0.81.1
+
+# Python test toolchain. testinfra pinned to latest (10.2.2, 2026-10-19); pytest pinned
+# conservatively for broad testinfra compatibility. (deploy.yml renders its templates
+# inside the execution environment, which carries its own netaddr; the toolchain only
+# drives clab + the assertions.)
+RUN pip install --no-cache-dir \
+        pytest==8.3.4 \
+        pytest-testinfra==10.2.2
+
 # Copy the source code into the container
 COPY . /src
 

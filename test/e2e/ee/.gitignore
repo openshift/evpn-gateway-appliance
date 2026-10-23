@@ -1,0 +1,3 @@
+# Build artifacts from build.sh (the EE definition is tracked; these are generated).
+context/
+network-evpn_gateway*.tar.gz
