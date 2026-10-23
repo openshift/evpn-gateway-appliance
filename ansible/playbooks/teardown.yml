@@ -55,30 +55,6 @@
         path: /etc/frr
         state: absent
 
-- name: Teardown cloud workload
-  hosts: cloud_workload
-  become: true
-  tasks:
-    - name: Stop and remove FRR container
-      containers.podman.podman_container:
-        name: frr
-        state: absent
-      ignore_errors: true
-
-    - name: Remove bridges and VXLAN interfaces
-      ansible.builtin.shell: |
-        {% for s in stretches %}
-        {% set vni = 10000 + s.vlan %}
-        ip link del br-vni{{ vni }} 2>/dev/null || true
-        ip link del vxlan{{ vni }} 2>/dev/null || true
-        {% endfor %}
-      changed_when: false
-
-    - name: Remove FRR config
-      ansible.builtin.file:
-        path: /etc/frr
-        state: absent
-
 - name: Teardown cloud infra
   hosts: cloud_infra
   become: true

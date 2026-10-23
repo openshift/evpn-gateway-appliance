@@ -13,16 +13,6 @@
     - evpn_cloud_infra
     - evpn_monitoring
 
-- name: Deploy cloud workload (EVPN VTEP)
-  hosts: cloud_workload
-  become: true
-  pre_tasks:
-    - name: Gather service facts
-      ansible.builtin.service_facts:
-  roles:
-    - evpn_cloud_workload
-    - evpn_monitoring
-
 - name: Deploy on-prem appliance (EVPN VTEP + VLAN trunk)
   hosts: onprem_appliances
   become: true

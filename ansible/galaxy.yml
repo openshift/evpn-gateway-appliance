@@ -7,7 +7,9 @@ authors:
   - OpenShift Core Networking
 description: >-
   Deploy and configure the EVPN Gateway Appliance (EGA): on-prem appliance,
-  AWS infra/workload relays, and the BGP EVPN fabric connecting them.
+  AWS infra relay, and the BGP EVPN fabric connecting them to OCP 4.22+
+  native EVPN workload VTEPs. Includes a standalone workload VTEP role for
+  dev/test and migration validation (CORENET-7515).
 license:
   - Apache-2.0
 tags:

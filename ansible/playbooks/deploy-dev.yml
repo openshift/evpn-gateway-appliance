@@ -1,0 +1,35 @@
+---
+# Deploy the standalone cloud VTEP — dev/test and migration-validation ONLY.
+#
+# In production, OCP 4.22+ native EVPN (frr-k8s / CUDNs) replaces this
+# standalone VTEP.  See CORENET-7515.
+#
+# This playbook deploys the evpn_cloud_workload role, which was removed from
+# the production deploy.yml.  Use it in lab environments to validate the
+# relay-to-workload path before migrating to OCP-native EVPN.
+#
+# Usage: ansible-playbook playbooks/deploy-dev.yml
+
+- name: Deploy cloud workload (standalone EVPN VTEP — dev/test only)
+  hosts: cloud_workload
+  become: true
+  pre_tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+  roles:
+    - evpn_cloud_workload
+    - evpn_monitoring
+
+- name: Wait for EVPN convergence
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Wait 15 seconds for BGP EVPN to converge
+      ansible.builtin.pause:
+        seconds: 15
+
+- name: Health checks (standalone workload)
+  hosts: cloud_workload
+  become: true
+  roles:
+    - evpn_health_check
