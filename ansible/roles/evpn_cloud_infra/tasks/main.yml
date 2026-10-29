@@ -38,6 +38,7 @@
 
 - name: Clean up any stale VXLAN/bridge interfaces
   ansible.builtin.shell: |
+    set -o pipefail
     for iface in $(ip -o link show | grep -oP '(br-vni\w+|vxlan\w+|br-evpn)'); do
       ip link del "$iface" 2>/dev/null || true
     done

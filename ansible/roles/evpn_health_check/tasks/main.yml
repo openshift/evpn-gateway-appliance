@@ -24,6 +24,7 @@
 
 - name: "HEALTH [infra]: BGP session to workload is Established"
   ansible.builtin.shell: >
+    set -o pipefail;
     podman exec frr vtysh -c "show bgp summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
     p=d['ipv4Unicast']['peers']['{{ hostvars[workload_vtep_host].private_ip }}'];
@@ -33,6 +34,7 @@
 
 - name: "HEALTH [infra]: BGP session to on-prem is Established"
   ansible.builtin.shell: >
+    set -o pipefail;
     podman exec frr vtysh -c "show bgp summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
     p=d['ipv4Unicast']['peers']['{{ tunnel.onprem_ip }}'];
@@ -42,6 +44,7 @@
 
 - name: "HEALTH [infra]: EVPN prefixes relayed from on-prem"
   ansible.builtin.shell: >
+    set -o pipefail;
     podman exec frr vtysh -c "show bgp l2vpn evpn summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
     p=d['peers']['{{ tunnel.onprem_ip }}'];
@@ -51,6 +54,7 @@
 
 - name: "HEALTH [infra]: EVPN prefixes relayed from workload"
   ansible.builtin.shell: >
+    set -o pipefail;
     podman exec frr vtysh -c "show bgp l2vpn evpn summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
     p=d['peers']['{{ hostvars[workload_vtep_host].private_ip }}'];
@@ -59,10 +63,10 @@
   when: "'cloud_infra' in group_names"
 
 - name: "HEALTH [infra]: No VXLAN interfaces on relay"
-  ansible.builtin.shell: ip -o link show | grep -c vxlan || echo 0
-  register: _vxlan_count
+  ansible.builtin.command: ip -o link show type vxlan
+  register: _vxlan_ifaces
   changed_when: false
-  failed_when: _vxlan_count.stdout | int > 0
+  failed_when: _vxlan_ifaces.rc != 0 or _vxlan_ifaces.stdout_lines | length > 0
   when: "'cloud_infra' in group_names"
 
 # ═══════════════════════════════════════════════════════════════
@@ -70,6 +74,7 @@
 # ═══════════════════════════════════════════════════════════════
 - name: "HEALTH [workload]: BGP session to infra is Established"
   ansible.builtin.shell: >
+    set -o pipefail;
     podman exec frr vtysh -c "show bgp summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
     p=d['ipv4Unicast']['peers']['{{ hostvars[infra_relay_host].private_ip }}'];
@@ -79,6 +84,7 @@
 
 - name: "HEALTH [workload]: remote VTEP present per VNI"
   ansible.builtin.shell: >
+    set -o pipefail;
     podman exec frr vtysh -c "show evpn vni {{ 10000 + item.vlan }}" |
     grep -A1 "Remote VTEPs" | grep -oP '\d+\.\d+\.\d+\.\d+'
   register: _remote_vtep
@@ -113,6 +119,7 @@
 
 - name: "HEALTH [onprem]: BGP session to infra is Established"
   ansible.builtin.shell: >
+    set -o pipefail;
     podman exec frr vtysh -c "show bgp summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
     p=d['ipv4Unicast']['peers']['{{ tunnel.cloud_ip }}'];
@@ -122,6 +129,7 @@
 
 - name: "HEALTH [onprem]: remote VTEP present per VNI"
   ansible.builtin.shell: >
+    set -o pipefail;
     podman exec frr vtysh -c "show evpn vni {{ 10000 + item.vlan }}" |
     grep -A1 "Remote VTEPs" | grep -oP '\d+\.\d+\.\d+\.\d+'
   register: _remote_vtep

@@ -10,26 +10,24 @@
       containers.podman.podman_container:
         name: frr
         state: absent
-      ignore_errors: true
 
     - name: Stop and remove frr_exporter container
       containers.podman.podman_container:
         name: frr_exporter
         state: absent
-      ignore_errors: true
 
     - name: Stop and remove node_exporter container
       containers.podman.podman_container:
         name: node_exporter
         state: absent
-      ignore_errors: true
 
     - name: Stop WireGuard
       ansible.builtin.systemd:
         name: wg-quick@wg0
         state: stopped
         enabled: false
-      ignore_errors: true
+      register: _wg_stop
+      failed_when: _wg_stop.failed and 'Could not find' not in (_wg_stop.msg | default(''))
 
     - name: Remove bridges, VXLAN, VLAN interfaces
       ansible.builtin.shell: |
@@ -55,7 +53,6 @@
       containers.podman.podman_container:
         name: frr
         state: absent
-      ignore_errors: true
 
     - name: Remove bridges and VXLAN interfaces
       ansible.builtin.shell: |
@@ -79,14 +76,14 @@
       containers.podman.podman_container:
         name: frr
         state: absent
-      ignore_errors: true
 
     - name: Stop WireGuard
       ansible.builtin.systemd:
         name: wg-quick@wg0
         state: stopped
         enabled: false
-      ignore_errors: true
+      register: _wg_stop
+      failed_when: _wg_stop.failed and 'Could not find' not in (_wg_stop.msg | default(''))
 
     - name: Remove FRR config
       ansible.builtin.file:

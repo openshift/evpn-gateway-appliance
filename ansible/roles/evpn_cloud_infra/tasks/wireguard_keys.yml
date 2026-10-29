@@ -31,7 +31,9 @@
       changed_when: true
 
     - name: Derive server public key
-      ansible.builtin.shell: echo "{{ _wg_server_priv.stdout }}" | wg pubkey
+      ansible.builtin.command: wg pubkey
+      args:
+        stdin: "{{ _wg_server_priv.stdout }}"
       register: _wg_server_pub
       changed_when: false
 
@@ -41,7 +43,9 @@
       changed_when: true
 
     - name: Derive client public key
-      ansible.builtin.shell: echo "{{ _wg_client_priv.stdout }}" | wg pubkey
+      ansible.builtin.command: wg pubkey
+      args:
+        stdin: "{{ _wg_client_priv.stdout }}"
       register: _wg_client_pub
       changed_when: false
 
