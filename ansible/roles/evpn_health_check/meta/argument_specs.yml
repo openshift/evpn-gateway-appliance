@@ -7,15 +7,12 @@ argument_specs:
         Read-only validation suite. Tasks are conditional on inventory group
         membership (cloud_infra, cloud_workload, onprem_appliances), so it is
         safe to run against all hosts.
+      - "Workload peers are read from the cloud_workload inventory group."
     options:
       infra_relay_host:
         type: str
         required: true
         description: Inventory hostname of the infra-VPC relay; its private_ip host variable is checked as a BGP/EVPN peer from the workload side.
-      workload_vtep_host:
-        type: str
-        required: true
-        description: Inventory hostname of the workload-VPC VTEP; its private_ip host variable is checked as a BGP/EVPN peer from the infra side.
       stretches:
         type: list
         elements: dict
