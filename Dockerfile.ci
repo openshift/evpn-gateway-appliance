@@ -42,7 +42,8 @@ RUN ANSIBLE_HOME="$(mktemp -d)" && \
         amazon.aws:11.5.0 \
         ansible.posix:2.2.2 \
         ansible.utils:6.1.1 \
-        containers.podman:1.21.1 && \
+        containers.podman:1.21.1 \
+        kubernetes.core:2.4.0 && \
     rm -rf "$ANSIBLE_HOME"
 
 # markdownlint-cli2 from the ci/markdownlint lockfile (see its README). Node and npm

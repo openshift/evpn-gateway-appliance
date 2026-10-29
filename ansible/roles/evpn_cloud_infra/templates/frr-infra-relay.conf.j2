@@ -15,26 +15,31 @@ router bgp {{ bgp.infra_asn }}
  no bgp ebgp-requires-policy
  no bgp default ipv4-unicast
  !
-{% set workload_host = hostvars[workload_vtep_host] %}
- neighbor {{ workload_host.private_ip }} remote-as {{ bgp.workload_asn }}
- neighbor {{ workload_host.private_ip }} description workload-vtep
- neighbor {{ workload_host.private_ip }} ebgp-multihop 4
+{% for host in groups['cloud_workload'] %}
+ neighbor {{ hostvars[host].private_ip }} remote-as {{ bgp.workload_asn }}
+ neighbor {{ hostvars[host].private_ip }} description {{ host }}
+ neighbor {{ hostvars[host].private_ip }} ebgp-multihop 4
+{% endfor %}
  !
  neighbor {{ tunnel.onprem_ip }} remote-as {{ bgp.onprem_asn }}
  neighbor {{ tunnel.onprem_ip }} description onprem-appliance
  !
  address-family ipv4 unicast
   network {{ private_ip }}/32
-  neighbor {{ workload_host.private_ip }} activate
-  neighbor {{ workload_host.private_ip }} soft-reconfiguration inbound
+{% for host in groups['cloud_workload'] %}
+  neighbor {{ hostvars[host].private_ip }} activate
+  neighbor {{ hostvars[host].private_ip }} soft-reconfiguration inbound
+{% endfor %}
   neighbor {{ tunnel.onprem_ip }} activate
   neighbor {{ tunnel.onprem_ip }} soft-reconfiguration inbound
  exit-address-family
  !
  address-family l2vpn evpn
-  neighbor {{ workload_host.private_ip }} activate
-  neighbor {{ workload_host.private_ip }} next-hop-unchanged
-  neighbor {{ workload_host.private_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% for host in groups['cloud_workload'] %}
+  neighbor {{ hostvars[host].private_ip }} activate
+  neighbor {{ hostvars[host].private_ip }} next-hop-unchanged
+  neighbor {{ hostvars[host].private_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% endfor %}
   neighbor {{ tunnel.onprem_ip }} activate
   neighbor {{ tunnel.onprem_ip }} next-hop-unchanged
   neighbor {{ tunnel.onprem_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
