@@ -103,7 +103,12 @@
     image: "{{ frr_image }}"
     state: started
     restart_policy: always
-    privileged: true
+    privileged: false
+    cap_drop:
+      - ALL
+    cap_add: "{{ frr_container_caps }}"
+    security_opt:
+      - no-new-privileges
     network: host
     volumes:
       - /etc/frr:/etc/frr:Z
