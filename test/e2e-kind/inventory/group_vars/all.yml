@@ -1,0 +1,38 @@
+---
+# Fabric config for the kind+OVN-K lane. frr-k8s discovery params target upstream defaults.
+
+tunnel:
+  type: wireguard
+  mtu_mode: unsafe
+  onprem_ip: 10.44.44.1
+  cloud_ip: 10.44.44.2
+  network_cidr: 10.44.44.0/24
+  port: 51820
+
+infra_relay_host: infra-router
+
+# Upstream frr-k8s namespace/label (differ from OCP's openshift-frr-k8s).
+frr_k8s_namespace: frr-k8s-system
+frr_k8s_label: app=frr-k8s
+
+infra_vpc_cidr: 10.100.0.0/16
+workload_vpc_cidr: 172.18.0.0/16
+ocp_pod_network_cidr: 10.244.0.0/16
+
+bgp:
+  onprem_asn: 65044
+  infra_asn: 65100
+  workload_asn: 65200
+
+stretches:
+  - vlan: 100
+    name: production
+    subnet: 10.42.1.0/24
+    onprem_gateway: 10.42.1.1
+    cloud_gateway: 10.42.1.2
+
+monitoring:
+  node_exporter: true
+  frr_exporter: false
+
+frr_image: quay.io/frrouting/frr:10.5.3

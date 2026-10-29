@@ -39,7 +39,7 @@ container-default: ci-image
 else
 # Forward the named goals into a single container run: the first builds the image and
 # runs them, the rest are no-ops. The appliance targets build on the host.
-FWD := $(filter-out ci-image ee-image appliance-image ci-appliance-image nested-ci-appliance-image,$(MAKECMDGOALS))
+FWD := $(filter-out ci-image ee-image appliance-image ci-appliance-image nested-ci-appliance-image e2e-kind,$(MAKECMDGOALS))
 ifneq ($(FWD),)
 .PHONY: $(FWD)
 $(firstword $(FWD)): ci-image
@@ -105,6 +105,11 @@ appliance-image ci-appliance-image:
 		--secret id=dockerconfig,src="$(CONTAINER_AUTH_FILE)" \
 		$(_ci_build_args) \
 		image/rhel10
+
+# kind+OVN-K e2e lane (test/e2e-kind/). Host-side, rootful.
+.PHONY: e2e-kind
+e2e-kind:
+	test/e2e-kind/run.sh
 
 # Nested CI child. Host-side. No registry auth. Layers storage.conf onto :ci.
 NESTED_CI_TAG ?= localhost/evpn-appliance-rhel10:nested-ci

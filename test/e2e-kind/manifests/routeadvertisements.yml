@@ -1,0 +1,19 @@
+---
+# RouteAdvertisements: ties the CUDN to frr-k8s on workers.
+apiVersion: k8s.ovn.org/v1
+kind: RouteAdvertisements
+metadata:
+  name: ega-evpn-ra
+spec:
+  targetVRF: ega-evpn-production
+  advertisements:
+    - advertisementType: PodNetwork
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""
+  frrConfigurationSelector:
+    matchLabels:
+      ega-lane: e2e-kind
+  networkSelector:
+    matchLabels:
+      ega-lane: e2e-kind

@@ -1,0 +1,20 @@
+---
+# CUDN with EVPN transport for stretch VLAN 100 / VNI 10100.
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: ega-evpn-production
+  labels:
+    ega-lane: e2e-kind
+spec:
+  network:
+    topology: Layer2
+    layer2:
+      role: Primary
+      subnets:
+        - 10.42.1.0/24
+    transport: EVPN
+    evpn:
+      vtep: ega-vtep
+      macVRF:
+        vni: 10100
