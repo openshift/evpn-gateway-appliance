@@ -86,6 +86,7 @@ parallel. Record accepted decisions in the decision list.
 | [Containerfile](containerfile-refactor-spec.md) | Bootc inputs, source delivery, filesystem and runtime lifecycle |
 | [BIB and delivery](bib-configuration-spec.md) | Disk task wiring, AWS tests and customer publication |
 | [Source findings](source-audit.md) | Public-import blockers and open defects at the inspected prototype revision |
+| [Ansible validated content](ansible-validated-content-plan.md) | Checklist gaps for the `network.evpn_gateway` validated-content candidacy and the fixes |
 | [Networking handoff](networking-spec.md) | Source gaps and interfaces to networking/QE qualification |
 
 [Prior art](prior-art.md) identifies reusable code and its limits;

@@ -71,7 +71,7 @@ Each row is independent; take whichever has ready inputs.
 | --- | --- | --- |
 | Python and shell: Ruff, ShellCheck | Git-tracked and new unignored `*.py`, `*.sh` | Draft [#18](https://github.com/openshift/evpn-gateway-appliance/pull/18) and [#19](https://github.com/openshift/evpn-gateway-appliance/pull/19); basic rule sets (Ruff `E4,E7,E9,F`) |
 | Dockerfile: hadolint | Git-tracked and new unignored `Dockerfile*` and `Containerfile*` | [#20](https://github.com/openshift/evpn-gateway-appliance/pull/20) pins Hadolint 2.15.1 via `hadolint-py`, fixes DL3059/SC2155 and records reviewed exceptions for DL3007/DL3041 in `Dockerfile.ci` and DL3041 in `image/rhel10/Containerfile`. Lint does not replace the native image build |
-| Ansible lint findings | `ansible/` | Main runs the `production` profile, skips `var-naming[no-role-prefix]` and demotes `risky-shell-pipe`/`ignore-errors` to warnings. Fix the findings and shrink those lists; no new tool |
+| Ansible lint findings | `ansible/` | Main runs the `production` profile, skips `var-naming[no-role-prefix]` and demotes `risky-shell-pipe`/`ignore-errors` to warnings. Fix the findings and shrink those lists; no new tool. Proposed validated-content bar (zero skips): [plan](ansible-validated-content-plan.md) |
 | Role-discovery smoke | `check-ansible-install` | Set `ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=false` for `ansible-doc` so a collection on the Python path cannot satisfy the role count ([tool notes](#tool-notes)) |
 
 Later work belongs to [later CI](ci-bootstrap-spec.md#later-sequence): a native image build
