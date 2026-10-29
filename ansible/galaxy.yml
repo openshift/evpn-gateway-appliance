@@ -7,7 +7,8 @@ authors:
   - OpenShift Core Networking
 description: >-
   Deploy and configure the EVPN Gateway Appliance (EGA): on-prem appliance,
-  AWS infra/workload relays, and the BGP EVPN fabric connecting them.
+  AWS infra relay, and BGP EVPN fabric connecting them to OCP-native
+  workload VTEPs.
 license:
   - Apache-2.0
 tags:
@@ -25,6 +26,7 @@ dependencies:
   ansible.posix: ">=1.5.0"
   amazon.aws: ">=7.0.0"
   ansible.utils: ">=2.10.0"   # ipsubnet/ipaddr/ipmath filters; was used but undeclared (source-audit.md-style gap, fixed here).
+  kubernetes.core: ">=2.4.0"  # k8s_info for OCP frr-k8s peer discovery in deploy.yml.
 
 # Deny-list, no negation — keep lab/dev-only paths out of the published tarball (source-audit.md §0).
 build_ignore:
