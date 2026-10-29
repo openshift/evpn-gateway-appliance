@@ -18,6 +18,8 @@ lab/dev/test environment.
 ```text
 galaxy.yml, meta/runtime.yml        Collection identity and metadata
 requirements.txt, bindep.txt        Control-node Python / system dependencies
+requirements.yml                    Hub install list (source checkout only; not shipped)
+LICENSE                             Apache-2.0
 meta/execution-environment.yml      Execution-environment dependency pointers
 roles/
 ├── evpn_onprem_appliance/          On-prem: VLAN trunk, VXLAN, FRR VTEP
@@ -38,15 +40,32 @@ tools/
 └── check-collection-tarball.sh     CI: assert the built tarball ships only approved paths
 ```
 
-`inventory/` and `ansible.cfg` are excluded from the published collection
+`inventory/`, `ansible.cfg` and `requirements.yml` are excluded from the published collection
 tarball (`galaxy.yml`'s `build_ignore`) — they're here for the "run
 straight from a source checkout" workflow below, not for the installed
 collection.
+
+## Installation
+
+From Red Hat Automation Hub (point the Galaxy server in `ansible.cfg` at it), once the
+collection is published there (it is not yet; see [Status](#status)):
+
+```bash
+ansible-galaxy collection install network.evpn_gateway
+```
+
+Until then, run it from a source checkout (see Quick start below). Even once installed,
+`provision-aws.yml` and the WireGuard key cache (`.wg-keys/`) assume a source checkout:
+they read `inventory/` and write beside the playbooks, and neither is in the tarball.
 
 ## Prerequisites (control node)
 
 The machine running these playbooks needs:
 
+- **ansible-core** 2.16 or later (`requires_ansible` in `meta/runtime.yml`), on a Python
+  version that your ansible-core release supports on the control node. CI runs
+  ansible-core 2.21 on Python 3.12 (`Dockerfile.ci`); 2.21 needs Python 3.12 or later. The
+  collection ships no plugins or modules, so its Python support is ansible-core's.
 - **Collections** — `ansible-galaxy collection install .` (resolves
   `galaxy.yml`'s dependencies: ansible.utils, ansible.posix, amazon.aws,
   containers.podman).
@@ -95,7 +114,9 @@ This collection was restructured from the prototype with the fixes
 specifically:
 
 - Removed `host_key_checking = False` from `ansible.cfg`.
-- `no_log: true` on every task handling WireGuard private key material.
+- `no_log: true` on the tasks that generate and load WireGuard keys. The tasks that
+  template `wg0.conf` (`evpn_cloud_infra`, `evpn_onprem_appliance`) do not set it, so
+  `--diff` prints the rendered private key.
 - Fixed a `playbook_dir`-relative cross-role include that broke once
   installed from a real collection (`evpn_onprem_appliance`).
 - Added explicit `service_facts` gathering so the bootc-systemd-vs-podman
@@ -153,7 +174,8 @@ ownership):
   findings are tracked/skipped (see `.ansible-lint`) rather than fixed,
   since renaming the shared variable API is a breaking change that needs
   coordination, not a mechanical per-file change.
-- Collection shape (layout) and publication channel are unresolved.
+- Collection shape (layout) is unresolved, and the publication destination is not final
+  (validated content on Automation Hub is being pursued; tracked in CORENET-7705).
 - The router AMI is selected by a "latest CentOS Stream 10" lookup, not a
   pinned release identity; upstream builds are rolling and get deregistered,
   and the image type is not guaranteed. A release-identified base belongs to
@@ -177,3 +199,8 @@ ownership):
 This work tracks against the EVPN Gateway Appliance delivery plan proposed
 in [PR #2](https://github.com/openshift/evpn-gateway-appliance/pull/2)
 (not merged into this repository).
+
+## License and conduct
+
+Apache-2.0; see [LICENSE](LICENSE). Contributors follow the
+[Ansible Code of Conduct](https://docs.ansible.com/ansible/latest/community/code_of_conduct.html).
