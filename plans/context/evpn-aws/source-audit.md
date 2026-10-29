@@ -8,8 +8,11 @@ Owners below are proposed responsibilities, pending team agreement. Baseline:
 internal [`evpn-on-cloud` at
 `1c8e88873af8`](https://gitlab.cee.redhat.com/datucker/evpn-on-cloud/-/tree/1c8e88873af8)
 (2026-09-08, 18 commits), rechecked from a local clone on 2026-09-29.
-Collection PR #7 merged at `31cfdbb9` on 2026-10-14; image sources are open in #16 (`13189813`,
-2026-10-15), and #6 (`67524c74`) is on hold. Findings below belong to
+Collection PR #7 merged at `31cfdbb9` on 2026-10-14; the 2026-10-15 image-source
+observations below used #16 (`13189813`, then open) and #6 (`67524c74`, then on hold).
+On 2026-10-22, #16 was closed and #6 was open with embedded FRR at `e3239e6c`.
+PR #6 merged on 2026-10-23 at `be5a2b9a`
+([current source baseline](frr-metrics-plan.md#source-baseline-and-repository-boundaries)). Findings below belong to
 the prototype or explicitly dated earlier snapshots; recheck each on the imported revision
 before treating it as a current defect. Local qualification is not merged or deployed code.
 
@@ -19,8 +22,8 @@ The canonical repository is now public
 [`openshift/evpn-gateway-appliance`](https://github.com/openshift/evpn-gateway-appliance)
 (DPP-22292, created 2026-09-28). It now holds these documents, a `Makefile` and a CI build image,
 and the import is arriving in reviewed pieces, not as one snapshot. Collection
-[#7](https://github.com/openshift/evpn-gateway-appliance/pull/7) has merged and image
-[#16](https://github.com/openshift/evpn-gateway-appliance/pull/16) is open (#6 on hold); earlier findings cite
+[#7](https://github.com/openshift/evpn-gateway-appliance/pull/7) and image
+[#6](https://github.com/openshift/evpn-gateway-appliance/pull/6) have merged (#6 on 2026-10-23 at `be5a2b9a`; #16 closed); earlier findings cite
 collection [#3](https://github.com/openshift/evpn-gateway-appliance/pull/3). Anything
 pushed there is published permanently, so import a reviewed snapshot rather than the internal
 history, and vet each piece the same way:
@@ -72,9 +75,24 @@ before working on them.
 | [ ] | **Dynamic runtime image pulls** | Releng / Source Owner | Runtime pulls require an approved egress policy, pinned/approved inputs, and a post-boot test. They are incompatible with any claimed offline behavior unless preseeded. |
 | [ ] | **Unproven AWS access path** | Source Owner | The image lacks the proposed cloud-init path. Select and test an approved launch-time access mechanism; do not infer that a particular agent is mandatory. |
 | [ ] | **Unproven container lifecycle management** | Source Owner | Raw `systemd` `podman run` units require boot/reboot/lifecycle testing. Quadlets are one possible implementation, not an unverified release requirement. |
-| [ ] | **Missing service facts select the fallback lifecycle** | Source Owner / QE | The prototype deploy path lacks `service_facts`; merged #7 `7b82f9f3` gathers them, fixing that source gap. The lifecycles still disagree. #6's [default Containerfile](https://github.com/openshift/evpn-gateway-appliance/blob/67524c74561280138e12fa55b4439ac131f7f8f7/image/rhel10/Containerfile) (on hold) installs host FRR, keeps the packaged daemons file and enables `frr.service`; #16's [Quadlet unit](https://github.com/openshift/evpn-gateway-appliance/blob/131898134326933380f6e26952b637b8efde87e0/image/rhel10/frr.container.in) also yields `frr.service`, running a digest-pinned `frr-rhel9` container named `frr`. The [on-prem role](https://github.com/openshift/evpn-gateway-appliance/blob/7b82f9f3786b73ed5464f8fd30d584c09a76a928/ansible/roles/evpn_onprem_appliance/tasks/main.yml) selects `frr-container.service` or else starts its own Podman container `frr` from `frr_image`, replaces the daemons file, and its [restart handler](https://github.com/openshift/evpn-gateway-appliance/blob/7b82f9f3786b73ed5464f8fd30d584c09a76a928/ansible/roles/evpn_onprem_appliance/handlers/main.yml) always uses Podman; the relay repeats this. Reconcile the selected payload, unit/handler and daemon-file ownership, then test deployment/restart/reboot on the paired image and installed collection; gathered facts alone are not runtime qualification. |
+| [ ] | **Missing service facts select the fallback lifecycle** | Source Owner / QE | (The handler half is narrowed by the 2026-10-26 handler recheck below; the snapshots below are dated.) The prototype deploy path lacks `service_facts`; merged #7 `7b82f9f3` gathers them, fixing that source gap. The lifecycles still disagree. #6's [default Containerfile](https://github.com/openshift/evpn-gateway-appliance/blob/67524c74561280138e12fa55b4439ac131f7f8f7/image/rhel10/Containerfile) (on hold) installs host FRR, keeps the packaged daemons file and enables `frr.service`; #16's [Quadlet unit](https://github.com/openshift/evpn-gateway-appliance/blob/131898134326933380f6e26952b637b8efde87e0/image/rhel10/frr.container.in) also yields `frr.service`, running a digest-pinned `frr-rhel9` container named `frr`. The [on-prem role](https://github.com/openshift/evpn-gateway-appliance/blob/7b82f9f3786b73ed5464f8fd30d584c09a76a928/ansible/roles/evpn_onprem_appliance/tasks/main.yml) selects `frr-container.service` or else starts its own Podman container `frr` from `frr_image`, replaces the daemons file, and its [restart handler](https://github.com/openshift/evpn-gateway-appliance/blob/7b82f9f3786b73ed5464f8fd30d584c09a76a928/ansible/roles/evpn_onprem_appliance/handlers/main.yml) always uses Podman; the relay repeats this. Reconcile the selected payload, unit/handler and daemon-file ownership, then test deployment/restart/reboot on the paired image and installed collection; gathered facts alone are not runtime qualification. |
 | [ ] | **Runtime containers are broadly privileged and exposed** | Source Owner / Security | FRR runs `podman run --privileged --network host` (`image/Containerfile:83-90`), which also runs it unconfined by SELinux; node-exporter mounts the whole host read-only (`-v /:/rootfs:ro`) on the host network (`:144-154`); frr_exporter uses the host network (`:112-122`). Neither exporter sets a listen address and no role configures a host firewall, so both metrics endpoints (node-exporter's default is 9100) listen unauthenticated on every interface. Establish the capabilities, devices and mounts each container needs, or drop the FRR container with the RPM option; bind or authenticate the metrics endpoints and restrict inbound access to the required peers; and cover all of it in 7511's exposure review and the SELinux-enforcing boot tests |
 | [ ] | **No BGP policy or limits** | Networking / Source Owner | Every FRR template sets `no bgp ebgp-requires-policy` (`frr-*.conf.j2:12`) and defines no route-map, prefix-list, `maximum-prefix` or route-target filtering; the relay re-advertises every EVPN route from each peer with `next-hop-unchanged`, and the OCP peer uses `ebgp-multihop 4`. Nothing at the relay constrains which routes, or how many, a peer may send. Multi-cluster isolation (7517), peer restriction (7511) and storm containment (7519) need explicit inbound/outbound policy and limits, plus tests that a rogue or misconfigured peer is contained |
+
+**Lifecycle recheck, 2026-10-22:** #6 at `e3239e6c` now uses
+`frr-container.service`, matching the merged role's startup selection. Its
+embedded-image choice still differed from the role's Podman restart handler,
+which used `frr_image` (see the 2026-10-26 handler recheck above); startup-name agreement does not resolve image/daemon-file
+ownership or restart/teardown. The
+[metrics runtime audit](frr-metrics-plan.md#concrete-ega-integration-work) adds the
+shared-socket-directory replacement and service-stop tests. The lifecycle and
+exposure rows remain open; these observations do not select a payload.
+
+**Handler recheck, 2026-10-26:** merged #22 (`041cd2e`) makes each role's `Restart FRR`
+handler restart `frr-container.service` when `service_facts` lists it and fall back to
+Podman with `frr_image` otherwise. That narrows the handler half of this row to the
+fallback; the unit-name, image/daemon-file ownership and exporter-restart questions
+below remain open.
 
 ## 2. Floating Image References
 

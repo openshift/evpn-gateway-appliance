@@ -46,13 +46,13 @@ scope decision before including or deferring the parent's L3 requirement.
 
 | Gate | Inputs needed | Exit evidence |
 | --- | --- | --- |
-| A — source CI | Existing Prow verify and tools; reviewed product import for product checks | Planning, public-safety, YAML, Markdown and collection checks run in `verify`. Add standard lint for helpers and Dockerfiles, then image-source checks once the image sources land. [Queue](ci-source.md#queue) |
+| A — source CI | Existing Prow verify and tools; reviewed product import for product checks | Planning, public-safety, YAML, Markdown, Python and collection checks run in `verify`. Extend checks against the merged image sources, including standard lint for Dockerfiles. [Queue](ci-source.md#queue) |
 | B — non-releasing Konflux builds | source access, tenant/cluster/RBAC, approved image/package inputs; MPC capacity for privileged-nested bootc builds and rootful disk builds | bootc build + provenance, then on-prem disk canaries, digest nudge, disk boot and target-policy results |
 | C-stage — trial publication | channel-specific stage destination, credentials, product metadata including the Engineering ID, applicable ECP/RP/RPA | stage container/download/AMI/collection install and launch evidence |
 | C-prod — supported release | approved configuration matrix and AWS/OCP support decision, qualified candidate, production destinations/listings, security/QE/PM sign-off | same candidate published, customer paths verified, rollback and operational handoff recorded |
 
 Source CI needs no Konflux tenant, cloud credentials or publication channel
-([queue](ci-source.md#queue)). Before importing the image source for A's image checks, remove baked access, tracked
+([queue](ci-source.md#queue)). Before further product imports, remove baked access, tracked
 private/generated material and unsafe build inputs ([public import](source-audit.md#0-public-import)).
 Feature completeness, HA qualification, final Marketplace IDs, and all parent
 deployment-matrix decisions are production requirements; they are not
@@ -154,11 +154,11 @@ split as follows:
 
 | 7504 criterion | Source | Coverage |
 | --- | --- | --- |
-| Appliance, VLAN and tunnel status views | node-exporter (v1.12.1): default [`netclass`](https://github.com/prometheus/node_exporter/blob/6044da783597cc3b57aef7580ddcdcff58a4ee99/collector/netclass_linux.go) (`node_network_up`, carrier and carrier-change counters for every device, so VLAN, bridge, VXLAN and WireGuard interfaces) and `netdev` counters; `systemd`, off by default, for service state | Interface/service state is available; `node_network_up=0` includes `unknown`, which can still carry traffic ([kernel semantics](https://docs.kernel.org/networking/operstates.html)). IPsec has no per-tunnel series on the appliance: `xfrm`, also off by default, gives aggregate error counters only; use CloudWatch `TunnelState` for AWS VPN tunnels; appliance-side per-tunnel views need a selected source, for example a textfile from `ipsec status` |
+| Appliance, VLAN and tunnel status views | node-exporter (source checked at v1.12.1; the role pins v1.9.1): default [`netclass`](https://github.com/prometheus/node_exporter/blob/6044da783597cc3b57aef7580ddcdcff58a4ee99/collector/netclass_linux.go) (`node_network_up`, carrier and carrier-change counters for every device, so VLAN, bridge, VXLAN and WireGuard interfaces) and `netdev` counters; `systemd`, off by default, for service state | Interface/service state is available; `node_network_up=0` includes `unknown`, which can still carry traffic ([kernel semantics](https://docs.kernel.org/networking/operstates.html)). IPsec has no per-tunnel series on the appliance: `xfrm`, also off by default, gives aggregate error counters only; use CloudWatch `TunnelState` for AWS VPN tunnels; appliance-side per-tunnel views need a selected source, for example a textfile from `ipsec status` |
 | BGP sessions, route churn | `frr-metrics`: per-peer, per-VRF session state and message counters (updates, keepalives, notifications) | Sessions covered; update-message counts are a churn proxy, not counts of individual route additions/withdrawals. Qualify the dashboard's stated meaning |
 | Prefix counts | `frr-metrics`: sent and accepted counters **summed across every address family** of a neighbor ([`parse.go`](https://github.com/metallb/frr-k8s/blob/20c36775/internal/frr/parse.go)) | Partial: EVPN routes cannot be separated from IPv4/IPv6 on a session that carries both; OpenShift's `release-4.22` and `release-5.1` builds parse it the same way and label series only by peer and VRF |
-| BFD | `frr-metrics` BFD collector: control/echo packets, session up/down events | Covered |
-| VNI and MAC learning, VTEP and DF alerts | None | Gap. The legacy exporter's L2VPN collector provided them |
+| BFD | `frr-metrics` BFD collector: control/echo packets, session up/down events | Series exist; BGP-based VRF discovery misses BFD-only VRFs, and peer/VRF labels can collide for distinct sessions ([source and live audit](frr-metrics-plan.md#existing-series)). Qualify identity and completeness before alerting |
+| VNI and MAC learning, VTEP and DF alerts | None | Gap. The legacy L2VPN collector provides VNI MAC/ARP-ND and known remote-VTEP counts, not DF state, learning-event rates or VTEP reachability ([source comparison](frr-metrics-plan.md#legacy-migration-contract)) |
 | DX, VPN, latency, bandwidth | CloudWatch ([`AWS/DX`](https://docs.aws.amazon.com/directconnect/latest/UserGuide/monitoring-cloudwatch.html), [`AWS/VPN`](https://docs.aws.amazon.com/vpn/latest/s2svpn/monitoring-cloudwatch-vpn.html) including `TunnelState`) | State and traffic/rates; latency needs a selected measurement source |
 | Cluster-side EVPN status | OVN-K's `ovnkube_clustermanager_cluster_user_defined_networks` gains a `transport` label, and CUDN and RouteAdvertisements condition metrics are planned ([CORENET-6581](https://redhat.atlassian.net/browse/CORENET-6581), Code Review) | Complements the appliance series from the OCP side; confirm names in the selected OCP release |
 
@@ -180,6 +180,19 @@ exporter needs owner approval and standalone qualification. Configure the select
 build's bind options and the deployment's TLS/authentication path explicitly; available
 flags and defaults differ by release.
 
+The [FRR metrics implementation plan](frr-metrics-plan.md) rechecks the 5.1 source
+on 2026-10-22, reproduces the failure, and proposes an explicit auth opt-out that
+preserves TLS and Kubernetes defaults. It separates that first change from
+collector-failure visibility, EVPN metrics, appliance integration and the full
+CORENET-7504 acceptance evidence. It does not resolve decisions 10 or 16. The opt-out
+was proposed upstream as metallb/frr-k8s #518 and #519 (2026-10-26); after review,
+whether upstream will carry it is open (plan
+[options](frr-metrics-plan.md#if-upstream-declines-the-flag)). On 2026-10-27 the pinned 4.22 image's
+own `frr-metrics` was checked running without a cluster on loopback HTTP, with the
+same collector source as upstream; the plan's
+[interim exporter section](frr-metrics-plan.md#interim-exporter-from-the-embedded-422-image)
+records the evidence and limits.
+
 The 2026-10-01 review proposes adding EVPN metrics to `frr-metrics`; confirm the metric
 source, series and implementation owner before targeting those new series in dashboards.
 The VNI/MAC gap is a coverage choice, not an impossibility: node-exporter's textfile collector
@@ -189,7 +202,7 @@ upstream. A textfile producer is custom code with its own owner, metric contract
 maintenance cost; choose it with the 7504 owner, and use existing FRR and bridge diagnostics
 during early role/build work. None of this is a prerequisite for source CI. Confirm the OpenShift build's collectors match upstream.
 
-When the rules arrive, use pinned `promtool check rules --lint-fatal` and
+When the rules arrive, use pinned `promtool check rules --lint=all --lint-fatal` and
 [`promtool test rules`](https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/)
 for syntax and declared healthy, firing, recovery and missing-series cases. Native fixtures
 support empty expected alerts; a healthy filter returning no series is not automatically a

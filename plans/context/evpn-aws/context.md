@@ -34,8 +34,9 @@ The prototype lives in an internal GitLab repository. Its public home,
 [`openshift/evpn-gateway-appliance`](https://github.com/openshift/evpn-gateway-appliance),
 was created on 2026-09-28 (DPP-22292). It holds a license, an `OWNERS` file naming four approvers
 and reviewers (added 2026-09-29), these planning documents, a `Makefile` and CI image definitions.
-The Ansible collection merged with #7 on 2026-10-14. Image sources are open in #16 (opened
-2026-10-15, bound OCP 4.22 payload images); #6 is on hold, and #3 closed as superseded.
+The Ansible collection merged with #7 on 2026-10-14. Embedded OCP 4.22 image sources
+merged with [#6](https://github.com/openshift/evpn-gateway-appliance/pull/6) on 2026-10-23
+at `be5a2b9a`; #16 and the superseded collection #3 are closed.
 [Source CI](ci-source.md#where-things-stand) lists the checks that now run. Green source verify does not establish
 image-build or deployment behavior. Repository #8/#12 and release#86670 merged;
 Prow now uses PR-built `Dockerfile.ci`. Local Make delegates by default, with host
@@ -47,6 +48,8 @@ The source baseline summarized here is the internal prototype
 [`evpn-on-cloud` at `1c8e88873af8`](https://gitlab.cee.redhat.com/datucker/evpn-on-cloud/-/tree/1c8e88873af8)
 (2026-09-08). Its `docs/evpn-task-breakdown.md` is where every CORENET-7499–7524 story
 comes from, and the source audit and networking handoff cite its files and lines.
+The image described below is the prototype's; the merged `image/rhel10/Containerfile`
+(#6) instead embeds the OpenShift FRR image and node-exporter, with no `frr_exporter`.
 
 | Path | What it holds |
 | --- | --- |

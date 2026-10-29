@@ -210,8 +210,8 @@ deliverable needs vmdk/ova and its own reviewed guest-integration delta
 ([platform evidence](source-evidence.md#9-payload-platform-and-ocp-test-inputs)).
 
 Agree the image/collection service contract with that first payload. The
-[source audit](source-audit.md#1-security--identity-findings) records the container-versus-host
-FRR lifecycle conflict between the proposed images (#6, #16) and the merged collection. Start one native host scenario
+[source audit](source-audit.md#1-security--identity-findings) records the FRR lifecycle
+mismatch between the merged embedded image and collection. Start one native host scenario
 for the selected image and installed collection: deployment and notified restart must use
 the intended lifecycle, preserve image-owned defaults and work after reboot. Do not use
 a build result or role lint as that proof, or add a general inventory validator to bridge
@@ -231,8 +231,8 @@ that gate ships ([base evidence](source-evidence.md#11-bootc-specific-build-beha
 Under the OCP-image direction from the 2026-10-01 review ([decision
 record](kickoff-decisions.md#already-settled)), run `frr-rhel9` by digest as the FRR container
 and use the `/frr-metrics` in that same image; the review also requires changing it to need no
-cluster and to export EVPN metrics. #16 (2026-10-15) follows option A with the 4.22 image as
-bound Quadlet containers; #6, now on hold, proposed the package option for RHEL 10, which would
+cluster and to export EVPN metrics. #16's 2026-10-15 snapshot followed option A with the 4.22 image as
+bound Quadlet containers; #6's earlier `67524c74` snapshot proposed the package option for RHEL 10, which would
 change the recorded direction and needs an owner/date decision before it is treated as approved. Under that option, install
 `frr10` (RHEL 9) or `frr` (RHEL 10) in the Containerfile, enable `frr.service`, and
 copy `/frr-metrics` with a digest-pinned `COPY --from` of `frr-rhel9` (OCP has no
@@ -243,6 +243,14 @@ after reboot. On an SELinux host `frr10` also pulls its `frr10-selinux` policy p
 run enforcing and check
 for AVC denials from FRR, the metrics binary and any container-run payload. Verify each
 binary's architecture per platform.
+
+The 2026-10-22 [FRR metrics audit](frr-metrics-plan.md#source-baseline-and-repository-boundaries)
+rechecked #6 (open then, merged 2026-10-23) at `e3239e6c`: it now embeds FRR and node-exporter and does not
+enable the metrics unit; #16 is closed. Use that dated source baseline when
+designing the metrics lifecycle. The audit's
+[runtime proposal](frr-metrics-plan.md#preferred-appliance-candidate) includes
+non-root socket access, namespace/publication, certificate shutdown/rotation and
+directory-replacement tests. It does not settle decision 10 or qualify bootc.
 
 Keep image references in the native input that actually consumes them: Containerfile
 `FROM`/`ARG` for build payloads, BIB's wrapper for its builder/source/origin, and the

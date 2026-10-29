@@ -162,9 +162,13 @@ item for decisions 7, 8 and 13 to `@knobunc`.
   rootful MPC hosts. *Owner: Engineering / Konflux platform.*
 - **Payload.** The 2026-10-01 review directs FRR and `frr-metrics` to [option
   A](pipeline-spec.md#runtime-payload-corenet-7505), the Red Hat–built `frr-rhel9` image
-  (2026-10-01). #16 (2026-10-15) implements option A with the OCP 4.22 image as bound
-  containers; #6, now on hold, proposed option B for RHEL 10. Record owner/date approval
-  before treating either payload as finalized. `openshift4/frr-rhel9` is published;
+  (2026-10-01). #16's 2026-10-15 snapshot proposed option A with the OCP 4.22 image as
+  bound containers; #6's earlier `67524c74` snapshot proposed option B for RHEL 10.
+  Rechecked 2026-10-22: #16 is closed and #6 (open then, merged 2026-10-23) at `e3239e6c` embeds the FRR image
+  under `frr-container.service`, without enabling its metrics unit
+  ([source audit](frr-metrics-plan.md#source-baseline-and-repository-boundaries)).
+  These source proposals do not approve the payload. Record owner/date approval
+  before treating it as finalized. `openshift4/frr-rhel9` is published;
   `openshift5/frr-rhel9`, which the 5.1 target needs, was not in Pyxis on 2026-10-01. Still open:
   node-exporter's source; the approved RHEL bootc base stream (latest minor or EUS; generic or
   RHEL 10 platform base), BIB and payload inventory; support terms for OCP content used outside a
