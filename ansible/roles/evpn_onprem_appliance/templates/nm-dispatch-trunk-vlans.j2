@@ -1,0 +1,17 @@
+#!/bin/bash
+# NetworkManager dispatcher — add trunk-br's own VLAN memberships.
+# Managed by the evpn_onprem_appliance role (CORENET-7499). Do not edit.
+#
+# nmstate (and NM) cannot express a vlan-aware bridge's self VLAN membership, which the
+# per-stretch trunk.<vlan> sub-interfaces need to receive their tagged frames. Add it here
+# whenever NM brings trunk-br up (deploy and boot). Installed before nmstatectl apply so it
+# fires as trunk-br comes up during the apply.
+iface="$1"
+action="$2"
+
+[ "$iface" = "trunk-br" ] || exit 0
+[ "$action" = "up" ] || exit 0
+
+{% for s in stretches %}
+bridge vlan add vid {{ s.vlan }} dev trunk-br self
+{% endfor %}

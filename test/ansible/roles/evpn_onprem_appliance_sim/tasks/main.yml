@@ -38,6 +38,19 @@
   ansible.builtin.command: ip link set cpe-uplink up
   changed_when: false
 
+# The appliance end of the uplink stands in for the physical trunk NIC handed to the
+# appliance. Present it the way a real NIC arrives — up and NetworkManager-managed — so
+# the on-prem role's nmstate apply adopts it as the trunk bridge port. NM manages
+# physical NICs by default but leaves veths unmanaged, which is the only reason this is
+# needed here.
+- name: Bring up the appliance trunk interface
+  ansible.builtin.command: ip link set {{ trunk_interface }} up
+  changed_when: false
+
+- name: Let NetworkManager manage the appliance trunk interface
+  ansible.builtin.command: nmcli device set {{ trunk_interface }} managed yes
+  changed_when: false
+
 - name: Allow each stretch VLAN tagged on the CPE uplink (trunk port)
   ansible.builtin.command: bridge vlan add vid {{ item.vlan }} dev cpe-uplink
   loop: "{{ stretches }}"

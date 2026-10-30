@@ -1,0 +1,65 @@
+---
+# Managed by the evpn_onprem_appliance role (CORENET-7499). Rendered and applied with
+# nmstatectl. nmstate reconciles current -> desired (create/modify/recreate) and verifies.
+# Interface names stay conventional; ownership is carried by the NM profile name (ega-*) set
+# via profile-name. The trunk NIC is the vlan-aware trunk bridge's trunk port; each stretch
+# gets a VNI bridge (holding the SVI) with a VXLAN port and a VLAN sub-interface port.
+#
+# Two things nmstate cannot express, handled by dispatchers: trunk-br's own VLAN membership
+# and the VXLAN neigh_suppress flag.
+interfaces:
+  - name: {{ trunk_interface }}
+    type: ethernet
+    state: up
+    profile-name: ega-port-{{ trunk_interface }}
+  - name: trunk-br
+    type: linux-bridge
+    state: up
+    profile-name: ega-bridge-trunk
+    ipv4: {enabled: false}
+    ipv6: {enabled: false}
+    bridge:
+      options:
+        stp: {enabled: false}
+      port:
+        - name: {{ trunk_interface }}
+          vlan:
+            mode: trunk
+            trunk-tags:
+{% for s in stretches %}
+              - id: {{ s.vlan }}
+{% endfor %}
+{% for s in stretches %}
+{% set vni = 10000 + s.vlan %}
+  - name: trunk.{{ s.vlan }}
+    type: vlan
+    state: up
+    profile-name: ega-vlan-{{ s.vlan }}
+    vlan: {base-iface: trunk-br, id: {{ s.vlan }}}
+  - name: vxlan{{ vni }}
+    type: vxlan
+    state: up
+    profile-name: ega-vxlan-{{ vni }}
+    vxlan: {id: {{ vni }}, local: {{ tunnel.onprem_ip }}, destination-port: 4789, learning: false}
+  - name: br-vni{{ vni }}
+    type: linux-bridge
+    state: up
+    profile-name: ega-bridge-vni{{ vni }}
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ s.onprem_gateway }}
+          prefix-length: {{ s.subnet | ansible.utils.ipaddr('prefix') }}
+    ipv6: {enabled: false}
+    bridge:
+      options:
+        stp: {enabled: false}
+      port:
+        - name: vxlan{{ vni }}
+        - name: trunk.{{ s.vlan }}
+{% endfor %}
+{% for iface in _ega_absent | default([]) %}
+  - name: {{ iface }}
+    state: absent
+{% endfor %}

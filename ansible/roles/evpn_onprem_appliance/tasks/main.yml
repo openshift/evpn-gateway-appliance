@@ -9,7 +9,7 @@
 - name: Install packages (skipped on bootc images)
   ansible.builtin.dnf:
     name: >-
-      {{ ['podman', 'tcpdump', 'traceroute', 'mtr', 'bind-utils']
+      {{ ['podman', 'tcpdump', 'traceroute', 'mtr', 'bind-utils', 'nmstate']
          + (['wireguard-tools'] if tunnel.type == 'wireguard' else []) }}
     state: present
   when: ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
@@ -39,76 +39,9 @@
     enabled: true
   when: tunnel.type == 'wireguard'
 
-# ── Trunk + VLAN setup ──────────────────────────────────────────
-- name: Set up physical trunk
-  ansible.builtin.include_tasks: physical.yml
-
-# ── Per-stretch VXLAN + Bridge ──────────────────────────────────
-- name: Create VXLAN interfaces
-  ansible.builtin.command: >
-    ip link add vxlan{{ 10000 + item.vlan }} type vxlan
-    id {{ 10000 + item.vlan }}
-    local {{ tunnel.onprem_ip }}
-    dstport 4789
-    nolearning
-  loop: "{{ stretches }}"
-  loop_control:
-    label: "VNI {{ 10000 + item.vlan }} ({{ item.name }})"
-  register: _vxlan_create
-  failed_when: _vxlan_create.rc != 0 and 'File exists' not in _vxlan_create.stderr
-  changed_when: _vxlan_create.rc == 0
-
-- name: Bring up VXLAN interfaces
-  ansible.builtin.command: ip link set vxlan{{ 10000 + item.vlan }} up
-  loop: "{{ stretches }}"
-  loop_control:
-    label: "vxlan{{ 10000 + item.vlan }}"
-  changed_when: false
-
-- name: Create per-VNI bridges
-  ansible.builtin.command: ip link add br-vni{{ 10000 + item.vlan }} type bridge
-  loop: "{{ stretches }}"
-  loop_control:
-    label: "br-vni{{ 10000 + item.vlan }}"
-  register: _br_create
-  failed_when: _br_create.rc != 0 and 'File exists' not in _br_create.stderr
-  changed_when: _br_create.rc == 0
-
-- name: Bring up bridges
-  ansible.builtin.command: ip link set br-vni{{ 10000 + item.vlan }} up
-  loop: "{{ stretches }}"
-  loop_control:
-    label: "br-vni{{ 10000 + item.vlan }}"
-  changed_when: false
-
-- name: Add VLAN sub-interface to bridge
-  ansible.builtin.command: ip link set trunk.{{ item.vlan }} master br-vni{{ 10000 + item.vlan }}
-  loop: "{{ stretches }}"
-  loop_control:
-    label: "trunk.{{ item.vlan }} → br-vni{{ 10000 + item.vlan }}"
-  register: _trunk_add
-  failed_when: _trunk_add.rc != 0 and 'already a member' not in _trunk_add.stderr
-  changed_when: _trunk_add.rc == 0
-
-- name: Add VXLAN to bridge
-  ansible.builtin.command: ip link set vxlan{{ 10000 + item.vlan }} master br-vni{{ 10000 + item.vlan }}
-  loop: "{{ stretches }}"
-  loop_control:
-    label: "vxlan{{ 10000 + item.vlan }} → br-vni{{ 10000 + item.vlan }}"
-  register: _vx_add
-  failed_when: _vx_add.rc != 0 and 'already a member' not in _vx_add.stderr
-  changed_when: _vx_add.rc == 0
-
-- name: Assign IPs to bridge SVIs
-  ansible.builtin.command: >-
-    ip addr add {{ item.onprem_gateway }}/{{ item.subnet | ansible.utils.ipaddr('prefix') }}
-    dev br-vni{{ 10000 + item.vlan }}
-  loop: "{{ stretches }}"
-  loop_control:
-    label: "{{ item.onprem_gateway }} on br-vni{{ 10000 + item.vlan }}"
-  register: _ip_add
-  failed_when: _ip_add.rc != 0 and 'already' not in _ip_add.stderr and 'File exists' not in _ip_add.stderr
-  changed_when: _ip_add.rc == 0
+# ── On-prem networking (nmstate) ────────────────────────────────
+- name: Configure on-prem networking
+  ansible.builtin.include_tasks: nm_networking.yml
 
 # ── FRR ────────────────────────────────────────────────────────
 - name: Ensure FRR directories exist
