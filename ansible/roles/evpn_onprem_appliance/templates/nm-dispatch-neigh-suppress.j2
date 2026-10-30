@@ -1,0 +1,21 @@
+#!/bin/bash
+# NetworkManager dispatcher — re-assert the EVPN bridge-port flags NM cannot express.
+# Managed by the evpn_onprem_appliance role (CORENET-7499). Do not edit.
+#
+# NM has no connection property for a bridge port's neigh_suppress flag
+# (NMT-2900 / RHEL-272399), so set it here whenever NM brings an appliance VXLAN
+# interface up — including as nmstate brings it up during apply. The 'up' hook is
+# sufficient: the flag is re-asserted on every bring-up.
+iface="$1"
+action="$2"
+
+[ "$action" = "up" ] || exit 0
+
+case "$iface" in
+{% for s in stretches %}
+    vxlan{{ 10000 + s.vlan }}) ;;
+{% endfor %}
+    *) exit 0 ;;
+esac
+
+bridge link set dev "$iface" neigh_suppress on learning off

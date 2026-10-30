@@ -18,6 +18,7 @@ RUN dnf install -y \
     bind-utils \
     python3 \
     iproute \
+    nmstate \
     podman \
     skopeo \
     openssh-server \
