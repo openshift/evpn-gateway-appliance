@@ -31,16 +31,28 @@
         enabled: false
       ignore_errors: true
 
-    - name: Remove bridges, VXLAN, VLAN interfaces
-      ansible.builtin.shell: |
-        {% for s in stretches %}
-        {% set vni = 10000 + s.vlan %}
-        ip link del br-vni{{ vni }} 2>/dev/null || true
-        ip link del vxlan{{ vni }} 2>/dev/null || true
-        ip link del trunk.{{ s.vlan }} 2>/dev/null || true
-        {% endfor %}
-        ip link del trunk-br 2>/dev/null || true
-      changed_when: false
+    - name: Find appliance NetworkManager keyfiles
+      ansible.builtin.find:
+        paths: /etc/NetworkManager/system-connections
+        patterns: "ega-*.nmconnection"
+      register: _ega_teardown
+
+    - name: Remove appliance NetworkManager keyfiles
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ _ega_teardown.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: Remove neigh_suppress dispatcher
+      ansible.builtin.file:
+        path: /etc/NetworkManager/dispatcher.d/90-ega-neigh-suppress
+        state: absent
+
+    - name: Reload NetworkManager to tear down appliance devices
+      ansible.builtin.command: nmcli connection reload
+      changed_when: true
 
     - name: Remove FRR config
       ansible.builtin.file:

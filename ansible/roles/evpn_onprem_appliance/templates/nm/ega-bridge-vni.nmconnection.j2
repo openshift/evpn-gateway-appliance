@@ -1,0 +1,21 @@
+# Managed by the evpn_onprem_appliance role (CORENET-7499). Do not edit.
+[connection]
+id={{ conn.id }}
+uuid={{ conn.id | to_uuid }}
+type=bridge
+interface-name={{ conn.iface }}
+autoconnect=true
+autoconnect-slaves=1
+
+[bridge]
+stp=false
+
+[ipv4]
+method=manual
+address1={{ conn.address }}
+
+[ipv6]
+method=disabled
+
+[user]
+org.openshift.ega.managed=1

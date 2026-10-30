@@ -1,0 +1,219 @@
+---
+# On-prem networking as declarative NetworkManager keyfiles. One mechanism covers
+# persistence (NM reapplies ega-* profiles at boot), idempotency (converged runs are a
+# no-op) and ownership (the ega-* keyfiles are the registry; a profile no longer desired is
+# pruned and NM tears its device down on reload).
+#
+# Graph per deploy: one vlan-aware trunk bridge (trunk-br) carrying every stretch VLAN, the
+# physical trunk NIC enslaved to it, and per stretch a VNI bridge holding the SVI, a VXLAN
+# port and a VLAN sub-interface port. neigh_suppress is the one flag NM cannot express
+# (NMT-2900), set by the dispatcher below on interface 'up'.
+#
+# `_ega_conns` is the single source of truth: one descriptor per connection carrying its id,
+# interface name, keyfile name, template and the values that template needs. Render, prune
+# and apply all derive from it, so a device's name is defined in one place. Order is masters
+# (bridges) first so a port never activates before its bridge.
+#
+# Reconcile model: we never assume we still own a device (another profile — NM's own default
+# wired, a stale keyfile, an operator — can create one for the same interface and steal it).
+# So we snapshot the connection active on every device BEFORE touching anything, then:
+#   * device already ours + its keyfile changed -> `reapply` in place (no flap); an edit NM
+#     can't apply live (e.g. a vxlan setting) fails reapply and falls through to recreate.
+#   * everything else — not owned by us (new / squatted / stolen) or a reapply that failed —
+#     is recreated: `disconnect` (free/remove the device) then `up` (create/activate ours).
+#   * device already ours + unchanged -> nothing.
+# reload (once, after prune) loads the rendered profiles and tears down the pruned ones; it
+# must precede the rest so reapply pushes the loaded edit and up sees the new profiles.
+
+# ── Snapshot ownership (pristine, before any change) ─────────────
+- name: Snapshot the connection active on each device
+  ansible.builtin.command: nmcli -t -f DEVICE,CONNECTION device status
+  register: _ega_dev_status
+  changed_when: false
+
+- name: Map each device to the connection currently active on it
+  ansible.builtin.set_fact:
+    _ega_owner_before: >-
+      {{ _ega_owner_before | default({})
+         | combine({ (item.split(':')[0]): (item.split(':')[1:] | join(':')) }) }}
+  loop: "{{ _ega_dev_status.stdout_lines }}"
+  loop_control:
+    label: "{{ item }}"
+
+# ── Build the connection descriptors (single source of truth) ────
+- name: Start the descriptors with the shared trunk bridge and port
+  vars:
+    _trunk_vlans: "{{ stretches | map(attribute='vlan') | map('string') | join(',') }}"
+  ansible.builtin.set_fact:
+    _ega_masters:
+      - id: ega-bridge-trunk
+        iface: trunk-br
+        file: ega-bridge-trunk.nmconnection
+        template: ega-bridge-trunk.nmconnection.j2
+        vlans: "{{ _trunk_vlans }}"
+    _ega_ports:
+      - id: "ega-port-{{ trunk_interface }}"
+        iface: "{{ trunk_interface }}"
+        file: "ega-port-{{ trunk_interface }}.nmconnection"
+        template: ega-port-trunk.nmconnection.j2
+        master: trunk-br
+        vlans: "{{ _trunk_vlans }}"
+
+- name: Add the per-stretch VNI bridge descriptors (masters)
+  ansible.builtin.set_fact:
+    _ega_masters: >-
+      {{ _ega_masters + [{
+           'id': 'ega-bridge-vni' ~ (10000 + item.vlan),
+           'iface': 'br-vni' ~ (10000 + item.vlan),
+           'file': 'ega-bridge-vni' ~ (10000 + item.vlan) ~ '.nmconnection',
+           'template': 'ega-bridge-vni.nmconnection.j2',
+           'address': item.onprem_gateway ~ '/' ~ (item.subnet | ansible.utils.ipaddr('prefix')) }] }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Add the per-stretch VXLAN and VLAN descriptors (ports)
+  ansible.builtin.set_fact:
+    _ega_ports: >-
+      {{ _ega_ports + [
+           { 'id': 'ega-vxlan-' ~ (10000 + item.vlan),
+             'iface': 'vxlan' ~ (10000 + item.vlan),
+             'file': 'ega-vxlan-' ~ (10000 + item.vlan) ~ '.nmconnection',
+             'template': 'ega-vxlan.nmconnection.j2',
+             'master': 'br-vni' ~ (10000 + item.vlan),
+             'vni': 10000 + item.vlan,
+             'local': tunnel.onprem_ip },
+           { 'id': 'ega-vlan-' ~ item.vlan,
+             'iface': 'trunk.' ~ item.vlan,
+             'file': 'ega-vlan-' ~ item.vlan ~ '.nmconnection',
+             'template': 'ega-vlan.nmconnection.j2',
+             'master': 'br-vni' ~ (10000 + item.vlan),
+             'parent': 'trunk-br',
+             'vlan': item.vlan }
+         ] }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Order descriptors masters-first and derive the desired keyfile set
+  ansible.builtin.set_fact:
+    _ega_conns: "{{ _ega_masters + _ega_ports }}"
+    _ega_desired: "{{ (_ega_masters + _ega_ports) | map(attribute='file') | list }}"
+
+# ── Render ──────────────────────────────────────────────────────
+- name: Deploy neigh_suppress dispatcher
+  ansible.builtin.copy:
+    src: 90-ega-neigh-suppress
+    dest: /etc/NetworkManager/dispatcher.d/90-ega-neigh-suppress
+    mode: "0755"
+  register: _ega_dispatcher
+
+- name: Render the keyfiles
+  ansible.builtin.template:
+    src: "nm/{{ item.template }}"
+    dest: "/etc/NetworkManager/system-connections/{{ item.file }}"
+    mode: "0600"
+  loop: "{{ _ega_conns }}"
+  loop_control:
+    label: "{{ item.iface }}"
+  vars:
+    conn: "{{ item }}"
+  register: _ega_rendered
+
+# ── Ownership: prune ega-* keyfiles no longer desired ───────────
+- name: Find existing ega-* keyfiles
+  ansible.builtin.find:
+    paths: /etc/NetworkManager/system-connections
+    patterns: "ega-*.nmconnection"
+  register: _ega_existing
+
+- name: Prune orphaned ega-* keyfiles
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ _ega_existing.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: item.path | basename not in _ega_desired
+  register: _ega_pruned
+
+# ── Plan ────────────────────────────────────────────────────────
+- name: Determine whether any keyfile changed this run
+  ansible.builtin.set_fact:
+    _ega_changed: >-
+      {{ _ega_dispatcher is changed or _ega_rendered is changed or _ega_pruned is changed }}
+
+- name: Collect the keyfiles rendered new or modified this run
+  ansible.builtin.set_fact:
+    _ega_rendered_changed: >-
+      {{ _ega_rendered.results | selectattr('changed') | map(attribute='dest') | map('basename') | list }}
+
+# Connections needing a full recreate (disconnect + up): seeded here with the ones we do not
+# own — new (device absent), squatted (NM default) or stolen (a foreign profile active on the
+# interface). The reapply step below adds the owned ones whose edit it can't apply in place.
+- name: Seed the recreate set with connections we do not own
+  ansible.builtin.set_fact:
+    _ega_recreate: "{{ _ega_recreate | default([]) + [item] }}"
+  loop: "{{ _ega_conns }}"
+  loop_control:
+    label: "{{ item.iface }}"
+  when: _ega_owner_before.get(item.iface, '') != item.id
+
+# ── Apply: reload → reapply → disconnect → up ───────────────────
+- name: Reload NetworkManager connections
+  ansible.builtin.command: nmcli connection reload
+  changed_when: true
+  when: _ega_changed
+
+# Push in-place edits to connections we own (no flap). An edit NM can't apply live (e.g. a
+# vxlan setting) fails here; catch that and add the connection to the recreate set instead.
+- name: Reapply in-place edits to connections we own
+  ansible.builtin.command: "nmcli device reapply {{ item.iface }}"
+  loop: "{{ _ega_conns }}"
+  loop_control:
+    label: "{{ item.iface }}"
+  when:
+    - _ega_owner_before.get(item.iface, '') == item.id
+    - item.file in _ega_rendered_changed
+  register: _ega_reapply
+  failed_when: false
+  changed_when: _ega_reapply.rc == 0
+
+- name: Add reapply failures to the recreate set
+  ansible.builtin.set_fact:
+    _ega_recreate: >-
+      {{ _ega_recreate | default([])
+         + (_ega_reapply.results | selectattr('rc', 'defined')
+            | rejectattr('rc', 'eq', 0) | map(attribute='item') | list) }}
+
+- name: List the interfaces to be recreated
+  ansible.builtin.set_fact:
+    _ega_recreate_ifaces: "{{ _ega_recreate | default([]) | map(attribute='iface') | list }}"
+
+# Recreate = not-owned + reapply-failed. Disconnect frees the device — removing an NM-created
+# one, or releasing it from a foreign/squatting profile; "not found" just means it doesn't
+# exist yet.
+- name: Disconnect connections to be recreated
+  ansible.builtin.command: "nmcli device disconnect {{ item.iface }}"
+  loop: "{{ _ega_recreate | default([]) }}"
+  loop_control:
+    label: "{{ item.iface }}"
+  register: _ega_disconnect
+  changed_when: _ega_disconnect.rc == 0
+  failed_when:
+    - _ega_disconnect.rc != 0
+    - "'not found' not in _ega_disconnect.stderr"
+
+# A bridge re-activates its ports via autoconnect-slaves, so up each recreated master (its
+# ports follow) and each recreated port whose master is NOT also being recreated (the
+# lone-port case, e.g. a vxlan edit under an unchanged bridge). Masters come first in
+# _ega_conns so a bridge is up before any port that needs it.
+- name: Activate connections to be recreated
+  ansible.builtin.command: "nmcli connection up {{ item.id }}"
+  loop: "{{ _ega_conns }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: >-
+    item.iface in _ega_recreate_ifaces
+    and (item.master is not defined or item.master not in _ega_recreate_ifaces)
+  changed_when: true
