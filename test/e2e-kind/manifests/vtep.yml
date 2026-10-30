@@ -1,0 +1,10 @@
+---
+# VTEP: Unmanaged mode, nodes use InternalIP on the kind network.
+apiVersion: k8s.ovn.org/v1
+kind: VTEP
+metadata:
+  name: ega-vtep
+spec:
+  mode: Unmanaged
+  cidrs:
+    - 172.18.0.0/16

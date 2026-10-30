@@ -72,6 +72,12 @@ RUN dnf install -y podman-remote skopeo openssh-clients iproute iputils tcpdump 
 # containerlab, pinned. 0.81.1 is the latest release as of 2026-10-19.
 RUN bash -c "$(curl -fsSL https://get.containerlab.dev)" -- -v 0.81.1
 
+# kind + kubectl for the kind+OVN-K e2e lane (test/e2e-kind/).
+RUN curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.25.0/kind-linux-amd64 && \
+    chmod +x /usr/local/bin/kind
+RUN curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.0/bin/linux/amd64/kubectl" && \
+    chmod +x /usr/local/bin/kubectl
+
 # Python test toolchain. testinfra pinned to latest (10.2.2, 2026-10-19); pytest pinned
 # conservatively for broad testinfra compatibility. (deploy.yml renders its templates
 # inside the execution environment, which carries its own netaddr; the toolchain only
