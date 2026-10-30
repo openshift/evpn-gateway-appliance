@@ -22,13 +22,16 @@
     - "'cloud_infra' in group_names"
     - tunnel.type == 'wireguard'
 
-- name: "HEALTH [infra]: BGP session to workload is Established"
+- name: "HEALTH [infra]: BGP session to workload peer is Established"
   ansible.builtin.shell: >
     podman exec frr vtysh -c "show bgp summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
-    p=d['ipv4Unicast']['peers']['{{ hostvars[workload_vtep_host].private_ip }}'];
+    p=d['ipv4Unicast']['peers']['{{ hostvars[item].private_ip }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
+  loop: "{{ groups['cloud_workload'] | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
   when: "'cloud_infra' in group_names"
 
 - name: "HEALTH [infra]: BGP session to on-prem is Established"
@@ -49,13 +52,14 @@
   changed_when: false
   when: "'cloud_infra' in group_names"
 
-- name: "HEALTH [infra]: EVPN prefixes relayed from workload"
+- name: "HEALTH [infra]: EVPN prefixes relayed from {{ item }}"
   ansible.builtin.shell: >
     podman exec frr vtysh -c "show bgp l2vpn evpn summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
-    p=d['peers']['{{ hostvars[workload_vtep_host].private_ip }}'];
+    p=d['peers']['{{ hostvars[item].private_ip }}'];
     assert int(p['pfxRcd'])>0, f'pfxRcd={p[\"pfxRcd\"]}'"
   changed_when: false
+  loop: "{{ groups['cloud_workload'] | default([]) }}"
   when: "'cloud_infra' in group_names"
 
 - name: "HEALTH [infra]: No VXLAN interfaces on relay"

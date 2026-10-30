@@ -2,7 +2,7 @@
 
 Configures the cloud-side EVPN relay: terminates the transport from the
 on-prem appliance and configures FRR as a route relay (not a VTEP) between
-the on-prem appliance and the workload-VPC VTEP, preserving VTEP IPs
+the on-prem appliance and the workload-side VTEPs, preserving VTEP IPs
 end-to-end via `next-hop-unchanged`.
 
 This role also owns `tasks/wireguard_keys.yml`, shared with
@@ -12,10 +12,19 @@ role's comment for why).
 See [`meta/argument_specs.yml`](meta/argument_specs.yml) for the full input
 schema (`tunnel`, `bgp`, `frr_image`, `stretches`).
 
+## Workload-side peering
+
+The relay peers with every host in the `cloud_workload` inventory group,
+reading `private_ip` from each host's vars. The role asserts the group
+is non-empty.
+
+In production, `deploy.yml` discovers peers from running OCP frr-k8s pods.
+In dev/test, the test collection populates `cloud_workload` from inventory.
+
+Both use `bgp.workload_asn` as the remote ASN and `ebgp-multihop 4`.
+
 ## Requirements
 
-- `workload_vtep_host` must name an actual inventory host with a `private_ip`
-  host variable (defaults to `workload-router`; no multi-peer/HA support yet).
 - `stretches` (only `subnet` is read) must match the on-prem/workload stretch
   list — used to build the WireGuard server's `AllowedIPs` (wireguard
   transport only).
