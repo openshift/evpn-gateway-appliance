@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Run the emulated EVPN e2e lane on a target host. Primarily for CI: it runs in the CI image and
-# drives a remote VM over SSH (SSH_REMOTE set). It can also run directly on a privileged local
-# host (SSH_REMOTE unset) to exercise the same procedure without a VM. It exports the base images
-# to tarballs and, on the target, loads a local registry, builds the EE and appliance images, and
+# Run a CI lane on a target host. Primarily for CI: it runs in the CI image and drives a remote VM
+# over SSH (SSH_REMOTE set). It can also run directly on a privileged local host (SSH_REMOTE unset)
+# to exercise the same procedure without a VM. It exports the base images to tarballs and, on the
+# target, loads a local registry, builds the appliance images (and the EE for the e2e lane), and
 # runs test/e2e/run.sh.
 #
+# Shared core for both lanes: the e2e lane (default) and the molecule lane select the in-container
+# script via EGA_ENTRYPOINT. Call this directly for e2e (backward compatible), or go through the
+# named wrappers run_e2e.sh / run_molecule.sh, which only set EGA_ENTRYPOINT.
+#
 # Env:
+#   EGA_ENTRYPOINT  in-container lane script run.sh executes; entrypoint_e2e.sh (default) or
+#                   entrypoint_molecule.sh. Also gates the EE build (built unless molecule).
 #   SSH_REMOTE   user@host of the target VM; UNSET -> run on this host (needs root + podman/systemd)
 #   SSH_OPTS     ssh/scp options, word-split (remote only), e.g.
 #                "-i /path/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -39,6 +45,14 @@ readonly NODE_EXPORTER_IMAGE="${NODE_EXPORTER_IMAGE:?set NODE_EXPORTER_IMAGE (CI
 readonly EE_BASE_IMAGE="${EE_BASE_IMAGE:-quay.io/centos/centos:stream10}"
 readonly APPLIANCE_BASE_IMAGE="${APPLIANCE_BASE_IMAGE:-quay.io/centos-bootc/centos-bootc:stream10}"
 readonly CI_IMAGE="${CI_IMAGE:-containers-storage:localhost/evpn-gateway-appliance-ci:local}"
+
+# Lane selection. The in-container script run.sh launches; defaults to the e2e entrypoint so a
+# direct call (and the live Prow wiring) is unchanged. run_molecule.sh sets entrypoint_molecule.sh.
+# The execution environment is only consumed by the e2e entrypoint (it runs deploy.yml through
+# it), so build it unless this is the molecule lane -- derived from the entrypoint, no extra flag.
+readonly EGA_ENTRYPOINT="${EGA_ENTRYPOINT:-entrypoint_e2e.sh}"
+if [[ "${EGA_ENTRYPOINT}" == entrypoint_molecule.sh ]]; then build_ee=0; else build_ee=1; fi
+readonly build_ee
 
 # Pull secret for the skopeo export, used only if the file exists (public base images need
 # none). Pass REGISTRY_AUTH_FILE to point at a specific secret (CI); defaults to the local
@@ -144,10 +158,15 @@ skopeo copy --dest-tls-verify=false docker-archive:./appliance-base.tar         
 skopeo copy docker-archive:./ci.tar containers-storage:localhost/evpn-gateway-appliance-ci:local
 EOF
 
-# build.sh: build the EE and the appliance images (:ci parent + vfs :nested-ci child) on the
-# target, using the passed-in CI image and the base images in the local registry.
-cat > "${WORK}/build.sh" <<'EOF'
+# build.sh: build the appliance images (:ci parent + vfs :nested-ci child) and, for the e2e lane,
+# the EE on the target, using the passed-in CI image and the base images in the local registry.
+# build_ee (derived from the entrypoint) gates the EE build; the molecule lane skips it. Written
+# in two parts so build_ee is injected from here while the body stays a literal (quoted) heredoc.
+cat > "${WORK}/build.sh" <<EOF
 #!/usr/bin/env bash
+build_ee=${build_ee}
+EOF
+cat >> "${WORK}/build.sh" <<'EOF'
 set -euo pipefail
 reg=localhost:5000
 for c in podman make; do command -v "$c" >/dev/null || { echo "build: required tool not found: $c" >&2; exit 1; }; done
@@ -156,8 +175,10 @@ rm -rf /tmp/ega/build && mkdir -p /tmp/ega/build
 podman run --rm --user 0 localhost/evpn-gateway-appliance-ci:local tar -C /src -cf - . | tar -C /tmp/ega/build -xf -
 cd /tmp/ega/build
 # Build the EE with the passed-in CI image (ee-image no longer rebuilds it) and the EE base
-# from the local registry.
-EGA_EE_BASE="${reg}/openshift/centos:stream10" make ee-image
+# from the local registry. Only the e2e lane consumes the EE.
+if [ "$build_ee" = 1 ]; then
+    EGA_EE_BASE="${reg}/openshift/centos:stream10" make ee-image
+fi
 # Appliance nested-ci image (:ci parent + vfs child) via the make targets. The bases come from
 # the on-VM local registry, so override them to its paths and pass APPLIANCE_BUILD_ARGS so the
 # Containerfile's build-time skopeo can reach it (--network=host + the insecure drop-in). The
@@ -171,13 +192,14 @@ make nested-ci-appliance-image \
     APPLIANCE_CI_BUILD_ARGS="--network=host -v /etc/containers/registries.conf.d/99-local.conf:/etc/containers/registries.conf.d/99-local.conf:ro"
 EOF
 
-# e2e.sh: run the lane (repo-default image tags, so no EGA_* image overrides). Pin the artifact
-# dir so we know where to collect from; run.sh makes it world-readable on exit.
-cat > "${WORK}/e2e.sh" <<EOF
+# lane.sh: run the selected lane (repo-default image tags, so no EGA_* image overrides). Pin the
+# artifact dir so we know where to collect from; run.sh makes it world-readable on exit. Pass the
+# entrypoint through so run.sh runs the e2e or the molecule in-container script.
+cat > "${WORK}/lane.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 cd /tmp/ega/build
-EGA_ARTIFACT_DIR="${lane_artifacts}" bash test/e2e/run.sh
+EGA_ARTIFACT_DIR="${lane_artifacts}" EGA_ENTRYPOINT="${EGA_ENTRYPOINT}" bash test/e2e/run.sh
 EOF
 
 chmod +x "${WORK}"/*.sh
@@ -192,9 +214,9 @@ fi
 
 # --- Run the procedure on the target --------------------------------------------------
 banner "load base images into the target registry"; run_step load.sh
-banner "build EE + appliance images on the target"; run_step build.sh
-banner "run e2e"
-e2e_rc=0; run_step e2e.sh || e2e_rc=$?
+banner "build images on the target"; run_step build.sh
+banner "run lane (${EGA_ENTRYPOINT})"
+lane_rc=0; run_step lane.sh || lane_rc=$?
 
 # Collect artifacts even on failure (that is when they matter most). For a remote target, copy
 # the lane's artifact dir back into the local ARTIFACTS dir -- run.sh made it world-readable, so
@@ -210,4 +232,4 @@ if [[ -n "${SSH_REMOTE:-}" ]]; then
 fi
 
 banner "done"
-[ "${e2e_rc}" -eq 0 ] || { echo "run_remote: e2e failed (rc=${e2e_rc})" >&2; exit "${e2e_rc}"; }
+[ "${lane_rc}" -eq 0 ] || { echo "run_remote: lane failed (rc=${lane_rc})" >&2; exit "${lane_rc}"; }

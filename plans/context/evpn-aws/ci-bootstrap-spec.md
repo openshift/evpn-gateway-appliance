@@ -254,9 +254,11 @@ and configured by the collection's own `deploy.yml` run in a test EE, validated 
 check — not kind, which with real OVN-K belongs to the later OCP interop lanes. The lane runs
 behind runner-agnostic entry points (toolchain pinned in `Dockerfile.ci`, test EE built by
 `make ee-image`) so CI only sets env and collects artifacts: `test/e2e/run.sh` is the inner
-lane, and `test/e2e/run_remote.sh` wraps it for the VM model (exports the base images, ships
-them over SSH, builds on the target, then runs the lane). The openshift/release Prow job
-wiring that calls `run_remote.sh` is the remaining cross-repo TODO.
+lane, and `test/e2e/run_remote.sh` is the shared VM-model core (exports the base images, ships
+them over SSH, builds on the target, then runs the lane). `run_remote.sh` selects the lane via
+`EGA_ENTRYPOINT`; the named wrappers `run_e2e.sh` / `run_molecule.sh` set it. The openshift/release
+Prow job that calls `run_remote.sh` for the e2e lane is wired in; the parallel `molecule` job
+(calling `run_molecule.sh`) is the remaining cross-repo TODO.
 
 Those runners also expose KVM: RHEL System Roles tests its networking role in
 CentOS Stream 9/10 VMs and bootc containers across an ansible-core matrix

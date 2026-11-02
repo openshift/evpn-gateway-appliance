@@ -30,6 +30,9 @@ EGA_WORK_DIR="${EGA_WORK_DIR:-/tmp/ega/work}"
 EGA_ARTIFACT_DIR="${EGA_ARTIFACT_DIR:-/tmp/ega/artifact}"
 EGA_TOPOLOGY="${EGA_TOPOLOGY:-evpn.clab.yml}"
 EGA_STAGE="${EGA_STAGE:-full}"
+# The in-container script this lane runs. Defaults to the e2e entrypoint so a direct call
+# (and the live Prow wiring) stays unchanged; run_molecule.sh sets entrypoint_molecule.sh.
+EGA_ENTRYPOINT="${EGA_ENTRYPOINT:-entrypoint_e2e.sh}"
 
 engine="$(command -v podman || command -v docker)"
 
@@ -80,7 +83,7 @@ rc=0
 	-e "EGA_ARTIFACT_DIR=$EGA_ARTIFACT_DIR" \
 	-e "EGA_STAGE=$EGA_STAGE" \
 	-w /src/test/e2e \
-	"$EGA_E2E_IMAGE" ./entrypoint.sh || rc=$?
+	"$EGA_E2E_IMAGE" ./"$EGA_ENTRYPOINT" || rc=$?
 
 # The lane runs as root, so anything written to the artifact dir is root-owned. Make it
 # world-readable (and dirs traversable) so an unprivileged caller -- e.g. run_remote.sh's SSH

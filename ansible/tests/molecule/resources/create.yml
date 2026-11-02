@@ -1,0 +1,49 @@
+---
+# Delegated create (shared by all scenarios). Runs the appliance image as a sibling container on
+# the rootful podman socket (CONTAINER_HOST, set by entrypoint_molecule.sh) so NetworkManager,
+# nmstate and kernel vxlan/bridge work on the host kernel. Then registers the instance with
+# Molecule so converge/verify connect over the podman connection plugin (which also honors
+# CONTAINER_HOST). The lane cannot create this from the nested, rootless Prow container — hence the
+# rootful VM substrate shared with e2e.
+- name: Create
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run the appliance container
+      containers.podman.podman_container:
+        name: "{{ item.name }}"
+        image: "{{ lookup('env', 'EGA_NODE_IMAGE') }}"
+        state: started
+        privileged: true
+        systemd: always
+        cgroupns: host
+        tmpfs:
+          /run: ""
+      loop: "{{ molecule_yml.platforms }}"
+
+    - name: Wait for NetworkManager to come up inside the instance
+      ansible.builtin.command: podman exec {{ item.name }} systemctl is-active NetworkManager
+      loop: "{{ molecule_yml.platforms }}"
+      register: _nm
+      until: _nm.stdout == "active"
+      retries: 30
+      delay: 2
+      changed_when: false
+
+    - name: Build the Molecule instance config
+      ansible.builtin.set_fact:
+        _instance_config: >-
+          {{ _instance_config | default([]) + [{
+               'instance': item.name,
+               'address': item.name,
+               'user': 'root',
+               'connection': 'podman',
+             }] }}
+      loop: "{{ molecule_yml.platforms }}"
+
+    - name: Register the instance(s) with Molecule
+      ansible.builtin.copy:
+        dest: "{{ molecule_instance_config }}"
+        mode: "0600"
+        content: "{{ _instance_config | to_json }}"

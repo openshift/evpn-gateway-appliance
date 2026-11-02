@@ -40,3 +40,6 @@ build_ignore:
   - .yamllint
   - tools
   - .ansible
+  # Molecule scenarios are lab-heavy (rootful, real-kernel; run via test/e2e/run_molecule.sh);
+  # they are CI content, not part of the shipped collection.
+  - tests

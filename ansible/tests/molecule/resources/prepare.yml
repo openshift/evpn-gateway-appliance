@@ -1,0 +1,68 @@
+---
+# Prepare (shared by all scenarios). Presents the instance the way a real appliance host arrives,
+# and plants the ownership-reconcile fixtures:
+#   - NetworkManager running (the appliance image has it; started defensively).
+#   - The tunnel address on loopback, standing in for wg0 so the VXLAN 'local' is a valid local
+#     address (the molecule lane does not bring up WireGuard).
+#   - A fabricated trunk NIC: a veth stands in for the physical trunk the role enslaves. NM manages
+#     physical NICs by default but leaves veths unmanaged, so mark it managed (as the e2e sim does).
+#   - A squatting profile on the trunk NIC, and a stale ega-* orphan (a stretch no longer declared),
+#     so converge has something to displace and to prune.
+- name: Prepare
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - deploy_vars.yml
+  tasks:
+    - name: Ensure NetworkManager is running
+      ansible.builtin.systemd:
+        name: NetworkManager
+        state: started
+
+    - name: Put the tunnel address on loopback (stands in for wg0; VXLAN 'local')
+      ansible.builtin.command: ip address add {{ tunnel.onprem_ip }}/32 dev lo
+      register: _lo
+      changed_when: _lo.rc == 0
+      failed_when: _lo.rc != 0 and 'File exists' not in _lo.stderr
+
+    - name: Fabricate the trunk NIC (veth stands in for the physical trunk)
+      ansible.builtin.shell: |
+        set -e
+        ip link show {{ trunk_interface }} >/dev/null 2>&1 || ip link add {{ trunk_interface }} type veth peer name cpe
+        ip link set {{ trunk_interface }} up
+        ip link set cpe up
+        nmcli device set {{ trunk_interface }} managed yes
+      changed_when: true
+
+    - name: Plant a squatting profile on the trunk NIC (converge must displace it)
+      ansible.builtin.shell: |
+        set -e
+        nmcli connection show squatter >/dev/null 2>&1 || \
+          nmcli connection add type ethernet ifname {{ trunk_interface }} con-name squatter \
+            autoconnect yes ipv4.method disabled ipv6.method disabled
+        nmcli connection up squatter
+      changed_when: true
+
+    - name: Plant a stale ega-* orphan profile (converge must prune it)
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/system-connections/ega-bridge-vni19999.nmconnection
+        mode: "0600"
+        content: |
+          [connection]
+          id=ega-bridge-vni19999
+          type=bridge
+          interface-name=br-vni19999
+          autoconnect=true
+          [bridge]
+          stp=false
+          [ipv4]
+          method=disabled
+          [ipv6]
+          method=disabled
+
+    - name: Activate the planted orphan so it is a live, owned device to prune
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - nmcli connection reload
+        - nmcli connection up ega-bridge-vni19999
+      changed_when: true

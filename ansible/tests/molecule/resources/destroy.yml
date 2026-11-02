@@ -1,0 +1,19 @@
+---
+# Delegated destroy (shared by all scenarios). Removes the sibling appliance container from the
+# rootful socket and resets the Molecule instance config.
+- name: Destroy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Remove the appliance container
+      containers.podman.podman_container:
+        name: "{{ item.name }}"
+        state: absent
+      loop: "{{ molecule_yml.platforms }}"
+
+    - name: Reset the Molecule instance config
+      ansible.builtin.copy:
+        dest: "{{ molecule_instance_config }}"
+        mode: "0600"
+        content: "{{ [] | to_json }}"

@@ -75,10 +75,13 @@ RUN bash -c "$(curl -fsSL https://get.containerlab.dev)" -- -v 0.81.1
 # Python test toolchain. testinfra pinned to latest (10.2.2, 2026-10-19); pytest pinned
 # conservatively for broad testinfra compatibility. (deploy.yml renders its templates
 # inside the execution environment, which carries its own netaddr; the toolchain only
-# drives clab + the assertions.)
+# drives clab + the assertions.) molecule drives the role suite (test/e2e/entrypoint_molecule.sh);
+# 26.9.0 is the release paired with ansible-core 2.21.x. The molecule lane uses the built-in
+# `default` (delegated) driver — the container is created via containers.podman, so no driver plugin.
 RUN pip install --no-cache-dir \
         pytest==8.3.4 \
-        pytest-testinfra==10.2.2
+        pytest-testinfra==10.2.2 \
+        molecule==26.9.0
 
 # Copy the source code into the container
 COPY . /src
