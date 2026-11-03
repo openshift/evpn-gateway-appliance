@@ -1,0 +1,16 @@
+---
+# Dummy pod on the EVPN CUDN for L2 reachability testing.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ega-test-workload
+  annotations:
+    k8s.v1.cni.cncf.io/networks: ega-evpn-production
+spec:
+  containers:
+    - name: agnhost
+      image: registry.k8s.io/e2e-test-images/agnhost:2.43
+      args:
+        - netexec
+        - --http-port=8080
+  restartPolicy: Never

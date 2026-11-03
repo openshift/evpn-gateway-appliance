@@ -1,0 +1,28 @@
+---
+# FRRConfiguration: eBGP from frr-k8s (ASN 65200) toward the relay.
+# RELAY_PRIVATE_IP is templated by setup-cluster.sh.
+apiVersion: frrk8s.metallb.io/v1beta1
+kind: FRRConfiguration
+metadata:
+  name: ega-relay-peer
+  namespace: frr-k8s-system
+  labels:
+    ega-lane: e2e-kind
+spec:
+  bgp:
+    routers:
+      - asn: 65200
+        neighbors:
+          - address: RELAY_PRIVATE_IP
+            asn: 65100
+            ebgpMultiHop: true
+            toReceive:
+              allowed:
+                prefixes:
+                  - prefix: 10.42.0.0/16
+                    ge: 24
+            toAdvertise:
+              allowed:
+                prefixes:
+                  - prefix: 10.42.0.0/16
+                    ge: 24
