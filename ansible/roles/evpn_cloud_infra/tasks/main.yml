@@ -1,4 +1,12 @@
 ---
+- name: Validate cloud_workload group is populated
+  ansible.builtin.assert:
+    that:
+      - groups['cloud_workload'] | default([]) | length > 0
+    fail_msg: >-
+      The cloud_workload inventory group must contain at least one host
+      (OCP nodes in production, standalone VM in dev).
+
 - name: Generate/load WireGuard keys
   ansible.builtin.include_tasks: wireguard_keys.yml
   when: tunnel.type == 'wireguard'

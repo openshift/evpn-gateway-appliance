@@ -1,8 +1,8 @@
 # EVPN Gateway Appliance — Ansible Collection
 
-Deploys and configures the EVPN Gateway Appliance (EGA) fabric: the on-prem
-appliance, the AWS infra/workload relays, and the BGP EVPN sessions
-connecting them, using FRR and (dev/test only) WireGuard.
+Deploys and configures the EVPN Gateway Appliance (EGA) fabric: on-prem
+appliance, AWS infra relay, and BGP EVPN sessions connecting them to
+OCP-native workload VTEPs.
 
 Collection FQCN: `network.evpn_gateway`.
 
@@ -22,12 +22,11 @@ meta/execution-environment.yml      Execution-environment dependency pointers
 roles/
 ├── evpn_onprem_appliance/          On-prem: VLAN trunk, VXLAN, FRR VTEP
 ├── evpn_cloud_infra/               Infra VPC: WireGuard server, FRR relay
-├── evpn_cloud_workload/            Workload VPC: standalone FRR VTEP (dev/test — see role README)
 ├── evpn_aws_infra/                 AWS provisioning (VPCs, TGW, EC2, security groups)
 ├── evpn_monitoring/                frr_exporter + node_exporter
 └── evpn_health_check/              Read-only validation suite
 playbooks/
-├── deploy.yml                      Full deploy, idempotent
+├── deploy.yml                      Production deploy (discovers OCP frr-k8s peers, deploys fabric)
 ├── health-check.yml                Validation only
 ├── provision-aws.yml               Provision AWS infra, update inventory
 ├── teardown.yml                    Remove appliance/relay/VTEP configuration
@@ -64,14 +63,25 @@ The machine running these playbooks needs:
 system dependencies from `requirements.txt`, `bindep.txt` and
 `meta/execution-environment.yml`.)
 
+## Deployment modes
+
+| Mode           | `cloud_workload` hosts         | Notes                                                            |
+|----------------|--------------------------------|------------------------------------------------------------------|
+| **Production** | OCP frr-k8s nodes (discovered) | `deploy.yml` queries the k8s API for running frr-k8s pods        |
+| **Dev/test**   | Standalone VM(s)               | Test collection: `network.evpn_gateway_test.deploy_workload`     |
+
+Production `deploy.yml` always discovers peers from the OCP cluster.
+For non-OCP topologies, the test collection provides the standalone VTEP role.
+
 ## Quick start (from a source checkout)
 
 ```bash
 cd ansible
-# Provision AWS infra and generate the inventory (run at least once):
+# Provision AWS infra and generate the inventory:
 ansible-playbook playbooks/provision-aws.yml
-# (or hand-edit inventory/hosts.yml from inventory/hosts.yml.j2)
+# Deploy (discovers OCP frr-k8s peers, deploys relay + appliance):
 ansible-playbook playbooks/deploy.yml
+# Validate:
 ansible-playbook playbooks/health-check.yml
 ```
 
@@ -105,10 +115,8 @@ specifically:
 - Pinned the `frr_exporter`/`node_exporter` image tags instead of `:latest`.
 - Added a defensive EVPN `maximum-prefix` to the FRR templates.
 - Replaced hardcoded `hostvars['infra-router']`/`hostvars['workload-router']`
-  lookups (and static `hostname` lines) with the explicit
-  `infra_relay_host`/`workload_vtep_host` variables and `inventory_hostname`,
-  so renaming those inventory hosts just needs the one matching variable
-  updated, not template edits.
+  lookups with the `infra_relay_host` variable and `groups['cloud_workload']`
+  inventory group, so topology changes only need inventory updates.
 - Replaced the static `frr version 10.3.1` line in all three FRR templates
   with a value derived from `frr_image`'s tag, so it can't silently drift
   from the image actually deployed.

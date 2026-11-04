@@ -5,13 +5,10 @@ argument_specs:
     description:
       - Terminates the transport from the on-prem appliance and configures FRR
         as a route relay (not a VTEP) between the on-prem appliance and the
-        workload-VPC VTEP, using next-hop-unchanged so VTEP IPs are preserved
+        workload-side VTEPs, using next-hop-unchanged so VTEP IPs are preserved
         end-to-end.
+      - "Workload peers are read from the cloud_workload inventory group."
     options:
-      workload_vtep_host:
-        type: str
-        required: true
-        description: Inventory hostname of the workload-VPC VTEP peer; its private_ip host variable is used as the BGP neighbor address.
       private_ip:
         type: str
         required: true

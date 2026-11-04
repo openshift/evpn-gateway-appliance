@@ -1,6 +1,51 @@
 ---
-# Full deploy — idempotent, safe to re-run.
-# Usage: ansible-playbook playbooks/deploy.yml
+# Production deploy — discovers workload peers from OCP frr-k8s, then deploys the fabric.
+
+- name: Discover workload peers
+  hosts: localhost
+  gather_facts: false
+  vars:
+    frr_k8s_namespace: "{{ frr_k8s_ns | default('openshift-frr-k8s') }}"
+    frr_k8s_label: "{{ frr_k8s_lbl | default('app=frr-k8s') }}"
+  tasks:
+    - name: Get running frr-k8s pods
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ frr_k8s_namespace }}"
+        label_selectors:
+          - "{{ frr_k8s_label }}"
+        field_selectors:
+          - status.phase=Running
+      register: frr_pods
+
+    - name: Fail if no frr-k8s pods found
+      ansible.builtin.assert:
+        that: frr_pods.resources | length > 0
+        fail_msg: "No running frr-k8s pods in {{ frr_k8s_namespace }}"
+
+    - name: Populate cloud_workload from frr-k8s nodes
+      ansible.builtin.add_host:
+        name: "{{ item.spec.nodeName }}"
+        groups: cloud_workload
+        private_ip: "{{ item.status.hostIP }}"
+      loop: "{{ frr_pods.resources }}"
+      loop_control:
+        label: "{{ item.spec.nodeName }}"
+
+    - name: Get FRRConfiguration
+      kubernetes.core.k8s_info:
+        api_version: frrk8s.metallb.io/v1beta1
+        kind: FRRConfiguration
+      register: frr_configs
+
+    - name: Set workload ASN on relay hosts
+      ansible.builtin.set_fact:
+        bgp: "{{ bgp | combine({'workload_asn': frr_configs.resources[0].spec.bgp.routers[0].asn}) }}"
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['cloud_infra'] | default([]) }}"
+      when: frr_configs.resources | length > 0
 
 - name: Deploy cloud infra (EVPN relay + WireGuard)
   hosts: cloud_infra
@@ -11,16 +56,6 @@
       ansible.builtin.service_facts:
   roles:
     - evpn_cloud_infra
-    - evpn_monitoring
-
-- name: Deploy cloud workload (EVPN VTEP)
-  hosts: cloud_workload
-  become: true
-  pre_tasks:
-    - name: Gather service facts
-      ansible.builtin.service_facts:
-  roles:
-    - evpn_cloud_workload
     - evpn_monitoring
 
 - name: Deploy on-prem appliance (EVPN VTEP + VLAN trunk)
