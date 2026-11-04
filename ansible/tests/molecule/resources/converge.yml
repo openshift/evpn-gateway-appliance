@@ -1,0 +1,16 @@
+---
+# Converge (shared by all scenarios). Applies the on-prem networking reconcile — the WS2 nmstate
+# work this suite tests. Scoped to the networking tasks (tasks_from: nm_networking) rather than the
+# full role, since FRR/WireGuard are not the subject here (they are covered by the e2e lane); the
+# scenarios assert the networking contract only. Idempotence is exercised by Molecule re-running
+# this play.
+- name: Converge
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - deploy_vars.yml
+  tasks:
+    - name: Apply the on-prem networking reconcile
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_onprem_appliance
+        tasks_from: nm_networking

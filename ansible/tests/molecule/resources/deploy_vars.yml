@@ -1,0 +1,21 @@
+---
+# Minimal on-prem networking inputs for the Molecule converge/verify (a trimmed group_vars/all.yml:
+# only the keys nm_networking.yml and nmstate.yml.j2 consume — trunk_interface, tunnel.onprem_ip,
+# and per-stretch vlan/name/subnet/onprem_gateway).
+trunk_interface: trunk0
+tunnel:
+  type: wireguard
+  onprem_ip: 10.44.44.1
+stretches:
+  - vlan: 100
+    name: production
+    subnet: 10.42.1.0/24
+    onprem_gateway: 10.42.1.1
+  - vlan: 200
+    name: staging
+    subnet: 10.42.2.0/24
+    onprem_gateway: 10.42.2.1
+  - vlan: 300
+    name: management
+    subnet: 10.42.3.0/24
+    onprem_gateway: 10.42.3.1

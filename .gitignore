@@ -10,8 +10,11 @@ ansible/**/*.retry
 # Ansible collection build output
 ansible/*.tar.gz
 
-# ansible-lint / ansible-compat local cache (created by `make check-ansible`)
+# ansible-lint / ansible-compat local cache (created by `make check-ansible`, or by
+# running ansible-lint against either collection)
+/.ansible/
 ansible/.ansible/
+test/ansible/.ansible/
 
 # OS
 .DS_Store

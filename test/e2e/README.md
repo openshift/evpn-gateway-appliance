@@ -5,28 +5,45 @@ EVPN fabric and validates control-plane and data-plane behavior, using the colle
 own `playbooks/deploy.yml` as the thing under test. It is the simulated-topology gate
 (L7) described in `plans/context/evpn-aws/pipeline-spec.md` and `ci-bootstrap-spec.md`.
 
-Two entry points, by how they are meant to be run:
+This directory is the **CI lane harness** (despite the `e2e` name): it also hosts the molecule
+lane, which reuses the same rootful-target machinery. Both lanes share one core, `run_remote.sh`,
+and differ only in the in-container script it runs (`EGA_ENTRYPOINT`).
+
+Entry points, by how they are meant to be run:
 
 - `test/e2e/run.sh` — run **locally, on a rootful host**, with the images already present.
-- `test/e2e/run_remote.sh` — the **CI** path: from an unprivileged local checkout it builds
-  and runs the lane on a target over SSH (and, with no target, locally for convenience).
+- `test/e2e/run_remote.sh` — the **shared CI core**: from an unprivileged local checkout it builds
+  and runs a lane on a target over SSH (and, with no target, locally for convenience). Called
+  directly it runs the e2e lane (backward compatible); the named wrappers below just set the lane.
+- `test/e2e/run_e2e.sh` / `test/e2e/run_molecule.sh` — thin wrappers over `run_remote.sh` selecting
+  the e2e or molecule lane. A Prow status then reads `e2e` / `molecule`. The molecule wrapper also
+  skips the EE build (molecule drives the role with the CI image's own ansible, not the shipped EE).
 
-Both are runner-agnostic — the same scripts work under a Prow test step or a GitHub Actions
+All are runner-agnostic — the same scripts work under a Prow test step or a GitHub Actions
 VM; the runner only provides env and collects artifacts.
 
 ## Layout
 
 ```text
 test/
-  ansible/            test-only collection (network.evpn_gateway_test): on-prem sim role + playbooks; installed into the EE
+  ansible/                test-only collection (network.evpn_gateway_test): on-prem sim role + playbooks; installed into the EE
   e2e/
-    run.sh            run the lane locally (rootful): podman run the toolchain image
-    run_remote.sh     run against a remote target (or locally, no target): export, ship, build, run
-    entrypoint.sh     in-container steps: clab deploy -> simulate -> deploy.yml -> health checks
+    run.sh                run a lane locally (rootful): podman run the toolchain image, run ${EGA_ENTRYPOINT}
+    run_remote.sh         shared core: against a remote target (or locally): export, ship, build, run
+    run_e2e.sh            wrapper: select the e2e lane (entrypoint_e2e.sh)
+    run_molecule.sh       wrapper: select the molecule lane (entrypoint_molecule.sh; skips the EE build)
+    entrypoint_e2e.sh     e2e in-container steps: clab deploy -> simulate -> deploy.yml -> health checks
+    entrypoint_molecule.sh  molecule in-container steps: molecule test against the rootful socket
     topology/
-      evpn.clab.yml   the emulated fabric
-    inventory/        e2e Ansible inventory + group_vars
-    ee/               execution-environment definition + build.sh (make ee-image)
+      evpn.clab.yml       the emulated fabric
+    inventory/            e2e Ansible inventory + group_vars
+    ee/                   execution-environment definition + build.sh (make ee-image)
+
+ansible/
+  tests/molecule/         molecule scenarios for the evpn_onprem_appliance role (run by the molecule lane)
+    resources/            shared create/destroy/prepare/converge + deploy_vars
+    default/              converge + idempotence + ownership-reconcile + reboot
+    teardown/             converge then teardown, assert empty
 ```
 
 ## run.sh — local, rootful
@@ -113,9 +130,9 @@ sudo EGA_STAGE=destroy test/e2e/run.sh
 
 `run_remote.sh` builds on `run.sh`: it just gets everything in place on the target and then
 runs `run.sh` there. From an unprivileged local checkout it exports the base images to
-tarballs, ships them over SSH, and on the target loads a local registry, builds the EE and
-appliance images, and runs `run.sh`. The local side needs no root — only the target does the
-rootful work. With no target (`SSH_REMOTE` unset) it does the same export/build/run on this
+tarballs, ships them over SSH, and on the target loads a local registry, builds the appliance
+images (and, for the e2e lane only, the EE), and runs `run.sh`. The local side needs no root —
+only the target does the rootful work. With no target (`SSH_REMOTE` unset) it does the same export/build/run on this
 host, which is then the rootful one.
 
 ### Contract
@@ -166,6 +183,33 @@ sudo env FRR_IMAGE=<ocp frr> NODE_EXPORTER_IMAGE=<ocp node-exporter> \
     REGISTRY_AUTH_FILE="$HOME/.docker/config.json" \
     test/e2e/run_remote.sh
 ```
+
+## Molecule lane
+
+The molecule lane tests the `evpn_onprem_appliance` role's on-prem networking (the WS2 nmstate
+reconcile) in isolation — the behaviors the e2e lane does not target per-role: idempotence,
+ownership reconcile, teardown, and persistence across reboot. It reuses the whole `run_remote.sh`
+substrate; only the in-container script differs (`entrypoint_molecule.sh`), selected by
+`run_molecule.sh`.
+
+Because the role needs a real kernel (vxlan/bridge netlink) and a privileged systemd container, the
+lane cannot create its instance from the nested, rootless Prow container — same constraint as e2e.
+So molecule uses its built-in **`default` (delegated) driver**: `entrypoint_molecule.sh` runs inside
+the CI image on the rootful target with the podman socket mounted, and the shared
+`ansible/tests/molecule/resources/create.yml` runs the appliance image as a sibling container on
+that rootful socket. The scenarios assert the networking *contract* (devices, SVI IPs, self-VLANs,
+`neigh_suppress`, ownership, teardown), so they are independent of whether the role reconciles via
+nmstate or keyfiles.
+
+```bash
+# Same invocation shape as e2e; the wrapper only selects the lane.
+SSH_REMOTE=user@vm SSH_OPTS="..." \
+FRR_IMAGE=<ocp frr> NODE_EXPORTER_IMAGE=<ocp node-exporter> \
+test/e2e/run_molecule.sh
+```
+
+Scenarios live under `ansible/tests/molecule/` (see the Layout above); `EGA_STAGE=<scenario>` runs a
+single scenario instead of all.
 
 ## Status
 

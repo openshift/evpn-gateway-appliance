@@ -1,0 +1,41 @@
+---
+# Default scenario: converge the on-prem networking, prove it is idempotent, that it reconciles
+# ownership (displaces a squatter on the trunk NIC, prunes a stale ega-* orphan), and that it
+# survives a reboot (podman restart proxy). create/destroy/prepare/converge are shared from
+# ../resources; side_effect (restart) and verify are scenario-local.
+dependency:
+  name: galaxy
+  enabled: false
+driver:
+  name: default
+platforms:
+  - name: ega-molecule-default
+provisioner:
+  name: ansible
+  env:
+    # Passed explicitly (molecule can sanitize the inherited environment): the collections path
+    # for FQCN resolution, the rootful podman socket the podman connection/CLI target, and the
+    # appliance image the delegated create runs. All are exported by entrypoint_molecule.sh.
+    ANSIBLE_COLLECTIONS_PATH: ${ANSIBLE_COLLECTIONS_PATH}
+    CONTAINER_HOST: ${CONTAINER_HOST}
+    EGA_NODE_IMAGE: ${EGA_NODE_IMAGE}
+  playbooks:
+    create: ../resources/create.yml
+    destroy: ../resources/destroy.yml
+    prepare: ../resources/prepare.yml
+    converge: ../resources/converge.yml
+scenario:
+  test_sequence:
+    - dependency
+    - cleanup
+    - destroy
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - side_effect
+    - verify
+    - cleanup
+    - destroy
+verifier:
+  name: ansible

@@ -1,0 +1,34 @@
+---
+# Verify teardown reached the empty state: no ega-* profiles, no per-stretch VNI bridges, no trunk
+# bridge; the physical trunk NIC survives but is released (NetworkManager cannot delete a physical
+# device — the documented limitation — so it is left present and unmanaged, not deleted).
+- name: Verify teardown
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - ../resources/deploy_vars.yml
+  tasks:
+    - name: No ega-* NetworkManager profiles remain
+      ansible.builtin.command: nmcli -t -f NAME connection show
+      register: _conns
+      changed_when: false
+      failed_when: _conns.stdout is search('(^|\n)ega-')
+
+    - name: No per-stretch VNI bridge remains
+      ansible.builtin.command: ip link show br-vni{{ 10000 + item.vlan }}
+      loop: "{{ stretches }}"
+      register: _vni
+      changed_when: false
+      failed_when: _vni.rc == 0
+
+    - name: Trunk bridge removed
+      ansible.builtin.command: ip link show trunk-br
+      register: _tb
+      changed_when: false
+      failed_when: _tb.rc == 0
+
+    - name: Trunk NIC survives but is released (no bridge master)
+      ansible.builtin.command: ip -o link show {{ trunk_interface }}
+      register: _trunk
+      changed_when: false
+      failed_when: _trunk.rc != 0 or 'master' in _trunk.stdout

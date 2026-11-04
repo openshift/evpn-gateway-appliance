@@ -1,0 +1,34 @@
+---
+# Tear down the on-prem networking exactly as the shipped ansible/playbooks/teardown.yml onprem play
+# does: remove the ega-* keyfiles and the dispatchers, then reload so NetworkManager deletes the
+# software devices. Kept in step with that playbook — it is the source of truth; if its steps change,
+# update here too.
+- name: Side effect — tear down the on-prem networking
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Find appliance NetworkManager keyfiles
+      ansible.builtin.find:
+        paths: /etc/NetworkManager/system-connections
+        patterns: "ega-*.nmconnection"
+      register: _ega_teardown
+
+    - name: Remove appliance NetworkManager keyfiles
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ _ega_teardown.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: Remove NetworkManager dispatchers
+      ansible.builtin.file:
+        path: "/etc/NetworkManager/dispatcher.d/{{ item }}"
+        state: absent
+      loop:
+        - 90-ega-neigh-suppress
+        - 90-ega-trunk-vlans
+
+    - name: Reload NetworkManager to tear down appliance devices
+      ansible.builtin.command: nmcli connection reload
+      changed_when: true

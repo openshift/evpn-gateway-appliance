@@ -1,0 +1,44 @@
+---
+# Verify the networking contract after converge + reboot: the fabric is up, the role owns the trunk
+# NIC (squatter displaced), the stale orphan was pruned, and the dispatcher-managed flags are set.
+# Runs after the reboot side_effect, so passing here also proves persistence.
+- name: Verify
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - ../resources/deploy_vars.yml
+  tasks:
+    - name: Trunk bridge is up with the trunk NIC enslaved
+      ansible.builtin.command: ip -o link show {{ trunk_interface }}
+      register: _trunk
+      changed_when: false
+      failed_when: "'master trunk-br' not in _trunk.stdout"
+
+    - name: Each stretch VNI bridge carries its SVI gateway
+      ansible.builtin.command: ip -4 -o addr show br-vni{{ 10000 + item.vlan }}
+      loop: "{{ stretches }}"
+      register: _svi
+      changed_when: false
+      failed_when: item.onprem_gateway not in _svi.stdout
+
+    - name: trunk-br has each stretch VLAN in its own (self) membership (dispatcher)
+      ansible.builtin.shell: bridge vlan show dev trunk-br | grep -qw {{ item.vlan }}
+      loop: "{{ stretches }}"
+      changed_when: false
+
+    - name: Each VXLAN bridge port has neigh_suppress on (dispatcher)
+      ansible.builtin.shell: bridge -d link show dev vxlan{{ 10000 + item.vlan }} | grep -q 'neigh_suppress on'
+      loop: "{{ stretches }}"
+      changed_when: false
+
+    - name: Trunk NIC is owned by the appliance profile (squatter displaced)
+      ansible.builtin.command: nmcli -t -f GENERAL.CONNECTION device show {{ trunk_interface }}
+      register: _owner
+      changed_when: false
+      failed_when: ('ega-port-' ~ trunk_interface) not in _owner.stdout
+
+    - name: Stale ega-* orphan was pruned
+      ansible.builtin.command: ip link show br-vni19999
+      register: _orphan
+      changed_when: false
+      failed_when: _orphan.rc == 0
