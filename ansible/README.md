@@ -57,6 +57,8 @@ The machine running these playbooks needs:
 - **AWS** — credentials available in your environment for
   `provision-aws.yml`/`teardown-aws.yml`, e.g.
   `source <(aws configure export-credentials --format env)`.
+  Provisioning runs locally without Ansible privilege escalation, using the
+  controller account's credential provider chain.
 - **SSH** — the EC2 key pair named by `ssh_key_name` must exist in AWS, with
   its private key available to your environment (e.g. loaded into ssh-agent).
 
