@@ -5,8 +5,9 @@ argument_specs:
     description:
       - >-
         Brings up the on-prem side of the EVPN fabric: the transport endpoint,
-        the VLAN trunk on a physical interface, per-stretch VXLAN interfaces
-        and bridges, and FRR configured as the on-prem VTEP.
+        the VLAN trunk on a physical interface, per-stretch VLAN sub-interfaces,
+        VXLAN interfaces and bridges, and FRR configured as the on-prem VTEP.
+        NetworkManager and nmstate must be available on the target.
     options:
       infra_relay_host:
         type: str
@@ -97,8 +98,12 @@ argument_specs:
         type: str
         required: true
         description: >-
-          Name of the tagged VLAN trunk interface to attach. The role enslaves it
-          to the trunk bridge and builds a per-stretch VLAN sub-interface on it.
+          Name of the tagged VLAN trunk interface to attach. The role creates one
+          VLAN sub-interface on it per stretch, named <trunk_interface>.<vlan>,
+          and enslaves each to that stretch's VNI bridge. The interface must be
+          NetworkManager-managed; its existing profile is replaced by
+          ega-port-<trunk_interface>, which holds no address. Each generated name
+          <trunk_interface>.<vlan> must fit the kernel's 15 character limit.
       frr_image:
         type: str
         required: true

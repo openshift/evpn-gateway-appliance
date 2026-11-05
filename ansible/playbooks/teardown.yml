@@ -29,16 +29,45 @@
       register: _wg_stop
       failed_when: _wg_stop.failed and 'Could not find' not in (_wg_stop.msg | default(''))
 
-    - name: Remove bridges, VXLAN, VLAN interfaces
-      ansible.builtin.shell: |
-        {% for s in stretches %}
-        {% set vni = 10000 + s.vlan %}
-        ip link del br-vni{{ vni }} 2>/dev/null || true
-        ip link del vxlan{{ vni }} 2>/dev/null || true
-        ip link del trunk.{{ s.vlan }} 2>/dev/null || true
-        {% endfor %}
-        ip link del trunk-br 2>/dev/null || true
+    - name: Remove NetworkManager dispatchers
+      ansible.builtin.file:
+        path: "/etc/NetworkManager/dispatcher.d/{{ item }}"
+        state: absent
+      loop:
+        - 90-ega-neigh-suppress
+
+    - name: Reload NetworkManager to pick up on-disk profiles
+      ansible.builtin.command: nmcli connection reload
+      changed_when: true
+
+    # UUID first keeps escaped colons in connection names out of the UUID parse.
+    - name: List appliance NetworkManager profiles
+      ansible.builtin.command:
+        argv:
+          - nmcli
+          - --terse
+          - --fields
+          - UUID,NAME
+          - connection
+          - show
+      register: _ega_profiles
       changed_when: false
+
+    - name: Delete appliance NetworkManager profiles
+      ansible.builtin.command:
+        argv:
+          - nmcli
+          - connection
+          - delete
+          - uuid
+          - "{{ item }}"
+      loop: >-
+        {{ _ega_profiles.stdout_lines
+           | select('match', '^[^:]+:ega-')
+           | map('regex_replace', ':.*', '') | list }}
+      loop_control:
+        label: "{{ item }}"
+      changed_when: true
 
     - name: Remove FRR config
       ansible.builtin.file:

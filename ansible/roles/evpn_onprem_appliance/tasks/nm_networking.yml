@@ -1,0 +1,79 @@
+---
+# On-prem networking via nmstate. Render the desired state (templates/nmstate.yml.j2: one
+# 802.1Q VLAN sub-interface per stretch on the trunk NIC, each a port of that stretch's VNI
+# bridge, which holds the SVI and a VXLAN port) and apply it with nmstatectl, which
+# reconciles current->desired (create / modify / recreate) and verifies.
+#
+# Ownership is by NM profile name (ega-*), set via nmstate's profile-name; interface names
+# stay conventional. Prune = any ega-* profile no longer desired, whose interface we mark
+# `state: absent` so nmstate tears it down. One dispatcher remains for the VXLAN
+# neigh_suppress flag, which nmstate cannot express. It is deployed BEFORE the apply so it
+# fires as the interfaces come up during it.
+
+- name: Validate VLAN sub-interface name lengths
+  ansible.builtin.assert:
+    that:
+      - (trunk_interface | length) + 1 + (item.vlan | string | length) <= 15
+    fail_msg: >-
+      Interface {{ trunk_interface }}.{{ item.vlan }} exceeds the kernel's 15 character
+      interface name limit; choose a shorter trunk_interface.
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ trunk_interface }}.{{ item.vlan }}"
+
+- name: Deploy neigh_suppress dispatcher
+  ansible.builtin.template:
+    src: nm-dispatch-neigh-suppress.j2
+    dest: /etc/NetworkManager/dispatcher.d/90-ega-neigh-suppress
+    mode: "0755"
+
+# ── Ownership: find ega-* profiles no longer desired ────────────
+- name: Seed the desired profile names with the shared trunk profile
+  ansible.builtin.set_fact:
+    _ega_desired_conns:
+      - "ega-port-{{ trunk_interface }}"
+
+- name: Add the per-stretch profile names
+  ansible.builtin.set_fact:
+    _ega_desired_conns: >-
+      {{ _ega_desired_conns + [
+           'ega-bridge-vni' ~ (10000 + item.vlan),
+           'ega-vxlan-' ~ (10000 + item.vlan),
+           'ega-vlan-' ~ item.vlan ] }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Read the current network state
+  ansible.builtin.command: nmstatectl show
+  register: _ega_state
+  changed_when: false
+
+# nmstate round-trips profile-name, so select the interfaces it owns for us (profile-name
+# ega-*) that are no longer desired; their names become the state:absent entries.
+- name: Build the absent interface list (our profiles no longer desired)
+  ansible.builtin.set_fact:
+    _ega_absent: >-
+      {{ (_ega_state.stdout | from_yaml).interfaces
+         | selectattr('profile-name', 'defined')
+         | selectattr('profile-name', 'match', '^ega-')
+         | rejectattr('profile-name', 'in', _ega_desired_conns)
+         | map(attribute='name') | list }}
+
+# ── Render + apply ──────────────────────────────────────────────
+- name: Ensure the state directory exists
+  ansible.builtin.file:
+    path: /var/lib/ega
+    state: directory
+    mode: "0700"
+
+# Kept (persistent) as the record of the last-applied desired state, for audit/debugging.
+- name: Render the nmstate desired state
+  ansible.builtin.template:
+    src: nmstate.yml.j2
+    dest: /var/lib/ega/nmstate.yaml
+    mode: "0600"
+
+- name: Apply the nmstate desired state
+  ansible.builtin.command: nmstatectl apply /var/lib/ega/nmstate.yaml
+  changed_when: true

@@ -99,11 +99,23 @@ ee_playbook() {
 			-u root --private-key "$ssh_key"
 }
 
-# Build the simulated on-prem side (trunk + fake hosts) BEFORE the product deploy so
-# the appliance role finds the trunk to build its VTEP on; deploy the product; then run
-# the simulated-host data-plane checks.
+# Build the simulated on-prem side before the product deploy so the appliance role finds
+# the trunk to build its VTEP on; deploy and dump appliance state (also on failure), then
+# run the simulated-host data-plane checks.
+dump_state() {
+	echo ">> debug: dumping appliance network state"
+	ee_playbook network.evpn_gateway_test.debug || echo ">> debug dump failed (non-fatal)" >&2
+}
+
 ee_playbook network.evpn_gateway_test.simulate
-ee_playbook network.evpn_gateway.deploy
+if ee_playbook network.evpn_gateway.deploy; then
+	:
+else
+	echo ">> deploy failed; dumping appliance state before exit" >&2
+	dump_state
+	exit 1
+fi
+dump_state
 ee_playbook network.evpn_gateway_test.healthcheck
 
 echo ">> deploy + simulated-host health checks complete"
