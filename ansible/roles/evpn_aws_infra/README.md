@@ -18,6 +18,32 @@ evpn_aws_infra_admin_cidr: 203.0.113.4/32
 Set `evpn_aws_infra_allow_open_admin_cidr: true` only for a disposable lab —
 never in CI.
 
+## Input migration
+
+Rename existing role inputs to the prefixed names; legacy aliases are not provided:
+
+| Previous name | Role input |
+| --- | --- |
+| `aws_region` | `evpn_aws_infra_aws_region` |
+| `project_name` | `evpn_aws_infra_project_name` |
+| `infra_vpc_cidr` | `evpn_aws_infra_infra_vpc_cidr` |
+| `workload_vpc_cidr` | `evpn_aws_infra_workload_vpc_cidr` |
+| `router_instance_type` | `evpn_aws_infra_router_instance_type` |
+| `ssh_key_name` | `evpn_aws_infra_ssh_key_name` |
+| `router_ami` | `evpn_aws_infra_router_ami` |
+
+Shared `infra_vpc_cidr` and `workload_vpc_cidr` remain fabric settings; the
+source inventory maps them to the AWS role inputs.
+
+## Returned facts
+
+The role exports cached IP facts as
+`evpn_aws_infra_infra_public_ip`, `evpn_aws_infra_infra_private_ip`,
+`evpn_aws_infra_workload_public_ip` and `evpn_aws_infra_workload_private_ip`.
+The provisioning playbook uses these to render the inventory. These replace the
+unprefixed `infra_public_ip`, `infra_private_ip`, `workload_public_ip` and
+`workload_private_ip` facts.
+
 ## Known limitations (tracked, not fixed by this role)
 
 - Uses 46 `aws` CLI calls instead of `amazon.aws` modules (Python 3.14

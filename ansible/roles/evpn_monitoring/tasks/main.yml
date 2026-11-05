@@ -23,7 +23,7 @@
     - monitoring.frr_exporter | default(false)
     - ansible_facts.services is defined
     - "'frr-exporter.service' in ansible_facts.services"
-  register: _frr_exp_systemd
+  register: _evpn_monitoring_frr_exp_systemd
 
 - name: Deploy frr_exporter via podman (non-bootc)
   containers.podman.podman_container:
@@ -42,7 +42,7 @@
       - /var/run/frr:/var/run/frr:ro
   when:
     - monitoring.frr_exporter | default(false)
-    - _frr_exp_systemd is skipped
+    - _evpn_monitoring_frr_exp_systemd is skipped
 
 # ── node_exporter ──────────────────────────────────────────────
 - name: Start node-exporter via systemd (bootc image)
@@ -54,7 +54,7 @@
     - monitoring.node_exporter | default(false)
     - ansible_facts.services is defined
     - "'node-exporter.service' in ansible_facts.services"
-  register: _node_exp_systemd
+  register: _evpn_monitoring_node_exp_systemd
 
 - name: Deploy node_exporter via podman (non-bootc)
   containers.podman.podman_container:
@@ -73,4 +73,4 @@
       --path.rootfs=/rootfs
   when:
     - monitoring.node_exporter | default(false)
-    - _node_exp_systemd is skipped
+    - _evpn_monitoring_node_exp_systemd is skipped

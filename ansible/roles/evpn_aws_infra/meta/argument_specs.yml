@@ -5,31 +5,31 @@ argument_specs:
     description:
       - Provisions the infra and workload VPCs, the transit gateway, the EC2 routers and their security groups.
     options:
-      aws_region:
+      evpn_aws_infra_aws_region:
         type: str
         default: eu-west-1
         description: AWS region to provision the infrastructure in.
-      project_name:
+      evpn_aws_infra_project_name:
         type: str
         default: evpn-poc
         description: Resource-name prefix and project tag identifying the created resources.
-      infra_vpc_cidr:
+      evpn_aws_infra_infra_vpc_cidr:
         type: str
         default: 10.100.0.0/16
         description: CIDR block for the infra VPC.
-      workload_vpc_cidr:
+      evpn_aws_infra_workload_vpc_cidr:
         type: str
         default: 10.200.0.0/16
         description: CIDR block for the workload VPC.
-      router_instance_type:
+      evpn_aws_infra_router_instance_type:
         type: str
         default: t3.small
         description: EC2 instance type for the infra and workload routers.
-      ssh_key_name:
+      evpn_aws_infra_ssh_key_name:
         type: str
         default: bgp-poc
         description: Name of an EC2 key pair for SSH access; must already exist in the target AWS account and region.
-      router_ami:
+      evpn_aws_infra_router_ami:
         type: str
         default: ""
         description: AMI ID for the routers. If left empty, the latest CentOS Stream 10 x86_64 AMI published by the CentOS project is looked up automatically.

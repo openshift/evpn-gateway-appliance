@@ -6,18 +6,18 @@
 # ═══════════════════════════════════════════════════════════════
 - name: "HEALTH: FRR container is running"
   ansible.builtin.command: podman ps --format '{{ '{{' }}.Names{{ '}}' }}' --filter name=frr
-  register: _frr_ps
+  register: _evpn_health_check_frr_ps
   changed_when: false
-  failed_when: "'frr' not in _frr_ps.stdout"
+  failed_when: "'frr' not in _evpn_health_check_frr_ps.stdout"
 
 # ═══════════════════════════════════════════════════════════════
 # Infra relay checks
 # ═══════════════════════════════════════════════════════════════
 - name: "HEALTH [infra]: WireGuard interface is up"
   ansible.builtin.command: wg show wg0
-  register: _wg_show
+  register: _evpn_health_check_wg_show
   changed_when: false
-  failed_when: "'latest handshake' not in _wg_show.stdout"
+  failed_when: "'latest handshake' not in _evpn_health_check_wg_show.stdout"
   when:
     - "'cloud_infra' in group_names"
     - tunnel.type == 'wireguard'
@@ -64,9 +64,9 @@
 
 - name: "HEALTH [infra]: No VXLAN interfaces on relay"
   ansible.builtin.command: ip -o link show type vxlan
-  register: _vxlan_ifaces
+  register: _evpn_health_check_vxlan_ifaces
   changed_when: false
-  failed_when: _vxlan_ifaces.rc != 0 or _vxlan_ifaces.stdout_lines | length > 0
+  failed_when: _evpn_health_check_vxlan_ifaces.rc != 0 or _evpn_health_check_vxlan_ifaces.stdout_lines | length > 0
   when: "'cloud_infra' in group_names"
 
 # ═══════════════════════════════════════════════════════════════
@@ -87,9 +87,9 @@
     set -o pipefail;
     podman exec frr vtysh -c "show evpn vni {{ 10000 + item.vlan }}" |
     grep -A1 "Remote VTEPs" | grep -oP '\d+\.\d+\.\d+\.\d+'
-  register: _remote_vtep
+  register: _evpn_health_check_remote_vtep
   changed_when: false
-  failed_when: _remote_vtep.stdout == ""
+  failed_when: _evpn_health_check_remote_vtep.stdout == ""
   loop: "{{ stretches }}"
   loop_control:
     label: "VNI {{ 10000 + item.vlan }} ({{ item.name }})"
@@ -97,9 +97,9 @@
 
 - name: "HEALTH [workload]: Ping on-prem gateway"
   ansible.builtin.command: ping -c 2 -W 3 -I {{ item.cloud_gateway }} {{ item.onprem_gateway }}
-  register: _ping
+  register: _evpn_health_check_ping
   changed_when: false
-  failed_when: _ping.rc != 0
+  failed_when: _evpn_health_check_ping.rc != 0
   loop: "{{ stretches }}"
   loop_control:
     label: "{{ item.cloud_gateway }} → {{ item.onprem_gateway }}"
@@ -110,9 +110,9 @@
 # ═══════════════════════════════════════════════════════════════
 - name: "HEALTH [onprem]: WireGuard interface is up"
   ansible.builtin.command: wg show wg0
-  register: _wg_show
+  register: _evpn_health_check_wg_show
   changed_when: false
-  failed_when: "'latest handshake' not in _wg_show.stdout"
+  failed_when: "'latest handshake' not in _evpn_health_check_wg_show.stdout"
   when:
     - "'onprem_appliances' in group_names"
     - tunnel.type == 'wireguard'
@@ -132,9 +132,9 @@
     set -o pipefail;
     podman exec frr vtysh -c "show evpn vni {{ 10000 + item.vlan }}" |
     grep -A1 "Remote VTEPs" | grep -oP '\d+\.\d+\.\d+\.\d+'
-  register: _remote_vtep
+  register: _evpn_health_check_remote_vtep
   changed_when: false
-  failed_when: _remote_vtep.stdout == ""
+  failed_when: _evpn_health_check_remote_vtep.stdout == ""
   loop: "{{ stretches }}"
   loop_control:
     label: "VNI {{ 10000 + item.vlan }} ({{ item.name }})"

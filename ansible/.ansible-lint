@@ -1,9 +1,5 @@
 ---
-# var-naming[no-role-prefix] (83 of 113 findings) skipped as tracked debt: renaming shared vars (tunnel, bgp, stretches) is a breaking API change needing coordination, not a mechanical fix. Revisit before first publication.
 profile: production
-
-skip_list:
-  - var-naming[no-role-prefix]
 
 exclude_paths:
   # Jinja template, not valid YAML, so ansible-lint cannot parse it.

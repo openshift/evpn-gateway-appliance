@@ -96,7 +96,7 @@
     state: started
     enabled: true
   when: ansible_facts.services is defined and 'frr-container.service' in ansible_facts.services
-  register: _frr_systemd
+  register: _evpn_cloud_infra_frr_systemd
 
 - name: Start FRR via podman directly (non-bootc)
   containers.podman.podman_container:
@@ -109,7 +109,7 @@
     volumes:
       - /etc/frr:/etc/frr:Z
       - /var/run/frr:/var/run/frr:Z
-  when: _frr_systemd is skipped
+  when: _evpn_cloud_infra_frr_systemd is skipped
 
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers
