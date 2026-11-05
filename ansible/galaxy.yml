@@ -39,4 +39,5 @@ build_ignore:
   - .ansible-lint
   - .yamllint
   - tools
+  - requirements.yml
   - .ansible

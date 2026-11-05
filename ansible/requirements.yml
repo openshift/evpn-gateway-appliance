@@ -1,0 +1,13 @@
+---
+# Collections this collection depends on, by name only (no Git sources); point the Galaxy server
+# in ansible.cfg at Automation Hub. Keep the ranges in step with galaxy.yml. This file is not
+# shipped in the tarball (galaxy.yml build_ignore).
+collections:
+  - name: containers.podman
+    version: ">=1.10.0"
+  - name: ansible.posix
+    version: ">=1.5.0"
+  - name: amazon.aws
+    version: ">=7.0.0"
+  - name: ansible.utils
+    version: ">=2.10.0"

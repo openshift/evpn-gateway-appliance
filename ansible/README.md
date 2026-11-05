@@ -8,16 +8,17 @@ Collection FQCN: `network.evpn_gateway`.
 
 ## Status
 
-This collection is derived from an internal prototype. It is **not yet
-certified or published content** — see "Known limitations" below and each
-role's README for specific open items before relying on it beyond a
-lab/dev/test environment.
+This collection is derived from an internal prototype and is intended for
+**lab/dev/test use**. See "Known limitations" below and each role's README
+for open items before broader use.
 
 ## Layout
 
 ```text
 galaxy.yml, meta/runtime.yml        Collection identity and metadata
 requirements.txt, bindep.txt        Control-node Python / system dependencies
+requirements.yml                    Collection dependencies (source checkout only; not shipped)
+LICENSE                             Apache-2.0
 meta/execution-environment.yml      Execution-environment dependency pointers
 roles/
 ├── evpn_onprem_appliance/          On-prem: VLAN trunk, VXLAN, FRR VTEP
@@ -38,15 +39,31 @@ tools/
 └── check-collection-tarball.sh     CI: assert the built tarball ships only approved paths
 ```
 
-`inventory/` and `ansible.cfg` are excluded from the published collection
+`inventory/`, `ansible.cfg` and `requirements.yml` are excluded from the published collection
 tarball (`galaxy.yml`'s `build_ignore`) — they're here for the "run
 straight from a source checkout" workflow below, not for the installed
 collection.
+
+## Installation
+
+To install a published version from Red Hat Automation Hub, configure its
+server URL and token in a private Ansible configuration file outside the
+checkout, then select that file explicitly:
+
+```bash
+ANSIBLE_CONFIG=/path/to/private/ansible.cfg \
+  ansible-galaxy collection install network.evpn_gateway
+```
+
+For source-checkout use, follow Quick start below. `provision-aws.yml` requires
+its unshipped `inventory/` template.
 
 ## Prerequisites (control node)
 
 The machine running these playbooks needs:
 
+- **ansible-core** — declared minimum 2.16 (`meta/runtime.yml`); CI tests 2.21 on
+  Python 3.12 (`Dockerfile.ci`).
 - **Collections** — `ansible-galaxy collection install .` (resolves
   `galaxy.yml`'s dependencies: ansible.utils, ansible.posix, amazon.aws,
   containers.podman).
@@ -95,7 +112,6 @@ This collection was restructured from the prototype with the fixes
 specifically:
 
 - Removed `host_key_checking = False` from `ansible.cfg`.
-- `no_log: true` on every task handling WireGuard private key material.
 - Fixed a `playbook_dir`-relative cross-role include that broke once
   installed from a real collection (`evpn_onprem_appliance`).
 - Added explicit `service_facts` gathering so the bootc-systemd-vs-podman
@@ -140,8 +156,7 @@ ownership):
   filtering) — only a defensive `maximum-prefix` backstop. Needs
   Networking to design the actual policy
   (source-audit.md §1, "No BGP policy or limits").
-- `evpn_aws_infra`'s 46 raw `aws` CLI calls are not certified-content
-  eligible; migrating to `amazon.aws` modules is an open follow-up.
+- `evpn_aws_infra` requires the AWS CLI on the control node.
 - `frr_exporter`/`node_exporter` metrics endpoints are unauthenticated on
   every interface (`network: host`, no listen-address binding, no host
   firewall) — how this should be locked down in production is not yet
@@ -158,15 +173,10 @@ ownership):
   pinned release identity; upstream builds are rolling and get deregistered,
   and the image type is not guaranteed. A release-identified base belongs to
   the runtime payload work (source-audit.md §2).
-- The CI install smoke test installs the built tarball with `--no-deps
-  --offline`, so it verifies the collection builds, installs, and all roles
-  are discoverable, but **not** that `galaxy.yml`'s collection dependencies
-  (or the declared Python/system deps) actually resolve, nor that every FQCN
-  import is satisfiable. `ci-bootstrap-spec.md` ("Required source checks")
-  calls for verifying dependencies and FQCN imports, plus exercising the
-  roles in a supported AAP execution environment. Closing it means installing
-  the dependencies into the CI image and dropping `--no-deps` (and, for the
-  EE contract, a pinned test EE).
+- The CI install smoke resolves collection dependencies from the CI image in offline
+  mode or from Galaxy in online mode and discovers installed roles. Builder introspection
+  lists Python/system dependencies;
+  it does not install or exercise them.
 - The appliance does not enforce inter-tenant (VNI/VLAN) data-plane isolation:
   with a VLAN-per-subnet layout, `ip_forward` plus a per-VNI SVI gateway in the
   global routing table means it routes between tenant subnets. The health-check
@@ -174,6 +184,7 @@ ownership):
   model (VRF-per-tenant or a forwarding filter, or accepting inter-tenant
   routing). CORENET-7508 calls for L2/VNI isolation testing in integration CI.
 
-This work tracks against the EVPN Gateway Appliance delivery plan proposed
-in [PR #2](https://github.com/openshift/evpn-gateway-appliance/pull/2)
-(not merged into this repository).
+## License and conduct
+
+Apache-2.0; see [LICENSE](LICENSE). Contributors follow the
+[Ansible Code of Conduct](https://docs.ansible.com/ansible/latest/community/code_of_conduct.html).
