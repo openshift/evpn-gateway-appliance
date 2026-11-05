@@ -6,7 +6,8 @@
 # enslaves that trunk_interface and builds its per-stretch VTEP on top — exactly as
 # with a real tagged trunk from a customer switch. This replaces the old in-role
 # "simulate" mode, and unlike it does NOT touch anything the appliance owns
-# (trunk-br, trunk.<vlan>); it only provides trunk_interface + the hosts behind it.
+# (the per-stretch VLAN sub-interfaces); it only provides trunk_interface and the
+# hosts behind it.
 #
 # trunk_interface must match the value the appliance uses (inventory default: trunk0).
 
@@ -39,8 +40,9 @@
   changed_when: false
 
 # The appliance end of the uplink stands in for the physical trunk NIC handed to the
-# appliance. Present it the way a real NIC arrives — up and NetworkManager-managed — so
-# the on-prem role's nmstate apply adopts it as the trunk bridge port. NM manages
+# appliance. Present it the way a real NIC arrives, up and NetworkManager-managed, so
+# the on-prem role's nmstate apply adopts it as the trunk NIC carrying one VLAN
+# sub-interface per stretch. NM manages
 # physical NICs by default but leaves veths unmanaged, which is the only reason this is
 # needed here.
 - name: Bring up the appliance trunk interface

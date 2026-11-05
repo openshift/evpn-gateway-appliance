@@ -49,7 +49,6 @@
         state: absent
       loop:
         - 90-ega-neigh-suppress
-        - 90-ega-trunk-vlans
 
     - name: Reload NetworkManager to tear down appliance devices
       ansible.builtin.command: nmcli connection reload
