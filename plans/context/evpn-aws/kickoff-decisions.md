@@ -14,7 +14,7 @@ and publication needs its destination. Resolve the remaining choices alongside r
 
 | # | Decision | Owner | Needed for | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Correct three Jira criteria: 7501's VIF wording, 7504's VNI/MAC views, 7505's "approved upstream" images | PM / Networking | [Start now](#start-now-without-waiting-for-engineering) | Review direction 2026-10-01; accountable owner and Jira correction pending |
+| 1 | Reconcile Jira criteria: 7501's VIF wording, 7504's metric meanings, 7505's "approved upstream" images | PM / Networking | [Start now](#start-now-without-waiting-for-engineering) | Review direction 2026-10-01; accountable owner and remaining corrections/clarifications pending |
 | 2 | Official product name, the long-lead approvals, and the supported architectures the Engineering ID request asks for | PM / Product Security / releng | [Start now](#start-now-without-waiting-for-engineering); Engineering ID | Open |
 | 3 | What to import publicly, and owners for the source defects | Source owners / releng | [Gate A](#gate-a--source-ci) | Open |
 | 4 | Source CI: Prow contexts, tide, GitHub Actions, Konflux GitHub App | Engineering / Networking | [Gate A](#gate-a--source-ci) | Review direction 2026-10-02; Prow merged, with `ci/prow/images` and `ci/prow/verify` required since release#86670 (2026-10-13); hosted lanes and Konflux contexts/App remain open |
@@ -47,7 +47,7 @@ under the rule above. Reviewer identity alone does not supply that owner.
 | Azure and GCP implementations are out of scope for this epic | CORENET-7498 scope |
 | FRR and `frr-metrics` come from the Red Hat–built `frr-rhel9` image ([option A](pipeline-spec.md#runtime-payload-corenet-7505); the review wrote "openshift/frr image", read here as the image built from `openshift/frr`), and `frr-metrics` must be changed to need no Kubernetes cluster and to export EVPN metrics (decision 10, in part) | Review of pull request #2 by the Networking maintainers, 2026-10-01 (comment by `jcaamano`) |
 | A Direct Connect gateway attached to a TGW uses a transit VIF, not a private VIF (7501's "private VIF" is read that way) | Same review |
-| The collection's namespace and name are `network.evpn_gateway` (7499 names `redhat.evpn_migration`); the collection's issue tracker is to move to a Jira project not yet chosen, recorded in its README | Review comments on pull request #3, 2026-10-02 (`jcaamano`) |
+| The collection's namespace and name are `network.evpn_gateway` (7499 also uses this name as of 2026-11-02); the collection's issue tracker is to move to a Jira project not yet chosen, recorded in its README | Review comments on pull request #3, 2026-10-02 (`jcaamano`) |
 | Source CI runs as Prow tests that call scripts or Make targets, with no test logic in the test definition; GitHub Actions is not assumed | Review comment on pull request #3, 2026-10-02 (`jcaamano`) |
 | 7504's VNI/MAC views and 7505's "approved upstream" images follow decision 10 | Same review |
 | The emulated CORENET-7508 integration lane is containerlab + a test execution environment running the collection's `deploy.yml` + pytest/testinfra/vtysh JSON, behind a runner-agnostic `test/e2e/run.sh` (kind/real OVN-K reserved for later OCP interop lanes); distinct from the still-open AWS/lab test backend (decision 11) | `test/e2e/` lane in the CORENET-7508 PR; **accountable decision owner and date pending — TODO confirm** |
@@ -61,14 +61,13 @@ item for decisions 7, 8 and 13 to `@knobunc`.
 
 ### Start now, without waiting for engineering
 
-- **Jira conflicts (review direction 2026-10-01; owner and Jira correction pending).** The review
-  proposed resolutions for the three criteria. A Direct Connect gateway attached to a TGW
-  needs a transit VIF, so 7501's "private VIF and TGW associations" is read as a transit VIF.
-  7505's "approved upstream" images and 7504's
-  VNI/MAC views follow decision 10: the Red Hat–built `frr-rhel9` image and an `frr-metrics` that
-  gains EVPN metrics ([coverage](pipeline-spec.md#metrics-corenet-74997504)). The Jira criteria
-  still carry the old wording and have no comments (checked 2026-10-01), so correcting them
-  remains an action. *Owner: PM / Networking.*
+- **Jira conflicts (review direction 2026-10-01; accountable owner pending).** Rechecked
+  2026-11-04: 7501 still names a private VIF with a TGW, which needs a transit VIF;
+  7505's "approved upstream" images still need reconciliation with decision 10's Red Hat
+  payload direction. 7504 now explicitly requires EVPN metrics in the frr-k8s binary;
+  its remaining [metric clarification](frr-metrics-plan.md#requirements) concerns occupancy
+  versus learning events and UPDATE activity versus route-event churn. Remaining Jira
+  corrections and semantic agreement need an owner. *Owner: PM / Networking.*
 - **Product name.** "EVPN Gateway Appliance (EGA)" is a working name. The prototype's
   [L2-stretch plan](https://gitlab.cee.redhat.com/datucker/evpn-on-cloud/-/blob/1c8e88873af8/docs/evpn-l2-stretch-plan.md)
   weighed "Connectivity", "Gateway", "Bridge" and "Edge", noted that "Gateway" suggests L3 routing,
@@ -106,8 +105,8 @@ item for decisions 7, 8 and 13 to `@knobunc`.
 - **Collection.** *Owner: Architecture / AAP content.*
   - **Name.** Directed 2026-10-02 in review of pull request #3: namespace `network`, name
     `evpn_gateway`; the org's validated collection, `network.offline_migration_sdn_to_ovnk`, uses the
-    same namespace (7499 still names `redhat.evpn_migration`, so the Jira text needs correcting; the merged
-    `galaxy.yml` uses `network.evpn_gateway`). The product name still awaits approval, and customers' playbooks depend on the
+    same namespace (live 7499 and merged `galaxy.yml` both use `network.evpn_gateway`, rechecked
+    2026-11-02). The product name still awaits approval, and customers' playbooks depend on the
     collection name, so confirm the namespace with AAP content before first publication; public
     Galaxy lists no collections under `redhat` (queried 2026-09-29).
   - **Shape.** Shipped role list and collection API, with roles and 7509's RBAC split by operator:
@@ -162,9 +161,10 @@ item for decisions 7, 8 and 13 to `@knobunc`.
   rootful MPC hosts. *Owner: Engineering / Konflux platform.*
 - **Payload.** The 2026-10-01 review directs FRR and `frr-metrics` to [option
   A](pipeline-spec.md#runtime-payload-corenet-7505), the Red Hat–built `frr-rhel9` image
-  (2026-10-01). #16 (2026-10-15) implements option A with the OCP 4.22 image as bound
-  containers; #6, now on hold, proposed option B for RHEL 10. Record owner/date approval
-  before treating either payload as finalized. `openshift4/frr-rhel9` is published;
+  (2026-10-01). Merged #6 embeds the OCP 4.22 image under `frr-container.service`,
+  leaving its metrics unit unused; #16 is closed ([source audit](source-audit.md)).
+  Merged source does not approve the payload. Record owner/date approval
+  before treating it as finalized. `openshift4/frr-rhel9` is published;
   `openshift5/frr-rhel9`, which the 5.1 target needs, was not in Pyxis on 2026-10-01. Still open:
   node-exporter's source; the approved RHEL bootc base stream (latest minor or EUS; generic or
   RHEL 10 platform base), BIB and payload inventory; support terms for OCP content used outside a
@@ -230,7 +230,10 @@ item for decisions 7, 8 and 13 to `@knobunc`.
   alerts), what the appliance runs until it ships (options: the 4.22 binary, an auth-optional
   build, or node-exporter textfile series from `vtysh`/`bridge fdb`), since OCP 4.23 and 5.x builds exit outside
   Kubernetes ([standalone operation](pipeline-spec.md#metrics-corenet-74997504)), and CloudWatch
-  for DX/VPN panels. *Owner: Networking / 7504 owner.*
+  for DX/VPN panels. Live 7504 (rechecked 2026-11-02) explicitly requires EVPN metrics in
+  the frr-k8s binary; a textfile supplement or another exporter needs amended criteria.
+  CORENET-7704 owns privilege and metrics-endpoint access refactoring and its access tests.
+  *Owner: Networking / 7504 owner.*
 
 ### Gate C-prod — supported release
 

@@ -284,7 +284,7 @@ AAP's own ephemeral-instance configuration-as-code testing is in progress under
 [ANSTRAT-2281](https://redhat.atlassian.net/browse/ANSTRAT-2281).
 
 Ship dashboards and alert rules as versioned source. When rules arrive, use pinned
-`promtool check rules --lint-fatal` and `promtool test rules`; candidate tests verify
+`promtool check rules --lint=all --lint-fatal` and `promtool test rules`; candidate tests verify
 expected source series, labels and query states, including valid empty healthy results.
 Follow the [metrics contract](pipeline-spec.md#metrics-corenet-74997504).
 Add dashboard lint only for a demonstrated invariant; no extra framework is prescribed.
