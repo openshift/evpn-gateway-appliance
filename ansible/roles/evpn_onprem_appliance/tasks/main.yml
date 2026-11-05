@@ -25,6 +25,8 @@
     - net.ipv4.conf.all.forwarding
 
 - name: Deploy WireGuard client config
+  no_log: true
+  diff: false
   ansible.builtin.template:
     src: wg-client.conf.j2
     dest: /etc/wireguard/wg0.conf
