@@ -50,7 +50,8 @@ The machine running these playbooks needs:
 - **Collections** — `ansible-galaxy collection install .` (resolves
   `galaxy.yml`'s dependencies: ansible.utils, ansible.posix, amazon.aws,
   containers.podman).
-- **Python** — `boto3`/`botocore` for the amazon.aws modules:
+- **Python** — `boto3`/`botocore` for the amazon.aws modules and `netaddr` for
+  the ansible.utils IP filters:
   `pip install -r requirements.txt`.
 - **System** — `wireguard-tools` (the WireGuard key pair is generated on the
   control node); see `bindep.txt`.
