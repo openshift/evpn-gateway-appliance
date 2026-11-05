@@ -86,7 +86,7 @@ build into the rootful store and run under `sudo`:
 ```bash
 sudo make ci-image          # localhost/evpn-gateway-appliance-ci:local (Dockerfile.ci)
 sudo make ee-image          # localhost/evpn-gateway-appliance-ee:local (the EE that runs deploy.yml)
-sudo make nested-ci-appliance-image CONTAINER_AUTH_FILE="$HOME/.docker/config.json"   # the clab node image
+sudo FRR_IMAGE=<ocp frr> NODE_EXPORTER_IMAGE=<ocp node-exporter> make nested-ci-appliance-image CONTAINER_AUTH_FILE="$HOME/.docker/config.json"   # the clab node image
 sudo test/e2e/run.sh
 ```
 
