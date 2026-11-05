@@ -1,0 +1,10 @@
+---
+# Run after deploy, and again on deploy failure, so a red lane still carries the evidence.
+- name: Dump appliance network state
+  hosts: onprem_appliances
+  become: true
+  tasks:
+    - name: Dump appliance network observations
+      ansible.builtin.include_role:
+        name: network.evpn_gateway_test.evpn_onprem_appliance_sim
+        tasks_from: dump

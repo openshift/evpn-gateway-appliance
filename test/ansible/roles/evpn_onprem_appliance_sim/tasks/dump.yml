@@ -1,0 +1,50 @@
+---
+# The e2e uploads only its build log, so print state here after deploy and again on failure.
+
+- name: Print expected VLAN interfaces
+  ansible.builtin.debug:
+    msg: "{{ trunk_interface }}.{{ item.vlan }}"
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ trunk_interface }}.{{ item.vlan }}"
+
+- name: Collect appliance network observations
+  ansible.builtin.command: "{{ item.command }}"
+  loop:
+    - label: desired nmstate
+      command: cat /var/lib/ega/nmstate.yaml
+    - label: actual nmstate
+      command: nmstatectl show
+    - label: ip -d -j link
+      command: ip -d -j link show
+    - label: ip -d link
+      command: ip -d link show
+    - label: bridge -d link
+      command: bridge -d link show
+    - label: bridge vlan
+      command: bridge vlan show
+    - label: nmcli connections
+      command: nmcli -f NAME,DEVICE,TYPE,STATE connection show
+    - label: nmcli devices
+      command: nmcli device status
+    - label: dispatcher scripts
+      command: ls -l /etc/NetworkManager/dispatcher.d
+    - label: NetworkManager journal
+      command: journalctl -u NetworkManager --no-pager -n 200
+  loop_control:
+    label: "{{ item.label }}"
+  register: observation_results
+  changed_when: false
+  failed_when: false
+
+- name: Print appliance network observations
+  ansible.builtin.debug:
+    msg: |-
+      {{ item.item.label | default('unknown command') }}
+      rc: {{ item.rc | default('n/a') }}
+      stdout: {{ item.stdout | default('') }}
+      stderr: {{ item.stderr | default('') }}
+      msg: {{ item.msg | default('') }}
+  loop: "{{ observation_results.results }}"
+  loop_control:
+    label: "{{ item.item.label | default('unknown command') }}"

@@ -22,7 +22,8 @@ test/
   e2e/
     run.sh            run the lane locally (rootful): podman run the toolchain image
     run_remote.sh     run against a remote target (or locally, no target): export, ship, build, run
-    entrypoint.sh     in-container steps: clab deploy -> simulate -> deploy.yml -> health checks
+    entrypoint.sh     in-container steps: clab deploy -> simulate -> deploy.yml ->
+                      network.evpn_gateway_test.debug -> health checks (debug also runs on deploy failure)
     topology/
       evpn.clab.yml   the emulated fabric
     inventory/        e2e Ansible inventory + group_vars

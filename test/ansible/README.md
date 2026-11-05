@@ -21,5 +21,6 @@ lives here instead.
 | Playbook | When | What |
 | --- | --- | --- |
 | `network.evpn_gateway_test.simulate` | before `network.evpn_gateway.deploy` | build the simulated on-prem environment |
+| `network.evpn_gateway_test.debug` | after the deploy and on deploy failure | print appliance network state into the e2e build log |
 | `network.evpn_gateway_test.healthcheck` | after the deploy | run the simulated-host data-plane checks |
 | `network.evpn_gateway_test.teardown` | on cleanup (non-clab runs) | remove the simulated on-prem environment |
