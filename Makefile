@@ -71,7 +71,8 @@ ee-image:
 
 # Appliance bootc image (image/rhel10/Containerfile). Host-side: the build needs the
 # host engine and a registry auth file that must stay outside the build context.
-# Unset BOOTC_BASE, FRR_IMAGE, and NODE_EXPORTER_IMAGE keep the Containerfile defaults.
+# BOOTC_BASE keeps its Containerfile default. FRR_IMAGE and NODE_EXPORTER_IMAGE do not,
+# so a build with no caller value and no Konflux replacement fails instead of floating.
 # ci-appliance-image is the parent of the nested child. It is the same Containerfile
 # with the CentOS CI base from image/streams.yaml bootcImageCi, tagged :ci.
 # appliance-image stays on :dev so a release build does not replace that parent.
@@ -96,12 +97,13 @@ ci-appliance-image: _ci_build_args = $(APPLIANCE_CI_BUILD_ARGS)
 appliance-image ci-appliance-image:
 	@test -n "$(CONTAINER_ENGINE)" || { echo "no podman/docker found" >&2; exit 1; }
 	@test -f "$(CONTAINER_AUTH_FILE)" || { echo "registry auth file missing: $(CONTAINER_AUTH_FILE)" >&2; exit 1; }
+	@test -n "$(FRR_IMAGE)" && test -n "$(NODE_EXPORTER_IMAGE)" || { echo "set FRR_IMAGE and NODE_EXPORTER_IMAGE to pinned payload pullspecs" >&2; exit 1; }
 	REGISTRY_AUTH_FILE="$(CONTAINER_AUTH_FILE)" $(CONTAINER_ENGINE) build \
 		-f image/rhel10/Containerfile \
 		-t "$(APPLIANCE_TAG)" \
 		$(if $(BOOTC_BASE),--build-arg BOOTC_BASE=$(BOOTC_BASE)) \
-		$(if $(FRR_IMAGE),--build-arg FRR_IMAGE=$(FRR_IMAGE)) \
-		$(if $(NODE_EXPORTER_IMAGE),--build-arg NODE_EXPORTER_IMAGE=$(NODE_EXPORTER_IMAGE)) \
+		--build-arg FRR_IMAGE=$(FRR_IMAGE) \
+		--build-arg NODE_EXPORTER_IMAGE=$(NODE_EXPORTER_IMAGE) \
 		--secret id=dockerconfig,src="$(CONTAINER_AUTH_FILE)" \
 		$(_ci_build_args) \
 		image/rhel10
