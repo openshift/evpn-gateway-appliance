@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # kind + OVN-Kubernetes via upstream kind.sh, then pinned frr-k8s and the relay neighbor.
-# No EVPN or route-advertisement flags: those also install frr-k8s and a demo FRR.
+# Segmentation and local gateway come from kind.sh. Route advertisements and EVPN are
+# turned on with helm afterwards: kind.sh's RA flag also installs a demo FRR and points
+# frr-k8s at it.
 set -euo pipefail
 
 : "${KUBECONFIG:?}"
@@ -27,7 +29,10 @@ bash "${ovn_src}/contrib/kind.sh" \
 	--num-workers "$workers" \
 	--kubeconfig "$KUBECONFIG" \
 	--ovn-image "$ovn_image" \
-	--experimental-provider podman
+	--experimental-provider podman \
+	--multi-network-enable \
+	--network-segmentation-enable \
+	--gateway-mode local
 
 manifest="${EGA_WORK_DIR}/frr-k8s.yaml"
 curl -fsSL -o "$manifest" \
@@ -37,7 +42,25 @@ kubectl apply -f "$manifest"
 kubectl -n frr-k8s-system rollout status deployment/frr-k8s-statuscleaner --timeout=180s
 kubectl -n frr-k8s-system rollout status daemonset/frr-k8s-daemon --timeout=180s
 
+echo ">> enable route advertisements and EVPN without kind.sh's demo FRR"
+helm upgrade ovn-kubernetes "${ovn_src}/helm/ovn-kubernetes" \
+	--reuse-values \
+	--set global.enableRouteAdvertisements=true \
+	--set global.enableEVPN=true
+while IFS= read -r obj; do
+	[ -n "$obj" ] || continue
+	kubectl -n ovn-kubernetes rollout restart "$obj"
+	kubectl -n ovn-kubernetes rollout status "$obj" --timeout=300s
+done < <(kubectl -n ovn-kubernetes get daemonset,deployment -o name)
+
 sed "s/RELAY_PRIVATE_IP/${RELAY_PRIVATE_IP}/g" \
 	"${self_dir}/manifests/frrconfiguration.yml" > "${EGA_WORK_DIR}/frrconfiguration.yml"
 kubectl apply -f "${EGA_WORK_DIR}/frrconfiguration.yml"
+kubectl apply -f "${self_dir}/manifests/vtep.yml"
+kubectl apply -f "${self_dir}/manifests/routeadvertisements.yml"
+kubectl apply -f "${self_dir}/manifests/namespace.yml"
+kubectl apply -f "${self_dir}/manifests/cudn.yml"
 kubectl -n frr-k8s-system wait --for=condition=Ready pod -l app=frr-k8s --timeout=180s
+kubectl wait --for=condition=NetworkCreated clusteruserdefinednetwork/ega-evpn-production --timeout=180s
+kubectl apply -f "${self_dir}/manifests/test-workload.yml"
+kubectl -n ega-evpn wait --for=condition=Ready pod/ega-test-workload --timeout=180s

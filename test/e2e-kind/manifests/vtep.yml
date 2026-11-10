@@ -1,0 +1,10 @@
+---
+# Unmanaged VTEP. Kind node IPs on 172.18.0.0/16 are the VTEP addresses.
+apiVersion: k8s.ovn.org/v1
+kind: VTEP
+metadata:
+  name: ega-vtep
+spec:
+  mode: Unmanaged
+  cidrs:
+    - 172.18.0.0/16

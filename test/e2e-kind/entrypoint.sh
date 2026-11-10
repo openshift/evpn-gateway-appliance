@@ -141,5 +141,38 @@ if bad:
 print("BGP established: " + ", ".join(ips))
 PY
 
-echo ">> frr-k8s discovery and relay BGP peering ok"
+evpn="${lab_dir}/evpn-summary.json"
+runtime exec "$relay_ctr" podman exec frr vtysh -c 'show bgp l2vpn evpn summary json' > "$evpn"
+python3 - "$evpn" "${kind_node_ips[@]}" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1]))
+ips = sys.argv[2:]
+peers = data.get("peers", {})
+bad = []
+for ip in ips:
+    received = peers.get(ip, {}).get("pfxRcd", 0)
+    try:
+        received = int(received)
+    except (TypeError, ValueError):
+        received = 0
+    if received <= 0:
+        bad.append(f"{ip} pfxRcd={received}")
+if bad:
+    print("no EVPN prefixes from: " + ", ".join(bad), file=sys.stderr)
+    sys.exit(1)
+print("EVPN prefixes received from: " + ", ".join(ips))
+PY
+
+pod_ip="$(kubectl -n ega-evpn get pod ega-test-workload -o jsonpath='{.status.podIP}')"
+if [ -z "$pod_ip" ]; then
+	echo "error: ega-test-workload has no pod IP" >&2
+	exit 1
+fi
+echo ">> L2 reachability: appliance -> ${pod_ip}"
+runtime exec "clab-${lab}-appliance" ping -c 3 -W 5 -I 10.42.1.1 "$pod_ip"
+runtime exec "clab-${lab}-appliance" curl -sf --max-time 5 "http://${pod_ip}:8080/hostname"
+echo
+echo ">> frr-k8s discovery, EVPN prefixes, and L2 reachability ok"
 exit 0
