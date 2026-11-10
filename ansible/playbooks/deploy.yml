@@ -34,8 +34,14 @@
       ansible.builtin.pause:
         seconds: 15
 
+# skip_health leaves BGP proof to the caller. The kind peers lane has no VTEP prefixes
+# and its discovered nodes are not SSH targets.
 - name: Health checks
   hosts: all
   become: true
-  roles:
-    - evpn_health_check
+  ignore_unreachable: "{{ skip_health | default(false) | bool }}"
+  tasks:
+    - name: Run health checks
+      ansible.builtin.include_role:
+        name: evpn_health_check
+      when: not (skip_health | default(false) | bool)
