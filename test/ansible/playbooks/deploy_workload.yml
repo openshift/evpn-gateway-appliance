@@ -1,0 +1,12 @@
+---
+# Deploy standalone VTEP on cloud_workload hosts (dev/test only).
+
+- name: Deploy cloud workload (standalone VTEP)
+  hosts: cloud_workload
+  become: true
+  pre_tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+  roles:
+    - evpn_cloud_workload
+    - network.evpn_gateway.evpn_monitoring
