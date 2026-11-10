@@ -1,6 +1,9 @@
 ---
-# Full deploy — idempotent, safe to re-run.
-# Usage: ansible-playbook playbooks/deploy.yml
+# Production deploy — discovers OCP frr-k8s peers unless skip_frr_discovery is true.
+
+- name: Discover workload peers
+  import_playbook: discover_peers.yml
+  when: not (skip_frr_discovery | default(false) | bool)
 
 - name: Deploy cloud infra (EVPN relay + WireGuard)
   hosts: cloud_infra
@@ -11,16 +14,6 @@
       ansible.builtin.service_facts:
   roles:
     - evpn_cloud_infra
-    - evpn_monitoring
-
-- name: Deploy cloud workload (EVPN VTEP)
-  hosts: cloud_workload
-  become: true
-  pre_tasks:
-    - name: Gather service facts
-      ansible.builtin.service_facts:
-  roles:
-    - evpn_cloud_workload
     - evpn_monitoring
 
 - name: Deploy on-prem appliance (EVPN VTEP + VLAN trunk)
