@@ -9,3 +9,10 @@ See [`meta/argument_specs.yml`](meta/argument_specs.yml) for the full input
 schema (`stretches`, `tunnel`).
 
 No infrastructure changes are made by this role.
+
+## Workload peers
+
+Infra relay checks iterate the `cloud_workload` inventory group to verify
+BGP sessions and EVPN prefix exchange with each workload-side peer.
+Workload-side checks (BGP, remote VTEPs, ping) run on `cloud_workload`
+hosts only.
