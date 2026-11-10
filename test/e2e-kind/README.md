@@ -5,8 +5,10 @@ Established with each kind node. No user-defined network, test pod, or ping. Tho
 for a later change on this same lane.
 
 `make e2e-kind` (rootful podman, CI image and execution environment already built, or let
-the Make target build the CI image) runs `run.sh`. `EGA_STAGE=deploy` leaves the cluster
-and containerlab up. `EGA_STAGE=destroy` tears both down. Any other exit destroys them.
+the Make target build the CI image) runs `run.sh`. `run_remote.sh` is the CI entry: it
+ships and builds those images the same way as `test/e2e/run_remote.sh`, then runs `run.sh`.
+`EGA_STAGE=deploy` leaves the cluster and containerlab up. `EGA_STAGE=destroy` tears both
+down. Any other exit destroys them.
 
 The cluster comes from `ovn-org/ovn-kubernetes` tag `v1.4.0` `contrib/kind.sh` (Helm
 install, no `--evpn-enable` and no `--route-advertisements-enable`). frr-k8s is the
