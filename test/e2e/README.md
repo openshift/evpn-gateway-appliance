@@ -2,7 +2,8 @@
 
 This lane deploys the on-prem appliance, relay and an emulated workload as a three-AS BGP
 EVPN fabric and validates control-plane and data-plane behavior, using the collection's
-own `playbooks/deploy.yml` as the thing under test. It is the simulated-topology gate
+own `playbooks/deploy.yml` with `-e skip_frr_discovery=true` (peers come from the static
+inventory). It is the simulated-topology gate
 (L7) described in `plans/context/evpn-aws/pipeline-spec.md` and `ci-bootstrap-spec.md`.
 
 Two entry points, by how they are meant to be run:
@@ -22,7 +23,7 @@ test/
   e2e/
     run.sh            run the lane locally (rootful): podman run the toolchain image
     run_remote.sh     run against a remote target (or locally, no target): export, ship, build, run
-    entrypoint.sh     in-container steps: clab deploy -> simulate -> deploy.yml -> health checks
+    entrypoint.sh     in-container steps: clab deploy -> simulate -> deploy_workload -> deploy.yml -> health checks
     topology/
       evpn.clab.yml   the emulated fabric
     inventory/        e2e Ansible inventory + group_vars
