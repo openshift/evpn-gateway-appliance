@@ -81,6 +81,30 @@ RUN pip install --no-cache-dir \
         pytest==8.3.4 \
         pytest-testinfra==10.2.2
 
+# Peers lane (test/e2e-kind). ovn-kubernetes v1.4.0 kind.sh needs kind >= 0.27,
+# helm, jq, jinjanate, sudo, and a podman CLI. The image has podman-remote only,
+# so the shim forwards `podman` to the mounted host socket.
+# hadolint ignore=DL3041
+RUN dnf install -y sudo jq && dnf clean all && \
+    printf 'Defaults !requiretty\nroot ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/kind && \
+    chmod 440 /etc/sudoers.d/kind
+RUN curl -fsSL -o /usr/local/bin/kind \
+        https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64 && \
+    chmod +x /usr/local/bin/kind
+RUN curl -fsSL -o /usr/local/bin/kubectl \
+        https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl && \
+    chmod +x /usr/local/bin/kubectl
+RUN curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz && \
+    tar -C /tmp -xzf /tmp/helm.tgz && \
+    mv /tmp/linux-amd64/helm /usr/local/bin/helm && \
+    chmod +x /usr/local/bin/helm && \
+    rm -rf /tmp/helm.tgz /tmp/linux-amd64
+RUN printf '%s\n' '#!/bin/sh' \
+        'exec podman-remote --url "${DOCKER_HOST:-unix:///run/podman/podman.sock}" "$@"' \
+        > /usr/local/bin/podman && \
+    chmod +x /usr/local/bin/podman
+RUN pip install --no-cache-dir jinjanator==26.3.0
+
 # Copy the source code into the container
 COPY . /src
 
