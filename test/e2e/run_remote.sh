@@ -22,6 +22,8 @@
 #   REGISTRY_AUTH_FILE   pull secret for the export (default: local docker config; used only if present)
 #   ARTIFACTS    local dir the lane's artifacts are collected into (default /tmp/ega/artifact; Prow
 #                sets it). For a remote target they are copied back here off the target.
+#   EGA_LANE_SCRIPT  target script to run after the images are built
+#                [default: test/e2e/run.sh]. The kind peers lane sets test/e2e-kind/run.sh.
 set -euo pipefail
 
 # This script installs nothing -- provisioning handles tools. skopeo does the base-image export
@@ -39,6 +41,7 @@ readonly NODE_EXPORTER_IMAGE="${NODE_EXPORTER_IMAGE:?set NODE_EXPORTER_IMAGE (CI
 readonly EE_BASE_IMAGE="${EE_BASE_IMAGE:-quay.io/centos/centos:stream10}"
 readonly APPLIANCE_BASE_IMAGE="${APPLIANCE_BASE_IMAGE:-quay.io/centos-bootc/centos-bootc:stream10}"
 readonly CI_IMAGE="${CI_IMAGE:-containers-storage:localhost/evpn-gateway-appliance-ci:local}"
+readonly LANE_SCRIPT="${EGA_LANE_SCRIPT:-test/e2e/run.sh}"
 
 # Pull secret for the skopeo export, used only if the file exists (public base images need
 # none). Pass REGISTRY_AUTH_FILE to point at a specific secret (CI); defaults to the local
@@ -177,7 +180,7 @@ cat > "${WORK}/e2e.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 cd /tmp/ega/build
-EGA_ARTIFACT_DIR="${lane_artifacts}" bash test/e2e/run.sh
+EGA_ARTIFACT_DIR="${lane_artifacts}" bash "${LANE_SCRIPT}"
 EOF
 
 chmod +x "${WORK}"/*.sh

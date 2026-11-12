@@ -1,0 +1,21 @@
+---
+# Advertise the EVPN CUDN through the relay FRRConfiguration.
+# PodNetwork cannot be combined with a node selector.
+apiVersion: k8s.ovn.org/v1
+kind: RouteAdvertisements
+metadata:
+  name: ega-evpn-ra
+spec:
+  targetVRF: auto
+  advertisements:
+    - PodNetwork
+  nodeSelector: {}
+  frrConfigurationSelector:
+    matchLabels:
+      use-for-advertisements: evpn
+  networkSelectors:
+    - networkSelectionType: ClusterUserDefinedNetworks
+      clusterUserDefinedNetworkSelector:
+        networkSelector:
+          matchLabels:
+            evpn: enabled

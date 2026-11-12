@@ -39,7 +39,7 @@ container-default: ci-image
 else
 # Forward the named goals into a single container run: the first builds the image and
 # runs them, the rest are no-ops. The appliance targets build on the host.
-FWD := $(filter-out ci-image ee-image appliance-image ci-appliance-image nested-ci-appliance-image,$(MAKECMDGOALS))
+FWD := $(filter-out ci-image ee-image appliance-image ci-appliance-image nested-ci-appliance-image e2e-kind,$(MAKECMDGOALS))
 ifneq ($(FWD),)
 .PHONY: $(FWD)
 $(firstword $(FWD)): ci-image
@@ -68,6 +68,11 @@ ci-image:
 .PHONY: ee-image
 ee-image:
 	EGA_E2E_IMAGE=$(CI_IMAGE) EGA_EE_IMAGE=$(EE_IMAGE) test/e2e/ee/build.sh
+
+# Kind peers lane. Host-side: run.sh starts the CI image itself.
+.PHONY: e2e-kind
+e2e-kind: ci-image
+	test/e2e-kind/run.sh
 
 # Appliance bootc image (image/rhel10/Containerfile). Host-side: the build needs the
 # host engine and a registry auth file that must stay outside the build context.

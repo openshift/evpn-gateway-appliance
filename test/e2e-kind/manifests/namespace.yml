@@ -1,0 +1,7 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ega-evpn
+  labels:
+    ega-lane: e2e-kind

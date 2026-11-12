@@ -1,0 +1,23 @@
+---
+# Primary L2 CUDN on the stretch subnet. VNI 10100 matches VLAN 100 on the appliance.
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: ega-evpn-production
+  labels:
+    evpn: enabled
+spec:
+  namespaceSelector:
+    matchLabels:
+      ega-lane: e2e-kind
+  network:
+    topology: Layer2
+    layer2:
+      role: Primary
+      subnets:
+        - 10.42.1.0/24
+    transport: EVPN
+    evpn:
+      vtep: ega-vtep
+      macVRF:
+        vni: 10100
