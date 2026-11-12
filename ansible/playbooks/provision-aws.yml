@@ -12,8 +12,6 @@
   connection: local
   become: false
   gather_facts: false
-  environment:
-    AWS_DEFAULT_REGION: "{{ aws_region | default('eu-west-1') }}"
   pre_tasks:
     - name: Require the control-node credential context
       ansible.builtin.assert:
@@ -22,7 +20,9 @@
           - ansible_become | default(false) is ansible.builtin.falsy(convert_bool=true)
         fail_msg: Provisioning requires local execution without privilege escalation to use controller credentials.
   roles:
-    - evpn_aws_infra
+    - role: evpn_aws_infra
+      environment:
+        AWS_DEFAULT_REGION: "{{ evpn_aws_infra_aws_region }}"
 
   post_tasks:
     - name: Update inventory file with new IPs
@@ -30,4 +30,4 @@
         src: "{{ playbook_dir }}/../inventory/hosts.yml.j2"
         dest: "{{ playbook_dir }}/../inventory/hosts.yml"
         mode: "0644"
-      when: infra_public_ip is defined and workload_public_ip is defined
+      when: evpn_aws_infra_infra_public_ip is defined and evpn_aws_infra_workload_public_ip is defined

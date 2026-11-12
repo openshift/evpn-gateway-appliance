@@ -56,9 +56,9 @@
   loop: "{{ stretches }}"
   loop_control:
     label: "VNI {{ 10000 + item.vlan }} ({{ item.name }})"
-  register: _vxlan_create
-  failed_when: _vxlan_create.rc != 0 and 'File exists' not in _vxlan_create.stderr
-  changed_when: _vxlan_create.rc == 0
+  register: _evpn_onprem_appliance_vxlan_create
+  failed_when: _evpn_onprem_appliance_vxlan_create.rc != 0 and 'File exists' not in _evpn_onprem_appliance_vxlan_create.stderr
+  changed_when: _evpn_onprem_appliance_vxlan_create.rc == 0
 
 - name: Bring up VXLAN interfaces
   ansible.builtin.command: ip link set vxlan{{ 10000 + item.vlan }} up
@@ -72,9 +72,9 @@
   loop: "{{ stretches }}"
   loop_control:
     label: "br-vni{{ 10000 + item.vlan }}"
-  register: _br_create
-  failed_when: _br_create.rc != 0 and 'File exists' not in _br_create.stderr
-  changed_when: _br_create.rc == 0
+  register: _evpn_onprem_appliance_br_create
+  failed_when: _evpn_onprem_appliance_br_create.rc != 0 and 'File exists' not in _evpn_onprem_appliance_br_create.stderr
+  changed_when: _evpn_onprem_appliance_br_create.rc == 0
 
 - name: Bring up bridges
   ansible.builtin.command: ip link set br-vni{{ 10000 + item.vlan }} up
@@ -88,18 +88,18 @@
   loop: "{{ stretches }}"
   loop_control:
     label: "trunk.{{ item.vlan }} → br-vni{{ 10000 + item.vlan }}"
-  register: _trunk_add
-  failed_when: _trunk_add.rc != 0 and 'already a member' not in _trunk_add.stderr
-  changed_when: _trunk_add.rc == 0
+  register: _evpn_onprem_appliance_trunk_add
+  failed_when: _evpn_onprem_appliance_trunk_add.rc != 0 and 'already a member' not in _evpn_onprem_appliance_trunk_add.stderr
+  changed_when: _evpn_onprem_appliance_trunk_add.rc == 0
 
 - name: Add VXLAN to bridge
   ansible.builtin.command: ip link set vxlan{{ 10000 + item.vlan }} master br-vni{{ 10000 + item.vlan }}
   loop: "{{ stretches }}"
   loop_control:
     label: "vxlan{{ 10000 + item.vlan }} → br-vni{{ 10000 + item.vlan }}"
-  register: _vx_add
-  failed_when: _vx_add.rc != 0 and 'already a member' not in _vx_add.stderr
-  changed_when: _vx_add.rc == 0
+  register: _evpn_onprem_appliance_vx_add
+  failed_when: _evpn_onprem_appliance_vx_add.rc != 0 and 'already a member' not in _evpn_onprem_appliance_vx_add.stderr
+  changed_when: _evpn_onprem_appliance_vx_add.rc == 0
 
 - name: Assign IPs to bridge SVIs
   ansible.builtin.command: >-
@@ -108,9 +108,12 @@
   loop: "{{ stretches }}"
   loop_control:
     label: "{{ item.onprem_gateway }} on br-vni{{ 10000 + item.vlan }}"
-  register: _ip_add
-  failed_when: _ip_add.rc != 0 and 'already' not in _ip_add.stderr and 'File exists' not in _ip_add.stderr
-  changed_when: _ip_add.rc == 0
+  register: _evpn_onprem_appliance_ip_add
+  failed_when: >-
+    _evpn_onprem_appliance_ip_add.rc != 0
+    and 'already' not in _evpn_onprem_appliance_ip_add.stderr
+    and 'File exists' not in _evpn_onprem_appliance_ip_add.stderr
+  changed_when: _evpn_onprem_appliance_ip_add.rc == 0
 
 # ── FRR ────────────────────────────────────────────────────────
 - name: Ensure FRR directories exist
@@ -165,7 +168,7 @@
     state: started
     enabled: true
   when: ansible_facts.services is defined and 'frr-container.service' in ansible_facts.services
-  register: _frr_systemd
+  register: _evpn_onprem_appliance_frr_systemd
 
 - name: Start FRR via podman directly (non-bootc)
   containers.podman.podman_container:
@@ -178,7 +181,7 @@
     volumes:
       - /etc/frr:/etc/frr:Z
       - /var/run/frr:/var/run/frr:Z
-  when: _frr_systemd is skipped
+  when: _evpn_onprem_appliance_frr_systemd is skipped
 
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers

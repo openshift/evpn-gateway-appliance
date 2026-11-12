@@ -6,13 +6,13 @@
 - name: Check for existing WireGuard keys
   ansible.builtin.stat:
     path: "{{ playbook_dir }}/../.wg-keys/keys.yml"
-  register: wg_keys_file
+  register: _evpn_cloud_infra_wg_keys_file
   delegate_to: localhost
   become: false
   run_once: true
 
 - name: Generate WireGuard keys
-  when: not wg_keys_file.stat.exists
+  when: not _evpn_cloud_infra_wg_keys_file.stat.exists
   delegate_to: localhost
   become: false
   run_once: true
@@ -27,35 +27,35 @@
 
     - name: Generate server private key
       ansible.builtin.command: wg genkey
-      register: _wg_server_priv
+      register: _evpn_cloud_infra_wg_server_priv
       changed_when: true
 
     - name: Derive server public key
       ansible.builtin.command: wg pubkey
       args:
-        stdin: "{{ _wg_server_priv.stdout }}"
-      register: _wg_server_pub
+        stdin: "{{ _evpn_cloud_infra_wg_server_priv.stdout }}"
+      register: _evpn_cloud_infra_wg_server_pub
       changed_when: false
 
     - name: Generate client private key
       ansible.builtin.command: wg genkey
-      register: _wg_client_priv
+      register: _evpn_cloud_infra_wg_client_priv
       changed_when: true
 
     - name: Derive client public key
       ansible.builtin.command: wg pubkey
       args:
-        stdin: "{{ _wg_client_priv.stdout }}"
-      register: _wg_client_pub
+        stdin: "{{ _evpn_cloud_infra_wg_client_priv.stdout }}"
+      register: _evpn_cloud_infra_wg_client_pub
       changed_when: false
 
     - name: Save keys to file
       ansible.builtin.copy:
         content: |
-          wg_server_private: "{{ _wg_server_priv.stdout }}"
-          wg_server_public: "{{ _wg_server_pub.stdout }}"
-          wg_client_private: "{{ _wg_client_priv.stdout }}"
-          wg_client_public: "{{ _wg_client_pub.stdout }}"
+          wg_server_private: "{{ _evpn_cloud_infra_wg_server_priv.stdout }}"
+          wg_server_public: "{{ _evpn_cloud_infra_wg_server_pub.stdout }}"
+          wg_client_private: "{{ _evpn_cloud_infra_wg_client_priv.stdout }}"
+          wg_client_public: "{{ _evpn_cloud_infra_wg_client_pub.stdout }}"
         dest: "{{ playbook_dir }}/../.wg-keys/keys.yml"
         mode: "0600"
 

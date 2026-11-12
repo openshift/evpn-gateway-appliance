@@ -3,9 +3,9 @@
 
 - name: Create trunk bridge
   ansible.builtin.command: ip link add trunk-br type bridge
-  register: _trunk_br
-  failed_when: _trunk_br.rc != 0 and 'File exists' not in _trunk_br.stderr
-  changed_when: _trunk_br.rc == 0
+  register: _evpn_onprem_appliance_trunk_br
+  failed_when: _evpn_onprem_appliance_trunk_br.rc != 0 and 'File exists' not in _evpn_onprem_appliance_trunk_br.stderr
+  changed_when: _evpn_onprem_appliance_trunk_br.rc == 0
 
 - name: Bring up trunk bridge
   ansible.builtin.command: ip link set trunk-br up
@@ -17,9 +17,9 @@
 
 - name: Add physical interface to trunk bridge
   ansible.builtin.command: ip link set {{ trunk_interface }} master trunk-br
-  register: _phy_add
-  failed_when: _phy_add.rc != 0 and 'already a member' not in _phy_add.stderr
-  changed_when: _phy_add.rc == 0
+  register: _evpn_onprem_appliance_phy_add
+  failed_when: _evpn_onprem_appliance_phy_add.rc != 0 and 'already a member' not in _evpn_onprem_appliance_phy_add.stderr
+  changed_when: _evpn_onprem_appliance_phy_add.rc == 0
 
 - name: Bring up physical interface
   ansible.builtin.command: ip link set {{ trunk_interface }} up
@@ -44,9 +44,9 @@
   loop: "{{ stretches }}"
   loop_control:
     label: "trunk.{{ item.vlan }}"
-  register: _vlan_create
-  failed_when: _vlan_create.rc != 0 and 'File exists' not in _vlan_create.stderr
-  changed_when: _vlan_create.rc == 0
+  register: _evpn_onprem_appliance_vlan_create
+  failed_when: _evpn_onprem_appliance_vlan_create.rc != 0 and 'File exists' not in _evpn_onprem_appliance_vlan_create.stderr
+  changed_when: _evpn_onprem_appliance_vlan_create.rc == 0
 
 - name: Bring up VLAN sub-interfaces
   ansible.builtin.command: ip link set trunk.{{ item.vlan }} up

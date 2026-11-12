@@ -19,369 +19,388 @@
 
 - name: Set AWS region
   ansible.builtin.set_fact:
-    _region: "{{ aws_region }}"
-    _admin_cidr: "{{ evpn_aws_infra_admin_cidr if evpn_aws_infra_admin_cidr | length > 0 else '0.0.0.0/0' }}"
+    _evpn_aws_infra_region: "{{ evpn_aws_infra_aws_region }}"
+    _evpn_aws_infra_admin_cidr: "{{ evpn_aws_infra_admin_cidr if evpn_aws_infra_admin_cidr | length > 0 else '0.0.0.0/0' }}"
 
 # ── Look up AMI ─────────────────────────────────────────────────────
 - name: Look up CentOS Stream 10 AMI
   vars:
     _centos_ami_owner: "125523088429"  # public-safe: ok — public CentOS AWS account, not a secret
   ansible.builtin.command: >
-    aws ec2 describe-images --region {{ _region }}
+    aws ec2 describe-images --region {{ _evpn_aws_infra_region }}
     --owners {{ _centos_ami_owner }}
     --filters "Name=name,Values=CentOS Stream 10 x86_64*"
               "Name=architecture,Values=x86_64"
     --query "sort_by(Images,&CreationDate)[-1].ImageId"
     --output text
-  register: _ami_lookup
+  register: _evpn_aws_infra_ami_lookup
   changed_when: false
-  when: router_ami == ""
+  when: evpn_aws_infra_router_ami == ""
 
 - name: Set AMI ID
   ansible.builtin.set_fact:
-    _ami_id: "{{ router_ami if router_ami != '' else _ami_lookup.stdout | trim }}"
+    _evpn_aws_infra_ami_id: "{{ evpn_aws_infra_router_ami if evpn_aws_infra_router_ami != '' else _evpn_aws_infra_ami_lookup.stdout | trim }}"
 
 - name: Display AMI
   ansible.builtin.debug:
-    msg: "Using AMI: {{ _ami_id }}"
+    msg: "Using AMI: {{ _evpn_aws_infra_ami_id }}"
 
 # ── Infra VPC ───────────────────────────────────────────────────────
 - name: Create Infra VPC
   ansible.builtin.command: >
-    aws ec2 create-vpc --region {{ _region }}
-    --cidr-block {{ infra_vpc_cidr }}
-    --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value={{ project_name }}-infra-vpc},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 create-vpc --region {{ _evpn_aws_infra_region }}
+    --cidr-block {{ evpn_aws_infra_infra_vpc_cidr }}
+    --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-infra-vpc},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query Vpc.VpcId --output text
-  register: _infra_vpc
+  register: _evpn_aws_infra_infra_vpc
   changed_when: true
 
 - name: Enable DNS hostnames on Infra VPC
   ansible.builtin.command: >
-    aws ec2 modify-vpc-attribute --region {{ _region }}
-    --vpc-id {{ _infra_vpc.stdout | trim }}
+    aws ec2 modify-vpc-attribute --region {{ _evpn_aws_infra_region }}
+    --vpc-id {{ _evpn_aws_infra_infra_vpc.stdout | trim }}
     --enable-dns-hostnames
   changed_when: false
 
 - name: Create Infra subnet
   ansible.builtin.command: >
-    aws ec2 create-subnet --region {{ _region }}
-    --vpc-id {{ _infra_vpc.stdout | trim }}
-    --cidr-block {{ infra_vpc_cidr | ansible.utils.ipsubnet(24, 1) }}
-    --availability-zone {{ _region }}a
-    --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value={{ project_name }}-infra-public},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 create-subnet --region {{ _evpn_aws_infra_region }}
+    --vpc-id {{ _evpn_aws_infra_infra_vpc.stdout | trim }}
+    --cidr-block {{ evpn_aws_infra_infra_vpc_cidr | ansible.utils.ipsubnet(24, 1) }}
+    --availability-zone {{ _evpn_aws_infra_region }}a
+    --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-infra-public},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query Subnet.SubnetId --output text
-  register: _infra_subnet
+  register: _evpn_aws_infra_infra_subnet
   changed_when: true
 
 - name: Enable auto-assign public IP on Infra subnet
   ansible.builtin.command: >
-    aws ec2 modify-subnet-attribute --region {{ _region }}
-    --subnet-id {{ _infra_subnet.stdout | trim }}
+    aws ec2 modify-subnet-attribute --region {{ _evpn_aws_infra_region }}
+    --subnet-id {{ _evpn_aws_infra_infra_subnet.stdout | trim }}
     --map-public-ip-on-launch
   changed_when: false
 
 - name: Create Infra IGW
   ansible.builtin.command: >
-    aws ec2 create-internet-gateway --region {{ _region }}
-    --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value={{ project_name }}-infra-igw},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 create-internet-gateway --region {{ _evpn_aws_infra_region }}
+    --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-infra-igw},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query InternetGateway.InternetGatewayId --output text
-  register: _infra_igw
+  register: _evpn_aws_infra_infra_igw
   changed_when: true
 
 - name: Attach IGW to Infra VPC
   ansible.builtin.command: >
-    aws ec2 attach-internet-gateway --region {{ _region }}
-    --internet-gateway-id {{ _infra_igw.stdout | trim }}
-    --vpc-id {{ _infra_vpc.stdout | trim }}
+    aws ec2 attach-internet-gateway --region {{ _evpn_aws_infra_region }}
+    --internet-gateway-id {{ _evpn_aws_infra_infra_igw.stdout | trim }}
+    --vpc-id {{ _evpn_aws_infra_infra_vpc.stdout | trim }}
   changed_when: true
 
 - name: Get Infra route table
   ansible.builtin.command: >
-    aws ec2 describe-route-tables --region {{ _region }}
-    --filters "Name=vpc-id,Values={{ _infra_vpc.stdout | trim }}" "Name=association.main,Values=true"
+    aws ec2 describe-route-tables --region {{ _evpn_aws_infra_region }}
+    --filters "Name=vpc-id,Values={{ _evpn_aws_infra_infra_vpc.stdout | trim }}" "Name=association.main,Values=true"
     --query "RouteTables[0].RouteTableId" --output text
-  register: _infra_rt
+  register: _evpn_aws_infra_infra_rt
   changed_when: false
 
 - name: Add default route to Infra RT
   ansible.builtin.command: >
-    aws ec2 create-route --region {{ _region }}
-    --route-table-id {{ _infra_rt.stdout | trim }}
+    aws ec2 create-route --region {{ _evpn_aws_infra_region }}
+    --route-table-id {{ _evpn_aws_infra_infra_rt.stdout | trim }}
     --destination-cidr-block 0.0.0.0/0
-    --gateway-id {{ _infra_igw.stdout | trim }}
-  register: _r
-  failed_when: _r.rc != 0 and 'already exists' not in _r.stderr
-  changed_when: _r.rc == 0
+    --gateway-id {{ _evpn_aws_infra_infra_igw.stdout | trim }}
+  register: _evpn_aws_infra_r
+  failed_when: _evpn_aws_infra_r.rc != 0 and 'already exists' not in _evpn_aws_infra_r.stderr
+  changed_when: _evpn_aws_infra_r.rc == 0
 
 # ── Workload VPC ────────────────────────────────────────────────────
 - name: Create Workload VPC
   ansible.builtin.command: >
-    aws ec2 create-vpc --region {{ _region }}
-    --cidr-block {{ workload_vpc_cidr }}
-    --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value={{ project_name }}-workload-vpc},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 create-vpc --region {{ _evpn_aws_infra_region }}
+    --cidr-block {{ evpn_aws_infra_workload_vpc_cidr }}
+    --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-workload-vpc},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query Vpc.VpcId --output text
-  register: _workload_vpc
+  register: _evpn_aws_infra_workload_vpc
   changed_when: true
 
 - name: Enable DNS hostnames on Workload VPC
   ansible.builtin.command: >
-    aws ec2 modify-vpc-attribute --region {{ _region }}
-    --vpc-id {{ _workload_vpc.stdout | trim }}
+    aws ec2 modify-vpc-attribute --region {{ _evpn_aws_infra_region }}
+    --vpc-id {{ _evpn_aws_infra_workload_vpc.stdout | trim }}
     --enable-dns-hostnames
   changed_when: false
 
 - name: Create Workload subnet
   ansible.builtin.command: >
-    aws ec2 create-subnet --region {{ _region }}
-    --vpc-id {{ _workload_vpc.stdout | trim }}
-    --cidr-block {{ workload_vpc_cidr | ansible.utils.ipsubnet(24, 1) }}
-    --availability-zone {{ _region }}a
-    --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value={{ project_name }}-workload-public},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 create-subnet --region {{ _evpn_aws_infra_region }}
+    --vpc-id {{ _evpn_aws_infra_workload_vpc.stdout | trim }}
+    --cidr-block {{ evpn_aws_infra_workload_vpc_cidr | ansible.utils.ipsubnet(24, 1) }}
+    --availability-zone {{ _evpn_aws_infra_region }}a
+    --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-workload-public},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query Subnet.SubnetId --output text
-  register: _workload_subnet
+  register: _evpn_aws_infra_workload_subnet
   changed_when: true
 
 - name: Enable auto-assign public IP on Workload subnet
   ansible.builtin.command: >
-    aws ec2 modify-subnet-attribute --region {{ _region }}
-    --subnet-id {{ _workload_subnet.stdout | trim }}
+    aws ec2 modify-subnet-attribute --region {{ _evpn_aws_infra_region }}
+    --subnet-id {{ _evpn_aws_infra_workload_subnet.stdout | trim }}
     --map-public-ip-on-launch
   changed_when: false
 
 - name: Create Workload IGW
   ansible.builtin.command: >
-    aws ec2 create-internet-gateway --region {{ _region }}
-    --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value={{ project_name }}-workload-igw},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 create-internet-gateway --region {{ _evpn_aws_infra_region }}
+    --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-workload-igw},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query InternetGateway.InternetGatewayId --output text
-  register: _workload_igw
+  register: _evpn_aws_infra_workload_igw
   changed_when: true
 
 - name: Attach IGW to Workload VPC
   ansible.builtin.command: >
-    aws ec2 attach-internet-gateway --region {{ _region }}
-    --internet-gateway-id {{ _workload_igw.stdout | trim }}
-    --vpc-id {{ _workload_vpc.stdout | trim }}
+    aws ec2 attach-internet-gateway --region {{ _evpn_aws_infra_region }}
+    --internet-gateway-id {{ _evpn_aws_infra_workload_igw.stdout | trim }}
+    --vpc-id {{ _evpn_aws_infra_workload_vpc.stdout | trim }}
   changed_when: true
 
 - name: Get Workload route table
   ansible.builtin.command: >
-    aws ec2 describe-route-tables --region {{ _region }}
-    --filters "Name=vpc-id,Values={{ _workload_vpc.stdout | trim }}" "Name=association.main,Values=true"
+    aws ec2 describe-route-tables --region {{ _evpn_aws_infra_region }}
+    --filters "Name=vpc-id,Values={{ _evpn_aws_infra_workload_vpc.stdout | trim }}" "Name=association.main,Values=true"
     --query "RouteTables[0].RouteTableId" --output text
-  register: _workload_rt
+  register: _evpn_aws_infra_workload_rt
   changed_when: false
 
 - name: Add default route to Workload RT
   ansible.builtin.command: >
-    aws ec2 create-route --region {{ _region }}
-    --route-table-id {{ _workload_rt.stdout | trim }}
+    aws ec2 create-route --region {{ _evpn_aws_infra_region }}
+    --route-table-id {{ _evpn_aws_infra_workload_rt.stdout | trim }}
     --destination-cidr-block 0.0.0.0/0
-    --gateway-id {{ _workload_igw.stdout | trim }}
-  register: _r
-  failed_when: _r.rc != 0 and 'already exists' not in _r.stderr
-  changed_when: _r.rc == 0
+    --gateway-id {{ _evpn_aws_infra_workload_igw.stdout | trim }}
+  register: _evpn_aws_infra_r
+  failed_when: _evpn_aws_infra_r.rc != 0 and 'already exists' not in _evpn_aws_infra_r.stderr
+  changed_when: _evpn_aws_infra_r.rc == 0
 
 # ── Transit Gateway ────────────────────────────────────────────────
 - name: Create Transit Gateway
   ansible.builtin.command: >
-    aws ec2 create-transit-gateway --region {{ _region }}
-    --description "{{ project_name }}-tgw"
-    --tag-specifications 'ResourceType=transit-gateway,Tags=[{Key=Name,Value={{ project_name }}-tgw},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 create-transit-gateway --region {{ _evpn_aws_infra_region }}
+    --description "{{ evpn_aws_infra_project_name }}-tgw"
+    --tag-specifications 'ResourceType=transit-gateway,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-tgw},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query TransitGateway.TransitGatewayId --output text
-  register: _tgw
+  register: _evpn_aws_infra_tgw
   changed_when: true
 
 - name: Wait for TGW to be available
   ansible.builtin.command: >
-    aws ec2 describe-transit-gateways --region {{ _region }}
-    --transit-gateway-ids {{ _tgw.stdout | trim }}
+    aws ec2 describe-transit-gateways --region {{ _evpn_aws_infra_region }}
+    --transit-gateway-ids {{ _evpn_aws_infra_tgw.stdout | trim }}
     --query "TransitGateways[0].State" --output text
-  register: _tgw_state
-  until: _tgw_state.stdout | trim == "available"
+  register: _evpn_aws_infra_tgw_state
+  until: _evpn_aws_infra_tgw_state.stdout | trim == "available"
   retries: 30
   delay: 10
   changed_when: false
 
 - name: Attach Infra VPC to TGW
   ansible.builtin.command: >
-    aws ec2 create-transit-gateway-vpc-attachment --region {{ _region }}
-    --transit-gateway-id {{ _tgw.stdout | trim }}
-    --vpc-id {{ _infra_vpc.stdout | trim }}
-    --subnet-ids {{ _infra_subnet.stdout | trim }}
-    --tag-specifications 'ResourceType=transit-gateway-attachment,Tags=[{Key=Name,Value={{ project_name }}-tgw-infra},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 create-transit-gateway-vpc-attachment --region {{ _evpn_aws_infra_region }}
+    --transit-gateway-id {{ _evpn_aws_infra_tgw.stdout | trim }}
+    --vpc-id {{ _evpn_aws_infra_infra_vpc.stdout | trim }}
+    --subnet-ids {{ _evpn_aws_infra_infra_subnet.stdout | trim }}
+    --tag-specifications 'ResourceType=transit-gateway-attachment,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-tgw-infra},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query TransitGatewayVpcAttachment.TransitGatewayAttachmentId --output text
-  register: _tgw_infra
+  register: _evpn_aws_infra_tgw_infra
   changed_when: true
 
 - name: Attach Workload VPC to TGW
   ansible.builtin.command: >
-    aws ec2 create-transit-gateway-vpc-attachment --region {{ _region }}
-    --transit-gateway-id {{ _tgw.stdout | trim }}
-    --vpc-id {{ _workload_vpc.stdout | trim }}
-    --subnet-ids {{ _workload_subnet.stdout | trim }}
+    aws ec2 create-transit-gateway-vpc-attachment --region {{ _evpn_aws_infra_region }}
+    --transit-gateway-id {{ _evpn_aws_infra_tgw.stdout | trim }}
+    --vpc-id {{ _evpn_aws_infra_workload_vpc.stdout | trim }}
+    --subnet-ids {{ _evpn_aws_infra_workload_subnet.stdout | trim }}
     --tag-specifications
-    'ResourceType=transit-gateway-attachment,Tags=[{Key=Name,Value={{ project_name }}-tgw-workload},{Key=Project,Value={{ project_name }}}]'
+    'ResourceType=transit-gateway-attachment,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-tgw-workload},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query TransitGatewayVpcAttachment.TransitGatewayAttachmentId --output text
-  register: _tgw_workload
+  register: _evpn_aws_infra_tgw_workload
   changed_when: true
 
 - name: Wait for TGW attachments to be available
   ansible.builtin.command: >
-    aws ec2 describe-transit-gateway-vpc-attachments --region {{ _region }}
+    aws ec2 describe-transit-gateway-vpc-attachments --region {{ _evpn_aws_infra_region }}
     --transit-gateway-attachment-ids {{ item | trim }}
     --query "TransitGatewayVpcAttachments[0].State" --output text
-  register: _tgw_att_state
-  until: _tgw_att_state.stdout | trim == "available"
+  register: _evpn_aws_infra_tgw_att_state
+  until: _evpn_aws_infra_tgw_att_state.stdout | trim == "available"
   retries: 60
   delay: 10
   changed_when: false
   loop:
-    - "{{ _tgw_infra.stdout }}"
-    - "{{ _tgw_workload.stdout }}"
+    - "{{ _evpn_aws_infra_tgw_infra.stdout }}"
+    - "{{ _evpn_aws_infra_tgw_workload.stdout }}"
   loop_control:
     label: "{{ item | trim }}"
 
 # ── Cross-VPC routes ───────────────────────────────────────────────
 - name: Add Infra → Workload route via TGW
   ansible.builtin.command: >
-    aws ec2 create-route --region {{ _region }}
-    --route-table-id {{ _infra_rt.stdout | trim }}
-    --destination-cidr-block {{ workload_vpc_cidr }}
-    --transit-gateway-id {{ _tgw.stdout | trim }}
-  register: _r
-  failed_when: _r.rc != 0 and 'already exists' not in _r.stderr
-  changed_when: _r.rc == 0
+    aws ec2 create-route --region {{ _evpn_aws_infra_region }}
+    --route-table-id {{ _evpn_aws_infra_infra_rt.stdout | trim }}
+    --destination-cidr-block {{ evpn_aws_infra_workload_vpc_cidr }}
+    --transit-gateway-id {{ _evpn_aws_infra_tgw.stdout | trim }}
+  register: _evpn_aws_infra_r
+  failed_when: _evpn_aws_infra_r.rc != 0 and 'already exists' not in _evpn_aws_infra_r.stderr
+  changed_when: _evpn_aws_infra_r.rc == 0
 
 - name: Add Workload → Infra route via TGW
   ansible.builtin.command: >
-    aws ec2 create-route --region {{ _region }}
-    --route-table-id {{ _workload_rt.stdout | trim }}
-    --destination-cidr-block {{ infra_vpc_cidr }}
-    --transit-gateway-id {{ _tgw.stdout | trim }}
-  register: _r
-  failed_when: _r.rc != 0 and 'already exists' not in _r.stderr
-  changed_when: _r.rc == 0
+    aws ec2 create-route --region {{ _evpn_aws_infra_region }}
+    --route-table-id {{ _evpn_aws_infra_workload_rt.stdout | trim }}
+    --destination-cidr-block {{ evpn_aws_infra_infra_vpc_cidr }}
+    --transit-gateway-id {{ _evpn_aws_infra_tgw.stdout | trim }}
+  register: _evpn_aws_infra_r
+  failed_when: _evpn_aws_infra_r.rc != 0 and 'already exists' not in _evpn_aws_infra_r.stderr
+  changed_when: _evpn_aws_infra_r.rc == 0
 
 # ── Security Groups ────────────────────────────────────────────────
 - name: Create Infra router SG
   ansible.builtin.command: >
-    aws ec2 create-security-group --region {{ _region }}
-    --group-name {{ project_name }}-infra-router
+    aws ec2 create-security-group --region {{ _evpn_aws_infra_region }}
+    --group-name {{ evpn_aws_infra_project_name }}-infra-router
     --description "FRR router in Infra VPC"
-    --vpc-id {{ _infra_vpc.stdout | trim }}
-    --tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value={{ project_name }}-infra-router-sg},{Key=Project,Value={{ project_name }}}]'
+    --vpc-id {{ _evpn_aws_infra_infra_vpc.stdout | trim }}
+    --tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-infra-router-sg},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query GroupId --output text
-  register: _infra_sg
+  register: _evpn_aws_infra_infra_sg
   changed_when: true
 
 - name: Configure Infra SG rules
   # Admin-plane ingress scoped to evpn_aws_infra_admin_cidr, not 0.0.0.0/0 (source-audit.md §1).
   ansible.builtin.shell: |
-    SG={{ _infra_sg.stdout | trim }}
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol tcp --port 22 --cidr {{ _admin_cidr }} 2>/dev/null || true
+    SG={{ _evpn_aws_infra_infra_sg.stdout | trim }}
+    aws ec2 authorize-security-group-ingress --region {{ _evpn_aws_infra_region }} --group-id $SG \
+      --protocol tcp --port 22 --cidr {{ _evpn_aws_infra_admin_cidr }} 2>/dev/null || true
     {% if tunnel.type == 'wireguard' %}
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG \
-      --protocol udp --port {{ tunnel.port }} --cidr {{ _admin_cidr }} 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _evpn_aws_infra_region }} --group-id $SG \
+      --protocol udp --port {{ tunnel.port }} --cidr {{ _evpn_aws_infra_admin_cidr }} 2>/dev/null || true
     {% endif %}
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ infra_vpc_cidr }} 2>/dev/null || true
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ workload_vpc_cidr }} 2>/dev/null || true
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG \
+    aws ec2 authorize-security-group-ingress --region {{ _evpn_aws_infra_region }} --group-id $SG \
+      --protocol -1 --cidr {{ evpn_aws_infra_infra_vpc_cidr }} 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _evpn_aws_infra_region }} --group-id $SG \
+      --protocol -1 --cidr {{ evpn_aws_infra_workload_vpc_cidr }} 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _evpn_aws_infra_region }} --group-id $SG \
       --protocol -1 --cidr {{ tunnel.network_cidr | default('10.44.44.0/24') }} 2>/dev/null || true
   changed_when: false
 
 - name: Create Workload router SG
   ansible.builtin.command: >
-    aws ec2 create-security-group --region {{ _region }}
-    --group-name {{ project_name }}-workload-router
+    aws ec2 create-security-group --region {{ _evpn_aws_infra_region }}
+    --group-name {{ evpn_aws_infra_project_name }}-workload-router
     --description "FRR router in Workload VPC"
-    --vpc-id {{ _workload_vpc.stdout | trim }}
-    --tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value={{ project_name }}-workload-router-sg},{Key=Project,Value={{ project_name }}}]'
+    --vpc-id {{ _evpn_aws_infra_workload_vpc.stdout | trim }}
+    --tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-workload-router-sg},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query GroupId --output text
-  register: _workload_sg
+  register: _evpn_aws_infra_workload_sg
   changed_when: true
 
 - name: Configure Workload SG rules
   ansible.builtin.shell: |
-    SG={{ _workload_sg.stdout | trim }}
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol tcp --port 22 --cidr {{ _admin_cidr }} 2>/dev/null || true
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ infra_vpc_cidr }} 2>/dev/null || true
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG --protocol -1 --cidr {{ workload_vpc_cidr }} 2>/dev/null || true
-    aws ec2 authorize-security-group-ingress --region {{ _region }} --group-id $SG \
+    SG={{ _evpn_aws_infra_workload_sg.stdout | trim }}
+    aws ec2 authorize-security-group-ingress --region {{ _evpn_aws_infra_region }} --group-id $SG \
+      --protocol tcp --port 22 --cidr {{ _evpn_aws_infra_admin_cidr }} 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _evpn_aws_infra_region }} --group-id $SG \
+      --protocol -1 --cidr {{ evpn_aws_infra_infra_vpc_cidr }} 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _evpn_aws_infra_region }} --group-id $SG \
+      --protocol -1 --cidr {{ evpn_aws_infra_workload_vpc_cidr }} 2>/dev/null || true
+    aws ec2 authorize-security-group-ingress --region {{ _evpn_aws_infra_region }} --group-id $SG \
       --protocol -1 --cidr {{ tunnel.network_cidr | default('10.44.44.0/24') }} 2>/dev/null || true
   changed_when: false
 
 # ── EC2 Instances ──────────────────────────────────────────────────
 - name: Launch Infra router
   ansible.builtin.command: >
-    aws ec2 run-instances --region {{ _region }}
-    --image-id {{ _ami_id }}
-    --instance-type {{ router_instance_type }}
-    --key-name {{ ssh_key_name }}
-    --subnet-id {{ _infra_subnet.stdout | trim }}
-    --security-group-ids {{ _infra_sg.stdout | trim }}
-    --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value={{ project_name }}-infra-router},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 run-instances --region {{ _evpn_aws_infra_region }}
+    --image-id {{ _evpn_aws_infra_ami_id }}
+    --instance-type {{ evpn_aws_infra_router_instance_type }}
+    --key-name {{ evpn_aws_infra_ssh_key_name }}
+    --subnet-id {{ _evpn_aws_infra_infra_subnet.stdout | trim }}
+    --security-group-ids {{ _evpn_aws_infra_infra_sg.stdout | trim }}
+    --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-infra-router},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query "Instances[0].InstanceId" --output text
-  register: _infra_instance_id
+  register: _evpn_aws_infra_infra_instance_id
   changed_when: true
 
 - name: Disable source/dest check on Infra router
   ansible.builtin.command: >
-    aws ec2 modify-instance-attribute --region {{ _region }}
-    --instance-id {{ _infra_instance_id.stdout | trim }}
+    aws ec2 modify-instance-attribute --region {{ _evpn_aws_infra_region }}
+    --instance-id {{ _evpn_aws_infra_infra_instance_id.stdout | trim }}
     --source-dest-check '{"Value": false}'
   changed_when: false
 
 - name: Launch Workload router
   ansible.builtin.command: >
-    aws ec2 run-instances --region {{ _region }}
-    --image-id {{ _ami_id }}
-    --instance-type {{ router_instance_type }}
-    --key-name {{ ssh_key_name }}
-    --subnet-id {{ _workload_subnet.stdout | trim }}
-    --security-group-ids {{ _workload_sg.stdout | trim }}
-    --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value={{ project_name }}-workload-router},{Key=Project,Value={{ project_name }}}]'
+    aws ec2 run-instances --region {{ _evpn_aws_infra_region }}
+    --image-id {{ _evpn_aws_infra_ami_id }}
+    --instance-type {{ evpn_aws_infra_router_instance_type }}
+    --key-name {{ evpn_aws_infra_ssh_key_name }}
+    --subnet-id {{ _evpn_aws_infra_workload_subnet.stdout | trim }}
+    --security-group-ids {{ _evpn_aws_infra_workload_sg.stdout | trim }}
+    --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value={{
+      evpn_aws_infra_project_name }}-workload-router},{Key=Project,Value={{ evpn_aws_infra_project_name }}}]'
     --query "Instances[0].InstanceId" --output text
-  register: _workload_instance_id
+  register: _evpn_aws_infra_workload_instance_id
   changed_when: true
 
 - name: Disable source/dest check on Workload router
   ansible.builtin.command: >
-    aws ec2 modify-instance-attribute --region {{ _region }}
-    --instance-id {{ _workload_instance_id.stdout | trim }}
+    aws ec2 modify-instance-attribute --region {{ _evpn_aws_infra_region }}
+    --instance-id {{ _evpn_aws_infra_workload_instance_id.stdout | trim }}
     --source-dest-check '{"Value": false}'
   changed_when: false
 
 - name: Wait for instances to be running
   ansible.builtin.command: >
-    aws ec2 wait instance-running --region {{ _region }}
-    --instance-ids {{ _infra_instance_id.stdout | trim }} {{ _workload_instance_id.stdout | trim }}
+    aws ec2 wait instance-running --region {{ _evpn_aws_infra_region }}
+    --instance-ids {{ _evpn_aws_infra_infra_instance_id.stdout | trim }} {{ _evpn_aws_infra_workload_instance_id.stdout | trim }}
   changed_when: false
 
 # ── Get instance IPs ──────────────────────────────────────────────
 - name: Get Infra router IPs
   ansible.builtin.command: >
-    aws ec2 describe-instances --region {{ _region }}
-    --instance-ids {{ _infra_instance_id.stdout | trim }}
+    aws ec2 describe-instances --region {{ _evpn_aws_infra_region }}
+    --instance-ids {{ _evpn_aws_infra_infra_instance_id.stdout | trim }}
     --query "Reservations[0].Instances[0].[PublicIpAddress,PrivateIpAddress]"
     --output text
-  register: _infra_ips
+  register: _evpn_aws_infra_infra_ips
   changed_when: false
 
 - name: Get Workload router IPs
   ansible.builtin.command: >
-    aws ec2 describe-instances --region {{ _region }}
-    --instance-ids {{ _workload_instance_id.stdout | trim }}
+    aws ec2 describe-instances --region {{ _evpn_aws_infra_region }}
+    --instance-ids {{ _evpn_aws_infra_workload_instance_id.stdout | trim }}
     --query "Reservations[0].Instances[0].[PublicIpAddress,PrivateIpAddress]"
     --output text
-  register: _workload_ips
+  register: _evpn_aws_infra_workload_ips
   changed_when: false
 
 - name: Set IP facts
   ansible.builtin.set_fact:
-    infra_public_ip: "{{ _infra_ips.stdout.split()[0] }}"
-    infra_private_ip: "{{ _infra_ips.stdout.split()[1] }}"
-    workload_public_ip: "{{ _workload_ips.stdout.split()[0] }}"
-    workload_private_ip: "{{ _workload_ips.stdout.split()[1] }}"
+    evpn_aws_infra_infra_public_ip: "{{ _evpn_aws_infra_infra_ips.stdout.split()[0] }}"
+    evpn_aws_infra_infra_private_ip: "{{ _evpn_aws_infra_infra_ips.stdout.split()[1] }}"
+    evpn_aws_infra_workload_public_ip: "{{ _evpn_aws_infra_workload_ips.stdout.split()[0] }}"
+    evpn_aws_infra_workload_private_ip: "{{ _evpn_aws_infra_workload_ips.stdout.split()[1] }}"
     cacheable: true
 
 - name: Display connection info
@@ -390,59 +409,59 @@
       ╔═══════════════════════════════════════════════════════╗
       ║   AWS Infrastructure Deployed                        ║
       ╠═══════════════════════════════════════════════════════╣
-      ║   Infra:    {{ infra_public_ip }} ({{ infra_private_ip }})
-      ║   Workload: {{ workload_public_ip }} ({{ workload_private_ip }})
+      ║   Infra:    {{ evpn_aws_infra_infra_public_ip }} ({{ evpn_aws_infra_infra_private_ip }})
+      ║   Workload: {{ evpn_aws_infra_workload_public_ip }} ({{ evpn_aws_infra_workload_private_ip }})
       ╚═══════════════════════════════════════════════════════╝
 
 - name: Wait for SSH on Infra
   ansible.builtin.wait_for:
-    host: "{{ infra_public_ip }}"
+    host: "{{ evpn_aws_infra_infra_public_ip }}"
     port: 22
     timeout: 300
 
 - name: Wait for SSH on Workload
   ansible.builtin.wait_for:
-    host: "{{ workload_public_ip }}"
+    host: "{{ evpn_aws_infra_workload_public_ip }}"
     port: 22
     timeout: 300
 
 # ── Add on-prem route to workload VPC ──────────────────────────────
 - name: Add on-prem WG CIDR route to Workload RT via TGW
   ansible.builtin.command: >
-    aws ec2 create-route --region {{ _region }}
-    --route-table-id {{ _workload_rt.stdout | trim }}
+    aws ec2 create-route --region {{ _evpn_aws_infra_region }}
+    --route-table-id {{ _evpn_aws_infra_workload_rt.stdout | trim }}
     --destination-cidr-block {{ tunnel.network_cidr | default('10.44.44.0/24') }}
-    --transit-gateway-id {{ _tgw.stdout | trim }}
-  register: _r
-  failed_when: _r.rc != 0 and 'already exists' not in _r.stderr
-  changed_when: _r.rc == 0
+    --transit-gateway-id {{ _evpn_aws_infra_tgw.stdout | trim }}
+  register: _evpn_aws_infra_r
+  failed_when: _evpn_aws_infra_r.rc != 0 and 'already exists' not in _evpn_aws_infra_r.stderr
+  changed_when: _evpn_aws_infra_r.rc == 0
 
 # ── Add TGW static route for on-prem via infra ────────────────────
 - name: Get TGW route table
   ansible.builtin.command: >
-    aws ec2 describe-transit-gateway-route-tables --region {{ _region }}
-    --filters "Name=transit-gateway-id,Values={{ _tgw.stdout | trim }}"
+    aws ec2 describe-transit-gateway-route-tables --region {{ _evpn_aws_infra_region }}
+    --filters "Name=transit-gateway-id,Values={{ _evpn_aws_infra_tgw.stdout | trim }}"
     --query "TransitGatewayRouteTables[0].TransitGatewayRouteTableId" --output text
-  register: _tgw_rt
+  register: _evpn_aws_infra_tgw_rt
   changed_when: false
 
 - name: Add TGW static route for on-prem CIDR
   ansible.builtin.command: >
-    aws ec2 create-transit-gateway-route --region {{ _region }}
-    --transit-gateway-route-table-id {{ _tgw_rt.stdout | trim }}
+    aws ec2 create-transit-gateway-route --region {{ _evpn_aws_infra_region }}
+    --transit-gateway-route-table-id {{ _evpn_aws_infra_tgw_rt.stdout | trim }}
     --destination-cidr-block {{ tunnel.network_cidr | default('10.44.44.0/24') }}
-    --transit-gateway-attachment-id {{ _tgw_infra.stdout | trim }}
-  register: _r
-  failed_when: _r.rc != 0 and 'already exists' not in _r.stderr
-  changed_when: _r.rc == 0
+    --transit-gateway-attachment-id {{ _evpn_aws_infra_tgw_infra.stdout | trim }}
+  register: _evpn_aws_infra_r
+  failed_when: _evpn_aws_infra_r.rc != 0 and 'already exists' not in _evpn_aws_infra_r.stderr
+  changed_when: _evpn_aws_infra_r.rc == 0
 
 - name: Add on-prem WG CIDR route to Infra RT via ENI
   ansible.builtin.shell: |
-    ENI=$(aws ec2 describe-instances --region {{ _region }} \
-      --instance-ids {{ _infra_instance_id.stdout | trim }} \
+    ENI=$(aws ec2 describe-instances --region {{ _evpn_aws_infra_region }} \
+      --instance-ids {{ _evpn_aws_infra_infra_instance_id.stdout | trim }} \
       --query "Reservations[0].Instances[0].NetworkInterfaces[0].NetworkInterfaceId" --output text)
-    aws ec2 create-route --region {{ _region }} \
-      --route-table-id {{ _infra_rt.stdout | trim }} \
+    aws ec2 create-route --region {{ _evpn_aws_infra_region }} \
+      --route-table-id {{ _evpn_aws_infra_infra_rt.stdout | trim }} \
       --destination-cidr-block {{ tunnel.network_cidr | default('10.44.44.0/24') }} \
       --network-interface-id $ENI 2>/dev/null || true
   changed_when: false

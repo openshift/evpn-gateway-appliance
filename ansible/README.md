@@ -79,7 +79,7 @@ The machine running these playbooks needs:
   `source <(aws configure export-credentials --format env)`.
   Provisioning runs locally without Ansible privilege escalation, using the
   controller account's credential provider chain.
-- **SSH** — the EC2 key pair named by `ssh_key_name` must exist in AWS, with
+- **SSH** — the EC2 key pair named by `evpn_aws_infra_ssh_key_name` must exist in AWS, with
   its private key available to your environment (e.g. loaded into ssh-agent).
 
 (When building an execution environment, ansible-builder reads the Python and
@@ -109,7 +109,7 @@ ones (`tunnel`, `bgp`, `stretches`) are normally set once in
   fails closed until you set it, unless you explicitly set
   **`evpn_aws_infra_allow_open_admin_cidr: true`** to allow `0.0.0.0/0`
   (disposable labs only). See that role's README.
-- **`aws_region`** — cross-check it matches the region you intend to
+- **`evpn_aws_infra_aws_region`** — cross-check it matches the region you intend to
   provision in.
 
 ## Known limitations (tracked, not all fixed here)
@@ -171,9 +171,6 @@ ownership):
 - `frr_exporter`/`node_exporter` use community container images that Red Hat
   does not build or security-track; supportable replacements are part of the
   runtime payload work (source-audit.md §2).
-- Production lint still skips `var-naming[no-role-prefix]` in `.ansible-lint`.
-  [#37](https://github.com/openshift/evpn-gateway-appliance/pull/37) proposes the
-  role-variable migration and documents the affected caller inputs and returned facts.
 - Collection shape (layout) and publication channel are unresolved.
 - The router AMI is selected by a "latest CentOS Stream 10" lookup, not a
   pinned release identity; upstream builds are rolling and get deregistered,

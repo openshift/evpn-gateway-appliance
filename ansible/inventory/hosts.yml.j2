@@ -11,13 +11,13 @@ all:
     cloud_infra:
       hosts:
         infra-router:
-          ansible_host: {{ infra_public_ip }}
+          ansible_host: {{ evpn_aws_infra_infra_public_ip }}
           ansible_user: ec2-user
-          private_ip: {{ infra_private_ip }}
+          private_ip: {{ evpn_aws_infra_infra_private_ip }}
 
     cloud_workload:
       hosts:
         workload-router:
-          ansible_host: {{ workload_public_ip }}
+          ansible_host: {{ evpn_aws_infra_workload_public_ip }}
           ansible_user: ec2-user
-          private_ip: {{ workload_private_ip }}
+          private_ip: {{ evpn_aws_infra_workload_private_ip }}
