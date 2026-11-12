@@ -9,5 +9,4 @@ frr_container_caps:
   - SETUID
   - SETGID
   - KILL
-  - DAC_OVERRIDE
   - CHOWN
