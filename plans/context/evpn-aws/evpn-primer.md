@@ -62,9 +62,8 @@ BGP EVPN: appliance ⇄ relay ⇄ workers.  VXLAN data: appliance ⇄ workers di
 
 The diagram shows the proposed DX and VPN paths from the task breakdown, where the
 relay carries only BGP; it is not proof of an approved or deployed production topology.
-In the WireGuard lab (development only) the tunnel terminates on the relay,
-which is then in the forwarding path, so lab results do not describe production
-throughput, MTU or failover.
+In today's WireGuard lab (dev/test only), the relay terminates the tunnel and
+forwards traffic; see the [dev/test migration](site-to-site-vpn-plan.md).
 
 On-prem migration appliances attach local workloads to the overlay. Their
 all-active Ethernet Segment uses Type-1/4 routes; cloud relay HA instead concerns

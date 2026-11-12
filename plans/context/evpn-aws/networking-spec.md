@@ -14,8 +14,8 @@ TCP MSS clamping, but the checked roles do not implement the corresponding
 iptables/nftables/MSS tasks. The design's 1399-byte AWS VPN figure is also out of
 date (item 3).
 
-Production DX and VPN remain implementation work; WireGuard is development/test
-only in CORENET-7498. The task breakdown (§2.1) terminates Site-to-Site VPN
+The [VPN plan](site-to-site-vpn-plan.md) proposes IPsec for dev/test.
+The task breakdown (§2.1) terminates Site-to-Site VPN
 IPsec on the on-prem appliance itself (Libreswan in the bootc image) and on the
 AWS TGW, leaving the cloud EVPN relay outside that data path. The appliance is
 therefore the AWS customer gateway, with a static, registered public IP (directly
@@ -23,7 +23,7 @@ or behind NAT with NAT-T). The prototype image already installs Libreswan
 (`image/Containerfile:6`), although the design says Ansible installs it. Keep it in
 the image, as image mode requires, cover IKE/IPsec in the FIPS tests, and keep the
 tunnel PSKs from the AWS VPN configuration out of logs and inventories.
-The WireGuard lab topology forwards through a relay. Tests must identify which role
+Tests must identify which role
 actually handles each packet before asserting MTU or HA.
 
 ## Required handoff to CI/QE
@@ -64,7 +64,8 @@ actually handles each packet before asserting MTU or HA.
    supports a tunnel MTU of 1446 bytes at most, 1406–1446 depending on cipher, hash and NAT traversal, with no jumbo frames
    and no Path MTU Discovery, so the inner MTU is the configured tunnel MTU minus
    50 (1396 at best; the design's 1399/1349 do not match AWS's current table).
-   WireGuard's usual 1420-byte interface leaves 1370. These paths require the
+   WireGuard at the usual 1420 leaves 1370; proposed IPsec uses the
+   [same AWS profile locally](site-to-site-vpn-plan.md#test-obligations). These paths require the
    design's reduced-MTU mode with MSS clamping and a matching CUDN MTU. Clamp inner
    TCP in both directions: at an inner MTU of 1396, MSS is at most 1356 for IPv4
    and 1336 for IPv6, subtracting the fixed headers per
@@ -82,10 +83,8 @@ actually handles each packet before asserting MTU or HA.
    100 Mbps. Aggregation across tunnels (ECMP) needs a transit-gateway VPN with
    dynamic routing. VXLAN adds a header to every frame, so record the packet-rate
    ceiling as well as bandwidth in CORENET-7523's per-transport limits.
-4. Implement CORENET-7501 using the transit VIF required for a TGW-associated DX gateway; correct its
-   "private VIF and TGW associations" wording in Jira in parallel. A Direct Connect
-   gateway associated with a TGW needs a transit VIF, while private VIFs attach DX gateways to virtual private
-   gateways. The prototype's lab Terraform repeats the private-VIF assumption
+4. Implement CORENET-7501 with the VIF the selected gateway needs: transit for a TGW-associated
+   DX gateway, private for a VGW. Correct its invalid "private VIF and TGW associations" wording
    ([source audit](source-audit.md#3-configuration--structure-mismatches)). Verify routes,
    peer ASNs, allowed prefixes and failover on the corrected path.
    Transit VIFs and TGW carry at most 8500 bytes; the design's 9001 is a

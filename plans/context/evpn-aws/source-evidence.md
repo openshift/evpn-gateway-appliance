@@ -803,10 +803,9 @@ install/switch/upgrade, plus first-boot readiness and interrupted prefetch
 Proposed. MicroShift/RHTAS offer [FIPS test examples](prior-art.md#fips-build-and-test-examples),
 but those products' exceptions and platform coverage are not EVPN qualification.
 
-CORENET-7498 settles DX/VPN as production transports and WireGuard as development/
-test only. AWS requires a transit VIF for DX gateway→TGW, correcting
-[CORENET-7501](https://redhat.atlassian.net/browse/CORENET-7501)'s
-private-VIF wording. MTU depends on the actual path: AWS
+CORENET-7498 names DX/VPN as production transports and limits WireGuard to dev/test;
+it does not require WireGuard there. [CORENET-7501](https://redhat.atlassian.net/browse/CORENET-7501)
+has an invalid private-VIF/TGW criterion. MTU depends on the actual path: AWS
 [Site-to-Site VPN](https://docs.aws.amazon.com/vpn/latest/s2svpn/vpn-limits.html#vpn-quotas-mtu)
 supports at most a 1446-byte tunnel MTU (1406–1446 by algorithm, per the
 [customer gateway best-practices

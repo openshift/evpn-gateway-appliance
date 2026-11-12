@@ -145,12 +145,12 @@ Use the linked feature/epic for current contacts and
 ## Transport context
 
 - Intended AWS transport: **Direct Connect** or **Site-to-Site VPN**
-  (WireGuard = dev/test only). The current source implements only WireGuard;
-  the production transports remain blocking implementation work under
-  CORENET-7498's live acceptance criteria.
+  (CORENET-7498 limits WireGuard to dev/test; it does not require it there).
+  The current collection implements only WireGuard; the [VPN plan](site-to-site-vpn-plan.md)
+  proposes IPsec for dev/test too. Production transports remain blocking implementation work.
 - On-prem appliances and cloud infrastructure relays have different roles;
   record the actual packet path for each supported transport. Do not transfer
-  the WireGuard lab relay's forwarding behavior to the production VPN topology.
+  today's WireGuard lab relay's forwarding behavior to proposed IPsec or production VPN.
 - OCP nodes run frr-k8s DaemonSet; EVPN routes propagate via BGP between appliance and nodes
 - Out of scope: Azure, GCP, cloud-provider-specific EVPN control plane
 

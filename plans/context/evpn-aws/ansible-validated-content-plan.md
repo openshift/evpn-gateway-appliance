@@ -18,7 +18,7 @@ story completion. This does not settle the collection support matrix or publicat
 
 | Box | On main | Action |
 | --- | --- | --- |
-| Production-ready | README limits use to lab/dev/test; WireGuard is dev/test only; the workload VTEP still ships | Untick with an explanation; owner confirms production scope |
+| Production-ready | README limits use to lab/dev/test; only WireGuard is implemented; the workload VTEP still ships | Untick with an explanation; owner confirms production scope |
 | Moved into `redhat-cop` | Repository remains in `openshift` | Untick; confirm the existing repository home |
 | Lint in a GitHub workflow | Lint runs per PR in Prow; no `.github/` workflow | Link Prow lint results in the candidate issue; add an Action only if Actions is enabled |
 | Production lint passes | `var-naming[no-role-prefix]` remains skipped; pipefail and ignore-errors fixes merged in [#30](https://github.com/openshift/evpn-gateway-appliance/pull/30) | Merge [#37](https://github.com/openshift/evpn-gateway-appliance/pull/37), or leave lint boxes unticked with a reason if it cannot land before review |

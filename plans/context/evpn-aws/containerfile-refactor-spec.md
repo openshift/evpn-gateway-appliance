@@ -89,11 +89,10 @@ Technology Preview ([CentOS Stream 9
 kernel](https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9/-/commit/840b99a9),
 [RHEL 9.7
 notes](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/9.7_release_notes/technology-previews)).
-An always-FIPS generic image cannot run the WireGuard dev/test transport. Options are
-WireGuard tests in explicitly non-FIPS development environments, development and lab
-topologies over IPsec, or a separate FIPS variant and test lane; a separately shipped
-variant needs approval under decision 12. Lab results do not qualify production FIPS behavior.
-Also decide whether `wireguard-tools` belongs in the supported image. The same kernels
+The [VPN plan](site-to-site-vpn-plan.md#implementation-order) proposes IPsec for dev/test;
+temporary comparison runs need non-FIPS hosts. A separately shipped FIPS variant still needs
+decision 12 approval.
+The same kernels
 disable their `md5` hash in FIPS mode, and TCP-MD5 BGP signatures depend on it. FRR's only session authentication is
 that MD5 password (TCP-AO is an open feature request, FRRouting/frr#7240), and GTSM
 (`ttl-security`) limits reach without authenticating. CORENET-7511's BGP authentication

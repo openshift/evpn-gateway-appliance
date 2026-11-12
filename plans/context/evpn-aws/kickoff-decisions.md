@@ -43,11 +43,11 @@ under the rule above. Reviewer identity alone does not supply that owner.
 
 | Requirement, fact or review direction | Evidence |
 | --- | --- |
-| Direct Connect and Site-to-Site VPN are the production transports; WireGuard is development/test only | CORENET-7498 acceptance criteria |
+| Direct Connect and Site-to-Site VPN are the production transports; WireGuard is limited to development/test, not required there | CORENET-7498 description; the [proposal to use IPsec for dev/test](site-to-site-vpn-plan.md#implementation-order) awaits owner agreement |
 | Canonical source is public `github.com/openshift/evpn-gateway-appliance`, Apache-2.0, owned by OpenShift Core Networking | DPP-22292 (approved and created 2026-09-28; license, `OWNERS` and these documents, no product source) |
 | Azure and GCP implementations are out of scope for this epic | CORENET-7498 scope |
 | FRR and `frr-metrics` come from the Red Hat–built `frr-rhel9` image ([option A](pipeline-spec.md#runtime-payload-corenet-7505); the review wrote "openshift/frr image", read here as the image built from `openshift/frr`), and `frr-metrics` must be changed to need no Kubernetes cluster and to export EVPN metrics (decision 10, in part) | Review of pull request #2 by the Networking maintainers, 2026-10-01 (comment by `jcaamano`) |
-| A Direct Connect gateway attached to a TGW uses a transit VIF, not a private VIF (7501's "private VIF" is read that way) | Same review |
+| 7501's VIF follows the gateway choice: transit for TGW, private for VGW; its private-VIF/TGW pairing is invalid | Same review for TGW; [gateway options](site-to-site-vpn-plan.md#gateway-options) remain open |
 | The collection's namespace and name are `network.evpn_gateway` (7499 also uses this name as of 2026-11-02); the collection's issue tracker is to move to a Jira project not yet chosen, recorded in its README | Review comments on pull request #3, 2026-10-02 (`jcaamano`) |
 | Source CI runs as Prow tests that call scripts or Make targets, with no test logic in the test definition; GitHub Actions is not assumed | Review comment on pull request #3, 2026-10-02 (`jcaamano`) |
 | 7504's VNI/MAC views and 7505's "approved upstream" images follow decision 10 | Same review |
@@ -64,6 +64,7 @@ item for decisions 7, 8 and 13 to `@knobunc`.
 
 - **Jira conflicts (review direction 2026-10-01; accountable owner pending).** Rechecked
   2026-11-04: 7501 still names a private VIF with a TGW, which needs a transit VIF;
+  its final VIF follows the [gateway choice](site-to-site-vpn-plan.md#gateway-options).
   7505's "approved upstream" images still need reconciliation with decision 10's Red Hat
   payload direction. 7504 now explicitly requires EVPN metrics in the frr-k8s binary;
   its remaining [metric clarification](frr-metrics-plan.md#requirements) concerns occupancy
@@ -186,9 +187,7 @@ item for decisions 7, 8 and 13 to `@knobunc`.
   VMware/NSX segments, which adds vmdk/ova if vSphere is supported; it does not replace qcow2 unless
   the Jira changes. The task breakdown (§7.3.3) also names bare metal, which would add an installer
   artifact (`build-vm-image` 0.3.2 accepts `anaconda-iso`, `bootc-installer`, `iso` and
-  `pxe-tar-xz`). RHEL kernels refuse WireGuard and TCP-MD5 in FIPS mode. Options include
-  WireGuard tests in non-FIPS development environments, IPsec-only labs or a separate FIPS
-  variant; a separately shipped variant needs approval.
+  `pxe-tar-xz`).
   Settle supported FIPS-mode BGP authentication ([contract](containerfile-refactor-spec.md#required-outcomes)). *Owner: PM /
   Architecture.*
 - **AMI channel.** *Owner: PM / cloud publishing / releng.*

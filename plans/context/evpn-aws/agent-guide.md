@@ -29,6 +29,7 @@ open the section a spec links to and recheck it.
 | Tide and Konflux contexts, integration and AWS tests, collection publication | [Tide and Konflux contexts](ci-bootstrap-spec.md#tide-and-konflux-contexts), [gates and test infrastructure](pipeline-spec.md#3-integration-gates-and-test-infrastructure), [disk validation and AWS lifecycle](bib-configuration-spec.md#disk-validation-and-aws-lifecycle), [collection artifacts](ci-bootstrap-spec.md#collection-and-ee-artifacts) |
 | AMI or another customer channel | [AMI channel](bib-configuration-spec.md#ami-channel) or the relevant [delivery channel](bib-configuration-spec.md#customer-delivery-channels); release objects: [promotion](pipeline-spec.md#4-promotion-and-operation), [productization](productization.md) |
 | MTU, transports, OCP EVPN behavior | [networking handoff](networking-spec.md), [primer](evpn-primer.md) |
+| AWS Site-to-Site VPN (CORENET-7500) | [VPN plan](site-to-site-vpn-plan.md): owner questions, current code, proposed contract and qualification; coordinate transport-selection overlap with CORENET-7708 |
 | Which existing example to reuse | [prior art](prior-art.md#choose-the-example-by-delivery-problem) |
 
 ## Sources of truth
