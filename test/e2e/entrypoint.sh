@@ -88,6 +88,7 @@ cp -r "${self_dir}/inventory" "${lab_dir}/inventory"
 # through the same mounted socket containerlab uses.
 ee_playbook() {
 	local pb="$1"
+	shift
 	echo ">> ansible-playbook ${pb} (via execution environment: $EGA_EE_IMAGE)"
 	podman-remote --url "unix://${EGA_RUNTIME_SOCK}" run --rm --net=host --user 0 \
 		-v "${lab_dir}:${lab_dir}:Z" \
@@ -96,14 +97,15 @@ ee_playbook() {
 		"$EGA_EE_IMAGE" \
 		ansible-playbook -i "${lab_dir}/inventory/hosts.yml" \
 			"$pb" \
+			"$@" \
 			-u root --private-key "$ssh_key"
 }
 
-# Build the simulated on-prem side (trunk + fake hosts) BEFORE the product deploy so
-# the appliance role finds the trunk to build its VTEP on; deploy the product; then run
-# the simulated-host data-plane checks.
+# Simulate the on-prem trunk, deploy the standalone workload VTEP, then the
+# production fabric. Peers come from the static inventory, so skip frr-k8s discovery.
 ee_playbook network.evpn_gateway_test.simulate
-ee_playbook network.evpn_gateway.deploy
+ee_playbook network.evpn_gateway_test.deploy_workload
+ee_playbook network.evpn_gateway.deploy -e skip_frr_discovery=true
 ee_playbook network.evpn_gateway_test.healthcheck
 
 echo ">> deploy + simulated-host health checks complete"

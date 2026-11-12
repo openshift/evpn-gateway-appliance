@@ -26,7 +26,8 @@ RUN pip install --no-cache-dir \
         ansible-builder==3.1.1 \
         ruff==0.17.0 \
         shellcheck-py==0.11.0.1 \
-        hadolint-py==v2.15.1.2
+        hadolint-py==v2.15.1.2 \
+        jinjanator==26.3.0
 
 # Collection dependencies, pinned to exact versions for reproducible image builds and
 # so the checks can resolve FQCN modules on the network-less runner. Keep in sync with
@@ -42,7 +43,8 @@ RUN ANSIBLE_HOME="$(mktemp -d)" && \
         amazon.aws:11.5.0 \
         ansible.posix:2.2.2 \
         ansible.utils:6.1.1 \
-        containers.podman:1.21.1 && \
+        containers.podman:1.21.1 \
+        kubernetes.core:2.4.0 && \
     rm -rf "$ANSIBLE_HOME"
 
 # markdownlint-cli2 from the ci/markdownlint lockfile (see its README). Node and npm
@@ -79,6 +81,29 @@ RUN bash -c "$(curl -fsSL https://get.containerlab.dev)" -- -v 0.81.1
 RUN pip install --no-cache-dir \
         pytest==8.3.4 \
         pytest-testinfra==10.2.2
+
+# Peers lane (test/e2e-kind). ovn-kubernetes v1.4.0 kind.sh needs kind >= 0.27,
+# helm, jq, jinjanate, sudo, and a podman CLI. The image has podman-remote only,
+# so the shim forwards `podman` to the mounted host socket.
+# hadolint ignore=DL3041
+RUN dnf install -y sudo jq && dnf clean all && \
+    printf 'Defaults !requiretty\nroot ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/kind && \
+    chmod 440 /etc/sudoers.d/kind
+RUN curl -fsSL -o /usr/local/bin/kind \
+        https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64 && \
+    chmod +x /usr/local/bin/kind
+RUN curl -fsSL -o /usr/local/bin/kubectl \
+        https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl && \
+    chmod +x /usr/local/bin/kubectl
+RUN curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz && \
+    tar -C /tmp -xzf /tmp/helm.tgz && \
+    mv /tmp/linux-amd64/helm /usr/local/bin/helm && \
+    chmod +x /usr/local/bin/helm && \
+    rm -rf /tmp/helm.tgz /tmp/linux-amd64
+RUN printf '%s\n' '#!/bin/sh' \
+        "exec podman-remote --url \"\${DOCKER_HOST:-unix:///run/podman/podman.sock}\" \"\$@\"" \
+        > /usr/local/bin/podman && \
+    chmod +x /usr/local/bin/podman
 
 # Copy the source code into the container
 COPY . /src
