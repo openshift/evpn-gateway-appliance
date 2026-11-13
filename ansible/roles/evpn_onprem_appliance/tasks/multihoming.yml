@@ -1,0 +1,110 @@
+---
+# Configure the bond before physical.yml, which treats trunk_interface as the
+# tagged parent. NetworkManager owns the connection so it survives reboot.
+
+- name: Validate all-active multihoming inputs
+  ansible.builtin.assert:
+    that:
+      # The CE-facing ESI-LAG may span the two appliances, so each appliance
+      # can legitimately have one local bond member.  A single-member bond is
+      # still required: it carries the shared actor identity and LACP state.
+      - multihoming.bond_interfaces | length >= 1
+      - multihoming.bond_interfaces | unique | length == multihoming.bond_interfaces | length
+      - trunk_interface not in multihoming.bond_interfaces
+      - multihoming.es_id is defined
+      - multihoming.es_sys_mac is defined
+      # FRR accepts either a complete Type-0 ESI or a numeric local
+      # discriminator, which is combined with es_sys_mac into a Type-3 ESI.
+      - >-
+        (multihoming.es_id is number and
+         (multihoming.es_id | int) >= 1 and
+         (multihoming.es_id | int) <= 16777215) or
+        ((multihoming.es_id | string) is match('^([0-9A-Fa-f]{2}:){9}[0-9A-Fa-f]{2}$'))
+      - multihoming.es_sys_mac is match('^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
+      - (multihoming.df_pref | default(32767) | int) >= 0
+      - (multihoming.df_pref | default(32767) | int) <= 65535
+    fail_msg: >-
+      multihoming requires at least one bond_interface plus es_id and
+      es_sys_mac. es_id must be a valid numeric discriminator or a complete
+      10-octet ESI, es_sys_mac must be a MAC address, bond_interfaces must be
+      unique, and both appliances must use the same Ethernet Segment identity.
+
+- name: Verify NetworkManager is available for persistent bonding
+  ansible.builtin.command: nmcli --version
+  changed_when: false
+
+- name: Check for the persistent bond connection
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  register: _bond_connection
+  changed_when: false
+  failed_when: false
+
+- name: Create the persistent all-active LACP bond
+  ansible.builtin.command: >-
+    nmcli connection add type bond ifname {{ trunk_interface }}
+    con-name {{ trunk_interface }}
+    bond.options mode=802.3ad,miimon=100,lacp_rate=fast,xmit_hash_policy=layer3+4,ad_actor_system={{ multihoming.es_sys_mac }}
+  when: trunk_interface not in _bond_connection.stdout_lines
+  changed_when: true
+
+- name: Configure fast LACP hashing
+  ansible.builtin.command: >-
+    nmcli connection modify {{ trunk_interface }}
+    bond.options mode=802.3ad,miimon=100,lacp_rate=fast,xmit_hash_policy=layer3+4,ad_actor_system={{ multihoming.es_sys_mac }}
+  changed_when: false
+
+- name: Check each persistent bond-member connection
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  loop: "{{ multihoming.bond_interfaces }}"
+  register: _bond_member_connections
+  changed_when: false
+  failed_when: false
+
+- name: Create persistent bond-member connections
+  ansible.builtin.command: >-
+    nmcli connection add type ethernet ifname {{ item.item }}
+    con-name ega-{{ trunk_interface }}-{{ item.item }}
+    master {{ trunk_interface }} slave-type bond
+  loop: "{{ _bond_member_connections.results }}"
+  loop_control:
+    label: "{{ item.item }} -> {{ trunk_interface }}"
+  when: "'ega-' ~ trunk_interface ~ '-' ~ item.item not in item.stdout_lines"
+  changed_when: true
+
+- name: Ensure bond members are attached to the bond
+  ansible.builtin.command: >-
+    nmcli connection modify ega-{{ trunk_interface }}-{{ item }}
+    connection.master {{ trunk_interface }} connection.slave-type bond
+  loop: "{{ multihoming.bond_interfaces }}"
+  loop_control:
+    label: "{{ item }} -> {{ trunk_interface }}"
+  changed_when: false
+
+- name: Activate persistent bond-member connections
+  ansible.builtin.command: nmcli connection up ega-{{ trunk_interface }}-{{ item }}
+  loop: "{{ multihoming.bond_interfaces }}"
+  changed_when: false
+
+- name: Activate the persistent LACP bond
+  ansible.builtin.command: nmcli connection up {{ trunk_interface }}
+  changed_when: false
+
+- name: Read the resulting kernel bond state
+  ansible.builtin.command: cat /proc/net/bonding/{{ trunk_interface }}
+  register: _bond_state
+  changed_when: false
+
+- name: Verify the requested 802.3ad bond exists
+  ansible.builtin.assert:
+    that:
+      - "'Bonding Mode: IEEE 802.3ad Dynamic link aggregation' in _bond_state.stdout"
+      - >-
+        (_bond_state.stdout | regex_findall('(?m)^Slave Interface: ')) | length
+        == multihoming.bond_interfaces | length
+      - >-
+        (multihoming.bond_interfaces | map('regex_replace', '^', 'Slave Interface: ') | list)
+        | difference(_bond_state.stdout_lines) | length == 0
+    fail_msg: >-
+      {{ trunk_interface }} is not the requested persistent 802.3ad bond with
+      all configured member interfaces. A live upstream LACP peer is still
+      required for physical qualification.

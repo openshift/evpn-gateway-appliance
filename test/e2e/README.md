@@ -11,6 +11,36 @@ Two entry points, by how they are meant to be run:
 - `test/e2e/run_remote.sh` — the **CI** path: from an unprivileged local checkout it builds
   and runs the lane on a target over SSH (and, with no target, locally for convenience).
 
+Set `EGA_SCENARIO=multihoming EGA_TOPOLOGY=evpn-7502.clab.yml` to run the CORENET-7502
+lane. It configures two appliances with the product role, verifies the shared Ethernet
+Segment identity, checks the requested 802.3ad bond members, and verifies VLAN traffic
+survives one appliance bond being disabled. The same test playbook is intended for later
+qualification runs; only the topology and inventory change.
+
+## CORENET-7502 coverage boundary
+
+The CI topology emulates the upstream DVS/edge segment with a dual-attached Linux host
+and a VLAN trunk. The edge side has one two-member 802.3ad bond spanning the two
+appliances; each appliance contributes one link through a single-member 802.3ad bond.
+Both appliances run FRR EVPN-MH with the same numeric discriminator and system MAC,
+which produces the shared Type-3 ESI. The multihoming path uses one external VXLAN
+device with explicit VLAN-to-VNI mappings, matching FRR's VLAN-aware bridge model;
+VLANs 100, 200, and 300 are trunked across it.
+
+The lane validates:
+
+- LACP negotiation on both single-member appliance bonds against the shared edge bond;
+- shared EVPN Ethernet Segment configuration;
+- EVPN BGP session establishment through the relay;
+- Type-1 EAD and Type-4 ESR route generation for the shared Ethernet Segment;
+- VLAN reachability through the shared edge;
+- traffic continuity after one appliance is taken out of the data path.
+
+This is CI emulation, not physical NSX DVS/MLAG qualification. It validates the EVPN-MH
+control-plane contract and a Linux LACP edge, but cannot prove NSX/DVS behavior, physical
+switch cabling failure, or vendor-specific RARP handling. Those require a separate
+qualification environment.
+
 Both are runner-agnostic — the same scripts work under a Prow test step or a GitHub Actions
 VM; the runner only provides env and collects artifacts.
 
@@ -155,6 +185,9 @@ test/e2e/run_remote.sh
 
 The remote must be provisioned with `podman`, `skopeo` and `make`, `podman.socket` enabled, and
 passwordless `sudo`; the script installs nothing on it.
+
+The runner stages image exports under `/var/tmp` by default so hosts with a small `/tmp` tmpfs do
+not run out of space. Override `TMPDIR` when a different staging filesystem is required.
 
 For convenience and testing it can also run with **no target** (`SSH_REMOTE` unset), doing the
 same export/build/run entirely on this host. That path is rootful, so build into the rootful

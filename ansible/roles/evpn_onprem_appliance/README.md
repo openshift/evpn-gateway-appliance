@@ -22,6 +22,11 @@ left unset — only override them if your VPC/pod-network CIDRs differ.
 - The FRR templates set no inbound/outbound route policy beyond a
   defensive `maximum-prefix`; see the comment at the top of
   `templates/frr-onprem-appliance.conf.j2`.
+- All-active multihoming is enabled with `multihoming.enabled`, a shared
+  `es_id`/`es_sys_mac`, and `bond_interfaces`. It requires two appliances and
+  an upstream LACP-capable Ethernet Segment. The role creates persistent
+  NetworkManager bond/member connections; the default remains single-link
+  operation.
 
 ## Example
 
@@ -50,4 +55,23 @@ left unset — only override them if your VPC/pod-network CIDRs differ.
         cloud_gateway: 10.42.1.2
     trunk_interface: simulate
     frr_image: quay.io/frrouting/frr:10.5.3
+```
+
+For two physical appliances, set `trunk_interface: bond0` and use the same
+multihoming identity on both hosts. The CE-facing LACP bundle spans both
+appliances, so each appliance may contribute one local bond member. Keep each
+host's transport/VTEP address and `peer_addresses` unique:
+
+```yaml
+multihoming:
+  enabled: true
+  bond_interfaces: [eno1]
+  # Numeric discriminator + shared system MAC selects FRR's Type-3 ESI form.
+  es_id: 1
+  es_sys_mac: "02:aa:bb:cc:dd:ee"
+  peer_addresses: [10.44.44.2]
+  bfd:
+    receive_interval: 50
+    transmit_interval: 50
+    detect_multiplier: 3
 ```

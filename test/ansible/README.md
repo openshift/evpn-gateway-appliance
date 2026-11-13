@@ -22,4 +22,5 @@ lives here instead.
 | --- | --- | --- |
 | `network.evpn_gateway_test.simulate` | before `network.evpn_gateway.deploy` | build the simulated on-prem environment |
 | `network.evpn_gateway_test.healthcheck` | after the deploy | run the simulated-host data-plane checks |
+| `network.evpn_gateway_test.multihoming` | CORENET-7502 CI scenario | configure two appliances and verify negotiated 802.3ad/shared Ethernet Segment inputs |
 | `network.evpn_gateway_test.teardown` | on cleanup (non-clab runs) | remove the simulated on-prem environment |

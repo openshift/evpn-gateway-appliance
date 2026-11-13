@@ -17,6 +17,7 @@
 #   EGA_ARTIFACT_DIR  host dir for produced artifacts (reserved; nothing is written here yet);
 #                     out of the checkout, Prow sets this to $ARTIFACTS  [default: /tmp/ega/artifact]
 #   EGA_TOPOLOGY      topology file under test/e2e/topology            [default: evpn.clab.yml]
+#   EGA_SCENARIO      base | multihoming; selects inventory and test playbook [default: base]
 #   EGA_STAGE         full (deploy+validate+teardown) | deploy (leave up) | destroy  [default: full]
 #   EGA_E2E_SRC       bind this repo checkout over the image's baked /src for live dev of the
 #                     harness (topology/inventory/entrypoint/tests) — NOT the collection,
@@ -29,6 +30,7 @@ EGA_EE_IMAGE="${EGA_EE_IMAGE:-localhost/evpn-gateway-appliance-ee:local}"
 EGA_WORK_DIR="${EGA_WORK_DIR:-/tmp/ega/work}"
 EGA_ARTIFACT_DIR="${EGA_ARTIFACT_DIR:-/tmp/ega/artifact}"
 EGA_TOPOLOGY="${EGA_TOPOLOGY:-evpn.clab.yml}"
+EGA_SCENARIO="${EGA_SCENARIO:-base}"
 EGA_STAGE="${EGA_STAGE:-full}"
 
 engine="$(command -v podman || command -v docker)"
@@ -75,6 +77,7 @@ rc=0
 	-e "EGA_NODE_IMAGE=$EGA_NODE_IMAGE" \
 	-e "EGA_EE_IMAGE=$EGA_EE_IMAGE" \
 	-e "EGA_TOPOLOGY=$EGA_TOPOLOGY" \
+	-e "EGA_SCENARIO=$EGA_SCENARIO" \
 	-e "EGA_RUNTIME_SOCK=$EGA_RUNTIME_SOCK" \
 	-e "EGA_WORK_DIR=$EGA_WORK_DIR" \
 	-e "EGA_ARTIFACT_DIR=$EGA_ARTIFACT_DIR" \

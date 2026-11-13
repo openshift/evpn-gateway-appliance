@@ -99,6 +99,44 @@ argument_specs:
         description: >-
           Name of the tagged VLAN trunk interface to attach. The role enslaves it
           to the trunk bridge and builds a per-stretch VLAN sub-interface on it.
+          When multihoming is enabled, this is the bond interface name.
+      multihoming:
+        type: dict
+        description: Optional all-active EVPN multihoming configuration.
+        options:
+          enabled:
+            type: bool
+            default: false
+          bond_interfaces:
+            type: list
+            elements: str
+            description: Physical interfaces enslaved to the 802.3ad bond.
+          es_id:
+            type: str
+            description: Shared EVPN Ethernet Segment ID.
+          es_sys_mac:
+            type: str
+            description: Shared Ethernet Segment system MAC address.
+          df_pref:
+            type: int
+            default: 32767
+            description: EVPN designated-forwarder preference.
+          peer_addresses:
+            type: list
+            elements: str
+            description: Direct appliance peer addresses for BFD/BGP.
+          bfd:
+            type: dict
+            options:
+              receive_interval:
+                type: int
+                default: 50
+              transmit_interval:
+                type: int
+                default: 50
+              detect_multiplier:
+                type: int
+                default: 3
       frr_image:
         type: str
         required: true

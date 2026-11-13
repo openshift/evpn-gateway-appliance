@@ -42,6 +42,10 @@
   when: tunnel.type == 'wireguard'
 
 # ── Trunk + VLAN setup ──────────────────────────────────────────
+- name: Configure all-active multihoming bond
+  ansible.builtin.include_tasks: multihoming.yml
+  when: multihoming.enabled | default(false) | bool
+
 - name: Set up physical trunk
   ansible.builtin.include_tasks: physical.yml
 
@@ -59,6 +63,7 @@
   register: _vxlan_create
   failed_when: _vxlan_create.rc != 0 and 'File exists' not in _vxlan_create.stderr
   changed_when: _vxlan_create.rc == 0
+  when: not (multihoming.enabled | default(false) | bool)
 
 - name: Bring up VXLAN interfaces
   ansible.builtin.command: ip link set vxlan{{ 10000 + item.vlan }} up
@@ -66,6 +71,27 @@
   loop_control:
     label: "vxlan{{ 10000 + item.vlan }}"
   changed_when: false
+  when: not (multihoming.enabled | default(false) | bool)
+
+- name: Create the multihoming shared external VXLAN device
+  ansible.builtin.command: >-
+    ip link add vxlan0 type vxlan dstport 4789 local {{ tunnel.onprem_ip }}
+    nolearning external vnifilter
+  register: _mh_vxlan_create
+  failed_when: _mh_vxlan_create.rc != 0 and 'File exists' not in _mh_vxlan_create.stderr
+  changed_when: _mh_vxlan_create.rc == 0
+  when: multihoming.enabled | default(false) | bool
+
+- name: Configure the multihoming shared VXLAN device
+  ansible.builtin.shell: |
+    set -e
+    ip link set vxlan0 master trunk-br
+    bridge link set dev vxlan0 vlan_tunnel on neigh_suppress on learning off
+    ip link set vxlan0 up
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: multihoming.enabled | default(false) | bool
 
 - name: Create per-VNI bridges
   ansible.builtin.command: ip link add br-vni{{ 10000 + item.vlan }} type bridge
@@ -75,6 +101,7 @@
   register: _br_create
   failed_when: _br_create.rc != 0 and 'File exists' not in _br_create.stderr
   changed_when: _br_create.rc == 0
+  when: not (multihoming.enabled | default(false) | bool)
 
 - name: Bring up bridges
   ansible.builtin.command: ip link set br-vni{{ 10000 + item.vlan }} up
@@ -82,6 +109,7 @@
   loop_control:
     label: "br-vni{{ 10000 + item.vlan }}"
   changed_when: false
+  when: not (multihoming.enabled | default(false) | bool)
 
 - name: Add VLAN sub-interface to bridge
   ansible.builtin.command: ip link set trunk.{{ item.vlan }} master br-vni{{ 10000 + item.vlan }}
@@ -91,6 +119,7 @@
   register: _trunk_add
   failed_when: _trunk_add.rc != 0 and 'already a member' not in _trunk_add.stderr
   changed_when: _trunk_add.rc == 0
+  when: not (multihoming.enabled | default(false) | bool)
 
 - name: Add VXLAN to bridge
   ansible.builtin.command: ip link set vxlan{{ 10000 + item.vlan }} master br-vni{{ 10000 + item.vlan }}
@@ -100,6 +129,7 @@
   register: _vx_add
   failed_when: _vx_add.rc != 0 and 'already a member' not in _vx_add.stderr
   changed_when: _vx_add.rc == 0
+  when: not (multihoming.enabled | default(false) | bool)
 
 - name: Assign IPs to bridge SVIs
   ansible.builtin.command: >-
@@ -111,53 +141,41 @@
   register: _ip_add
   failed_when: _ip_add.rc != 0 and 'already' not in _ip_add.stderr and 'File exists' not in _ip_add.stderr
   changed_when: _ip_add.rc == 0
+  when: not (multihoming.enabled | default(false) | bool)
 
-# ── FRR ────────────────────────────────────────────────────────
-- name: Ensure FRR directories exist
-  ansible.builtin.file:
-    path: "{{ item.path }}"
-    state: directory
-    mode: "{{ item.mode }}"
-  loop:
-    - { path: /etc/frr, mode: '0755' }
-    - { path: /var/run/frr, mode: '0777' }
+# EVPN-MH requires the ES bond and its VNI-bearing interfaces to be visible in
+# the same VLAN-aware bridge domain. The legacy per-VNI bridge layout above is
+# retained for non-MH deployments; multihoming uses trunk-br as the shared
+# bridge and the existing trunk.<vlan> interfaces as its SVIs.
+- name: Map multihoming VLANs to VNIs on the shared VXLAN device
+  ansible.builtin.shell: |
+    set -e
+    bridge vlan add vid {{ item.vlan }} dev trunk-br self
+    bridge vlan add vid {{ item.vlan }} dev vxlan0
+    bridge vni add dev vxlan0 vni {{ 10000 + item.vlan }}
+    bridge vlan add vid {{ item.vlan }} dev vxlan0 tunnel_info id {{ 10000 + item.vlan }}
+  args:
+    executable: /bin/bash
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "VLAN {{ item.vlan }} ↔ VNI {{ 10000 + item.vlan }}"
+  changed_when: true
+  when: multihoming.enabled | default(false) | bool
 
-- name: Deploy FRR daemons config
-  ansible.builtin.copy:
-    dest: /etc/frr/daemons
-    mode: "0644"
-    content: |
-      bgpd=yes
-      ospfd=no
-      ospf6d=no
-      ripd=no
-      ripngd=no
-      isisd=no
-      pimd=no
-      ldpd=no
-      nhrpd=no
-      eigrpd=no
-      babeld=no
-      sharpd=no
-      pbrd=no
-      bfdd=yes
-      fabricd=no
-      vrrpd=no
-      pathd=no
-  notify: Restart FRR
+- name: Assign multihoming SVIs to the shared VLAN-aware bridge
+  ansible.builtin.command: >-
+    ip addr add {{ item.onprem_gateway }}/{{ item.subnet | ansible.utils.ipaddr('prefix') }}
+    dev trunk.{{ item.vlan }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.onprem_gateway }} on trunk.{{ item.vlan }}"
+  register: _mh_ip_add
+  failed_when: _mh_ip_add.rc != 0 and 'already' not in _mh_ip_add.stderr and 'File exists' not in _mh_ip_add.stderr
+  changed_when: _mh_ip_add.rc == 0
+  when: multihoming.enabled | default(false) | bool
 
-- name: Deploy FRR vtysh config
-  ansible.builtin.copy:
-    dest: /etc/frr/vtysh.conf
-    mode: "0644"
-    content: "service integrated-vtysh-config\n"
-
-- name: Deploy FRR config (on-prem VTEP)
-  ansible.builtin.template:
-    src: frr-onprem-appliance.conf.j2
-    dest: /etc/frr/frr.conf
-    mode: "0644"
-  notify: Restart FRR
+- name: Render FRR configuration
+  ansible.builtin.include_tasks: frr_config.yml
 
 - name: Start FRR via systemd service (bootc image)
   ansible.builtin.systemd:

@@ -1,55 +1,102 @@
 ---
-# Physical trunk port — attach a real NIC and create VLAN sub-interfaces.
+# Physical trunk port — NetworkManager owns the complete link hierarchy:
+# trunk-br -> trunk_interface -> trunk.<vlan>. Keeping one owner is important
+# for a bond: an iproute2-only bridge attachment is removed by NetworkManager
+# when it reapplies the persistent bond profile.
 
-- name: Create trunk bridge
-  ansible.builtin.command: ip link add trunk-br type bridge
-  register: _trunk_br
-  failed_when: _trunk_br.rc != 0 and 'File exists' not in _trunk_br.stderr
-  changed_when: _trunk_br.rc == 0
-
-- name: Bring up trunk bridge
-  ansible.builtin.command: ip link set trunk-br up
+- name: Verify NetworkManager is available for the physical trunk
+  ansible.builtin.command: nmcli --version
   changed_when: false
 
-- name: Enable VLAN filtering on trunk bridge
-  ansible.builtin.command: ip link set trunk-br type bridge vlan_filtering 1
+- name: Check persistent trunk profiles
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  register: _trunk_profiles
   changed_when: false
 
-- name: Add physical interface to trunk bridge
-  ansible.builtin.command: ip link set {{ trunk_interface }} master trunk-br
-  register: _phy_add
-  failed_when: _phy_add.rc != 0 and 'already a member' not in _phy_add.stderr
-  changed_when: _phy_add.rc == 0
+- name: Create persistent trunk bridge profile
+  ansible.builtin.command: >-
+    nmcli connection add type bridge ifname trunk-br con-name trunk-br
+  when: "'trunk-br' not in _trunk_profiles.stdout_lines"
+  changed_when: true
 
-- name: Bring up physical interface
-  ansible.builtin.command: ip link set {{ trunk_interface }} up
+- name: Configure the trunk bridge
+  ansible.builtin.command: >-
+    nmcli connection modify trunk-br
+    bridge.stp no
+    bridge.vlan-filtering yes
+    bridge.vlans {{ stretches | map(attribute='vlan') | join(',') }}
+    ipv4.method disabled
+    ipv6.method disabled
   changed_when: false
 
-- name: Admit each stretch VLAN tagged on the trunk port
-  ansible.builtin.command: bridge vlan add vid {{ item.vlan }} dev {{ trunk_interface }}
-  loop: "{{ stretches }}"
-  loop_control:
-    label: "{{ trunk_interface }} tagged VLAN {{ item.vlan }}"
+- name: Use the existing NetworkManager trunk profile when available
+  ansible.builtin.command: >-
+    nmcli connection modify {{ trunk_interface }}
+    connection.master trunk-br
+    connection.slave-type bridge
+  when: trunk_interface in _trunk_profiles.stdout_lines
   changed_when: false
 
-- name: Deliver each stretch VLAN to the trunk bridge itself
-  ansible.builtin.command: bridge vlan add vid {{ item.vlan }} dev trunk-br self
-  loop: "{{ stretches }}"
-  loop_control:
-    label: "trunk-br self VLAN {{ item.vlan }}"
+- name: Create persistent bridge-port profile
+  ansible.builtin.command: >-
+    nmcli connection add type bridge-slave
+    ifname {{ trunk_interface }}
+    con-name ega-trunk-br-{{ trunk_interface }}
+    master trunk-br
+  when:
+    - trunk_interface not in _trunk_profiles.stdout_lines
+    - "'ega-trunk-br-' ~ trunk_interface not in _trunk_profiles.stdout_lines"
+  changed_when: true
+
+- name: Select the persistent bridge-port profile
+  ansible.builtin.set_fact:
+    _trunk_port_profile: >-
+      {{ trunk_interface if trunk_interface in _trunk_profiles.stdout_lines
+         else 'ega-trunk-br-' ~ trunk_interface }}
+
+- name: Configure the bridge-port VLAN allowance
+  ansible.builtin.command: >-
+    nmcli connection modify {{ _trunk_port_profile }}
+    bridge-port.vlans {{ stretches | map(attribute='vlan') | join(',') }}
   changed_when: false
 
-- name: Create VLAN sub-interfaces on trunk
-  ansible.builtin.command: ip link add link trunk-br name trunk.{{ item.vlan }} type vlan id {{ item.vlan }}
+- name: Activate the persistent trunk bridge
+  ansible.builtin.command: nmcli connection up trunk-br
+  changed_when: false
+
+- name: Activate the persistent bridge port
+  ansible.builtin.command: nmcli connection up {{ _trunk_port_profile }}
+  changed_when: false
+
+- name: Check persistent VLAN profiles
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  register: _vlan_profiles
+  changed_when: false
+
+- name: Create persistent VLAN sub-interface profiles
+  ansible.builtin.command: >-
+    nmcli connection add type vlan
+    ifname trunk.{{ item.vlan }}
+    con-name ega-trunk.{{ item.vlan }}
+    dev trunk-br
+    id {{ item.vlan }}
   loop: "{{ stretches }}"
   loop_control:
     label: "trunk.{{ item.vlan }}"
-  register: _vlan_create
-  failed_when: _vlan_create.rc != 0 and 'File exists' not in _vlan_create.stderr
-  changed_when: _vlan_create.rc == 0
+  when: "'ega-trunk.' ~ (item.vlan | string) not in _vlan_profiles.stdout_lines"
+  changed_when: true
 
-- name: Bring up VLAN sub-interfaces
-  ansible.builtin.command: ip link set trunk.{{ item.vlan }} up
+- name: Configure VLAN sub-interface profiles
+  ansible.builtin.command: >-
+    nmcli connection modify ega-trunk.{{ item.vlan }}
+    ipv4.method disabled ipv6.method disabled
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "trunk.{{ item.vlan }}"
+  changed_when: false
+
+- name: Activate VLAN sub-interface profiles
+  ansible.builtin.command: nmcli connection up ega-trunk.{{ item.vlan }}
   loop: "{{ stretches }}"
   loop_control:
     label: "trunk.{{ item.vlan }}"

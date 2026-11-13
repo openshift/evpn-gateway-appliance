@@ -1,0 +1,51 @@
+---
+# Render the appliance FRR configuration separately from service startup so
+# CI can verify the EVPN multihoming contract without requiring an FRR image
+# or an AWS/qualification backend.
+
+- name: Ensure FRR directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/frr, mode: '0755' }
+    - { path: /var/run/frr, mode: '0777' }
+
+- name: Deploy FRR daemons config
+  ansible.builtin.copy:
+    dest: /etc/frr/daemons
+    mode: "0644"
+    content: |
+      zebra=yes
+      bgpd=yes
+      ospfd=no
+      ospf6d=no
+      ripd=no
+      ripngd=no
+      isisd=no
+      pimd=no
+      ldpd=no
+      nhrpd=no
+      eigrpd=no
+      babeld=no
+      sharpd=no
+      pbrd=no
+      bfdd=yes
+      fabricd=no
+      vrrpd=no
+      pathd=no
+  notify: Restart FRR
+
+- name: Deploy FRR vtysh config
+  ansible.builtin.copy:
+    dest: /etc/frr/vtysh.conf
+    mode: "0644"
+    content: "service integrated-vtysh-config\n"
+
+- name: Deploy FRR config (on-prem VTEP)
+  ansible.builtin.template:
+    src: frr-onprem-appliance.conf.j2
+    dest: /etc/frr/frr.conf
+    mode: "0644"
+  notify: Restart FRR

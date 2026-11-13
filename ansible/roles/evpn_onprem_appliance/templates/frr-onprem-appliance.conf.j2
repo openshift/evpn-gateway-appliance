@@ -9,6 +9,34 @@ hostname {{ inventory_hostname }}
 log syslog informational
 no ipv6 forwarding
 !
+{% if multihoming.enabled | default(false) | bool %}
+interface {{ trunk_interface }}
+ evpn mh es-id {{ multihoming.es_id }}
+{% if multihoming.es_id is number %}
+ evpn mh es-sys-mac {{ multihoming.es_sys_mac }}
+{% endif %}
+ evpn mh es-df-pref {{ multihoming.df_pref | default(32767) }}
+exit
+!
+{% if multihoming.peer_addresses | default([]) | length > 0 %}
+bfd
+{% for peer in multihoming.peer_addresses %}
+ peer {{ peer }}
+  receive-interval {{ multihoming.bfd.receive_interval | default(50) }}
+  transmit-interval {{ multihoming.bfd.transmit_interval | default(50) }}
+  detect-multiplier {{ multihoming.bfd.detect_multiplier | default(3) }}
+ exit
+{% endfor %}
+exit
+!
+{% endif %}
+{% endif %}
+{% if multihoming.enabled | default(false) | bool and tunnel.underlay_interface | default('') | length > 0 %}
+interface {{ tunnel.underlay_interface }}
+ evpn mh uplink
+exit
+!
+{% endif %}
 router bgp {{ bgp.onprem_asn }}
  bgp router-id {{ tunnel.onprem_ip }}
  bgp log-neighbor-changes
@@ -18,6 +46,14 @@ router bgp {{ bgp.onprem_asn }}
  neighbor {{ tunnel.cloud_ip }} remote-as {{ bgp.infra_asn }}
  neighbor {{ tunnel.cloud_ip }} description infra-relay
  !
+{% if multihoming.enabled | default(false) | bool %}
+{% for peer in multihoming.peer_addresses | default([]) %}
+ neighbor {{ peer }} remote-as {{ bgp.onprem_asn }}
+ neighbor {{ peer }} description appliance-peer
+ neighbor {{ peer }} bfd
+{% endfor %}
+ !
+{% endif %}
  address-family ipv4 unicast
   network {{ tunnel.network_cidr | default('10.44.44.0/24') }}
   neighbor {{ tunnel.cloud_ip }} activate
@@ -27,6 +63,11 @@ router bgp {{ bgp.onprem_asn }}
  address-family l2vpn evpn
   neighbor {{ tunnel.cloud_ip }} activate
   neighbor {{ tunnel.cloud_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% if multihoming.enabled | default(false) | bool %}
+{% for peer in multihoming.peer_addresses | default([]) %}
+  neighbor {{ peer }} activate
+{% endfor %}
+{% endif %}
   advertise-all-vni
 {% for s in stretches %}
 {% set vni = 10000 + s.vlan %}

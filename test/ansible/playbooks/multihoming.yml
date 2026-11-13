@@ -1,0 +1,270 @@
+---
+# CORENET-7502 CI acceptance checks. The appliances are real EVPN VTEPs in this
+# lane; the relay is deliberately small and only provides the eBGP EVPN control
+# plane between them. This keeps the CI model close to the FRR EVPN-MH test
+# topology while leaving NSX/DVS qualification to a separate environment.
+- name: Configure the EVPN relay
+  hosts: evpn_relays
+  become: true
+  gather_facts: false
+  vars:
+    frr_image: quay.io/frrouting/frr:10.5.3
+  tasks:
+    - name: Configure relay underlay interfaces
+      ansible.builtin.shell: |
+        set -e
+        ip link set eth1 up
+        ip link set eth2 up
+      changed_when: false
+
+    - name: Create relay FRR directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /etc/frr, mode: '0755' }
+        - { path: /var/run/frr, mode: '0777' }
+
+    - name: Enable relay BGP daemons
+      ansible.builtin.copy:
+        dest: /etc/frr/daemons
+        mode: "0644"
+        content: |
+          bgpd=yes
+          ospfd=no
+          ospf6d=no
+          bfdd=no
+
+    - name: Configure relay EVPN route server
+      ansible.builtin.copy:
+        dest: /etc/frr/frr.conf
+        mode: "0644"
+        content: |
+          frr version {{ frr_image.split(':')[-1] }}
+          frr defaults traditional
+          hostname relay
+          log syslog informational
+          no ipv6 forwarding
+          router bgp 65100
+           bgp router-id 10.44.44.254
+           bgp log-neighbor-changes
+           no bgp ebgp-requires-policy
+           no bgp default ipv4-unicast
+           neighbor 10.44.44.1 remote-as 65044
+           neighbor 10.44.44.5 remote-as 65044
+           address-family l2vpn evpn
+            neighbor 10.44.44.1 activate
+            neighbor 10.44.44.1 next-hop-unchanged
+            neighbor 10.44.44.5 activate
+            neighbor 10.44.44.5 next-hop-unchanged
+           exit-address-family
+          exit
+          end
+
+    - name: Start relay FRR
+      ansible.builtin.systemd:
+        name: frr-container.service
+        state: restarted
+        enabled: true
+
+- name: Configure the two appliance bonds
+  hosts: onprem_appliances
+  become: true
+  gather_facts: true
+  vars:
+    trunk_interface: bond0
+    multihoming:
+      enabled: true
+      # The CE/edge bond spans both appliances: one local member per appliance.
+      bond_interfaces: [eth1]
+      # FRR builds the shared Type-3 ESI from this discriminator and the
+      # shared system MAC below. Do not use a complete Type-0 ESI here as
+      # well: the two forms are mutually exclusive in FRR's schema.
+      es_id: 1
+      es_sys_mac: "02:aa:bb:cc:dd:ee"
+      df_pref: 32767
+      es_id_wire: "03:02:aa:bb:cc:dd:ee:00:00:01"
+    tunnel:
+      type: direct-connect
+      onprem_ip: "{{ evpn_underlay_ip }}"
+      cloud_ip: "{{ evpn_relay_ip }}"
+      network_cidr: 10.44.44.0/24
+      underlay_interface: eth2
+    bgp:
+      onprem_asn: 65044
+      infra_asn: 65100
+      workload_asn: 65200
+    stretches:
+      - vlan: 100
+        name: production
+        subnet: 10.42.1.0/24
+        onprem_gateway: 10.42.1.1
+        cloud_gateway: 10.42.1.2
+      - vlan: 200
+        name: staging
+        subnet: 10.42.2.0/24
+        onprem_gateway: 10.42.2.1
+        cloud_gateway: 10.42.2.2
+      - vlan: 300
+        name: management
+        subnet: 10.42.3.0/24
+        onprem_gateway: 10.42.3.1
+        cloud_gateway: 10.42.3.2
+    frr_image: quay.io/frrouting/frr:10.5.3
+    # The emulated edge host terminates LACP for both appliance bundles. A
+    # qualification inventory can keep this assertion enabled against DVS/MLAG.
+    require_lacp_peer: true
+  tasks:
+    - name: Include the complete product appliance implementation
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_onprem_appliance
+        tasks_from: main.yml
+
+    - name: Read the rendered FRR configuration
+      ansible.builtin.slurp:
+        src: /etc/frr/frr.conf
+      register: frr_config
+
+    - name: Read the negotiated bond state
+      ansible.builtin.command: cat /proc/net/bonding/{{ trunk_interface }}
+      register: bond_state
+      changed_when: false
+      retries: 15
+      delay: 2
+      until:
+        - "'Partner Mac Address:' in bond_state.stdout"
+        - "'Partner Mac Address: 00:00:00:00:00:00' not in bond_state.stdout"
+
+    - name: Assert both appliances configured the shared Ethernet Segment bond
+      ansible.builtin.assert:
+        that:
+          - "'Bonding Mode: IEEE 802.3ad Dynamic link aggregation' in bond_state.stdout"
+          - "'Slave Interface: eth1' in bond_state.stdout"
+        fail_msg: >-
+          {{ inventory_hostname }} did not configure the requested 802.3ad bond with its
+          local member. The shared edge bond contributes one link per appliance.
+
+    - name: Assert both appliances negotiated the shared upstream LACP peer
+      ansible.builtin.assert:
+        that:
+          - "'Partner Mac Address:' in bond_state.stdout"
+          - "'Partner Mac Address: 00:00:00:00:00:00' not in bond_state.stdout"
+        fail_msg: >-
+          {{ inventory_hostname }} did not negotiate its LACP member with the
+          emulated shared edge peer.
+      when: require_lacp_peer | bool
+
+    - name: Assert the appliance presents the shared LACP actor identity
+      ansible.builtin.assert:
+        that:
+          - "'System MAC address: 02:aa:bb:cc:dd:ee' in bond_state.stdout"
+        fail_msg: >-
+          {{ inventory_hostname }} did not present the shared ESI/LACP actor
+          system MAC on its appliance bond.
+
+    - name: Assert the shared Ethernet Segment identity is present in test input
+      ansible.builtin.assert:
+        that:
+          - >-
+            'evpn mh es-id 1' in
+            (frr_config.content | b64decode)
+          - >-
+            'evpn mh es-sys-mac 02:aa:bb:cc:dd:ee' in
+            (frr_config.content | b64decode)
+        fail_msg: >-
+          {{ inventory_hostname }} did not render the shared CORENET-7502
+          Ethernet Segment identity into FRR configuration.
+
+    - name: Check the appliance EVPN session through the relay
+      ansible.builtin.command: podman exec frr vtysh -c "show bgp l2vpn evpn summary"
+      register: evpn_summary
+      changed_when: false
+      retries: 20
+      delay: 2
+      until:
+        - evpn_relay_ip in evpn_summary.stdout
+        - >-
+            'Established' in evpn_summary.stdout or 'PfxRcd' in evpn_summary.stdout
+
+    - name: Check that EVPN Ethernet Segment Type-1 routes are present
+      ansible.builtin.command: podman exec frr vtysh -c "show bgp l2vpn evpn route type 1"
+      register: evpn_type1
+      changed_when: false
+      failed_when: false
+
+    - name: Assert that EVPN Ethernet Segment Type-1 routes are present
+      ansible.builtin.assert:
+        that:
+          - evpn_type1.rc == 0
+          - multihoming.es_id_wire in evpn_type1.stdout
+        fail_msg: >-
+          No Type-1 route containing {{ multihoming.es_id_wire }} was found on
+          {{ inventory_hostname }}. FRR output was:
+          {{ evpn_type1.stdout | default('') }}
+
+    - name: Check that EVPN Ethernet Segment Type-4 routes are present
+      ansible.builtin.command: podman exec frr vtysh -c "show bgp l2vpn evpn route type 4"
+      register: evpn_type4
+      changed_when: false
+      failed_when: false
+
+    - name: Assert that EVPN Ethernet Segment Type-4 routes are present
+      ansible.builtin.assert:
+        that:
+          - evpn_type4.rc == 0
+          - multihoming.es_id_wire in evpn_type4.stdout
+        fail_msg: >-
+          No Type-4 route containing {{ multihoming.es_id_wire }} was found on
+          {{ inventory_hostname }}. FRR output was:
+          {{ evpn_type4.stdout | default('') }}
+
+- name: Verify VLAN reachability before appliance failure
+  hosts: edge_hosts
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Ping the shared VLAN gateway
+      ansible.builtin.command: ping -c 5 -W 1 10.42.1.1
+      register: baseline_ping
+      changed_when: false
+    - name: Assert the edge bridge reaches the active appliance
+      ansible.builtin.assert:
+        that: baseline_ping.rc == 0
+
+- name: Take one appliance data-plane bond down
+  hosts: appliance-a
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Disable appliance-a's edge-facing bond
+      ansible.builtin.command: ip link set bond0 down
+      changed_when: true
+
+- name: Verify the surviving appliance still forwards the VLAN
+  hosts: edge_hosts
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Flush the old gateway neighbor
+      ansible.builtin.command: ip neigh flush dev bond-ce.100
+      changed_when: false
+    - name: Ping the gateway after appliance-a failure
+      ansible.builtin.command: ping -c 5 -W 1 10.42.1.1
+      register: failover_ping
+      changed_when: false
+    - name: Assert traffic survives appliance-a failure
+      ansible.builtin.assert:
+        that: failover_ping.rc == 0
+
+- name: Restore appliance-a for deploy-stage inspection
+  hosts: appliance-a
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Re-enable bond members
+      ansible.builtin.command: ip link set eth1 up
+      changed_when: true
+    - name: Re-enable appliance-a's bond
+      ansible.builtin.command: ip link set bond0 up
+      changed_when: true
