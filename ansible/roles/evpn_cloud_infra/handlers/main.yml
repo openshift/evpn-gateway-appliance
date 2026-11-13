@@ -19,7 +19,12 @@
     state: started
     restart: true
     image: "{{ frr_image }}"
-    privileged: true
+    privileged: false
+    cap_drop:
+      - ALL
+    cap_add: "{{ frr_container_caps }}"
+    security_opt:
+      - no-new-privileges
     network: host
     restart_policy: always
     volumes:
