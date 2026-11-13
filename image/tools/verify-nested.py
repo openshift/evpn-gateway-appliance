@@ -22,6 +22,17 @@ def main() -> None:
         print(f"prerequisite unavailable: registry auth file {auth}", file=sys.stderr)
         raise SystemExit(2)
 
+    payloads = {}
+    for name in ("FRR_IMAGE", "NODE_EXPORTER_IMAGE"):
+        value = os.environ.get(name)
+        if not value:
+            print(
+                f"prerequisite unavailable: set {name} to the pinned payload pullspec",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        payloads[name] = value
+
     base: str | None = None
     for line in (ROOT / "image/streams.yaml").read_text().splitlines():
         stripped = line.strip()
@@ -36,6 +47,8 @@ def main() -> None:
             "make",
             "nested-ci-appliance-image",
             f"BOOTC_BASE={base}",
+            f"FRR_IMAGE={payloads['FRR_IMAGE']}",
+            f"NODE_EXPORTER_IMAGE={payloads['NODE_EXPORTER_IMAGE']}",
             f"CONTAINER_AUTH_FILE={auth}",
         ],
     ]

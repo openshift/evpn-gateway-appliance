@@ -4,8 +4,15 @@
 ARG BOOTC_BASE=registry.redhat.io/rhel10/rhel-bootc
 FROM ${BOOTC_BASE}
 
-ARG FRR_IMAGE=registry.redhat.io/openshift4/frr-rhel9@sha256:82fd7cc0123f6286bad46231a9939799ae79c30b9369047d2ffd109dacefa76e
-ARG NODE_EXPORTER_IMAGE=registry.redhat.io/openshift4/ose-prometheus-node-exporter-rhel9@sha256:7d2884dc16f902e31b897d475d3e0dc09bc735df16b22544d0fefc4396a0ca48
+# Both payloads are required build inputs. Konflux replaces these two lines with
+# downstream digest pins through content.source.modifications; local and e2e
+# builds pass --build-arg. Without a value the build fails here instead of floating.
+ARG FRR_IMAGE
+ARG NODE_EXPORTER_IMAGE
+RUN if [ -z "${FRR_IMAGE}" ] || [ -z "${NODE_EXPORTER_IMAGE}" ]; then \
+        echo 'FRR_IMAGE and NODE_EXPORTER_IMAGE must be set to pinned payload pullspecs' >&2; \
+        exit 1; \
+    fi
 
 # Package versions are not pinned; they follow the base image's repositories.
 # hadolint ignore=DL3041
