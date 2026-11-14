@@ -28,6 +28,21 @@ RUN pip install --no-cache-dir \
         shellcheck-py==0.11.0.1 \
         hadolint-py==v2.15.1.2
 
+# promtool for offline monitoring checks; hashes from the official 3.5.0 sha256sums.txt.
+# Extract only the tool, not the server or its assets.
+RUN case "$(uname -m)" in \
+        x86_64) arch=amd64; sha256=e811827af26d822afb09a4f28314f61b618b12cff5369835a67f674d8b46f39a ;; \
+        aarch64) arch=arm64; sha256=173389cc42bf09c4e6e54cb53fa07a5a835d7c261e14775d2183181d6e385d1c ;; \
+        *) echo "unsupported promtool architecture" >&2; exit 1 ;; \
+    esac && \
+    tmp="$(mktemp -d)" && \
+    curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-$arch.tar.gz" -o "$tmp/prometheus.tar.gz" && \
+    echo "$sha256  $tmp/prometheus.tar.gz" > "$tmp/sha256sum" && \
+    sha256sum -c "$tmp/sha256sum" && \
+    tar -xzf "$tmp/prometheus.tar.gz" -C "$tmp" --strip-components=1 "prometheus-3.5.0.linux-$arch/promtool" && \
+    install -m 0755 "$tmp/promtool" /usr/local/bin/promtool && \
+    rm -rf "$tmp"
+
 # Collection dependencies, pinned to exact versions for reproducible image builds and
 # so the checks can resolve FQCN modules on the network-less runner. Keep in sync with
 # galaxy.yml's ranges; the install smoke in `make check-ansible` (ansible-galaxy install

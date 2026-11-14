@@ -1,0 +1,72 @@
+groups:
+  - name: ega-frr
+    rules:
+      - alert: EGAFrrCollectorFailed
+        expr: frrk8s_scrape_success == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'FRR {{ $labels.collector }} collector failed on {{ $labels.instance }}'
+          description: >-
+            {{ $labels.job }}/{{ $labels.instance }}: {{ $labels.collector }} reads or parses failed for 10m;
+            successful collection alone does not prove expected-object coverage or forwarding health.
+      - alert: EGAFrrMetricsGatherErrors
+        expr: >-
+          increase(promhttp_metric_handler_errors_total[10m]) > 0
+          and on(job, instance) frrk8s_scrape_success
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'FRR metrics gather errors on {{ $labels.instance }}'
+          description: >-
+            {{ $labels.job }}/{{ $labels.instance }}: the exporter failed to gather or encode some metrics
+            (cause {{ $labels.cause }}), for example duplicate BFD series, so series can be missing while up and
+            collector success stay 1.
+      - alert: EGABgpSessionDown
+        expr: >-
+          (frrk8s_bgp_session_up == 0)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'BGP session down on {{ $labels.instance }} for {{ $labels.peer }}'
+          description: >-
+            {{ $labels.job }}/{{ $labels.instance }}: peer {{ $labels.peer }} in VRF {{ $labels.vrf }}
+            has not been Established for 5m; administrative shutdown also reads 0.
+      - alert: EGABgpEvpnNoPrefixesAccepted
+        expr: >-
+          ((frrk8s_bgp_family_received_prefixes{afi="l2vpn",safi="evpn"} == 0)
+          and on(job, instance, peer, vrf) (frrk8s_bgp_session_up == 1))
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'No accepted EVPN prefixes on {{ $labels.instance }} from {{ $labels.peer }}'
+          description: >-
+            {{ $labels.job }}/{{ $labels.instance }}: Established peer {{ $labels.peer }} in VRF {{ $labels.vrf }}
+            reports zero accepted l2vpn/evpn prefixes for 15m (FRR's post-policy count); routes rejected by inbound
+            policy also leave it at zero. Zero may be intentional and counts do not prove propagation.
+      - alert: EGAEvpnVniNoRemoteVteps
+        expr: >-
+          (frrk8s_evpn_l2_remote_vteps == 0)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'No remote VTEPs on {{ $labels.instance }} for VNI {{ $labels.vni }}'
+          description: >-
+            {{ $labels.job }}/{{ $labels.instance }}: L2 VNI {{ $labels.vni }} in VRF {{ $labels.vrf }}
+            has zero known remote VTEPs for 15m; zero may be intentional and this count is not reachability.
+      - alert: EGABfdSessionDown
+        expr: >-
+          (frrk8s_bfd_session_up == 0)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'BFD session down on {{ $labels.instance }} for {{ $labels.peer }}'
+          description: >-
+            {{ $labels.job }}/{{ $labels.instance }}: peer {{ $labels.peer }} in VRF {{ $labels.vrf }}
+            reports BFD down for 2m; peer/VRF identity can collide across distinct BFD sessions.

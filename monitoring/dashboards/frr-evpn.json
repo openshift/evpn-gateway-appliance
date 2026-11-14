@@ -1,0 +1,734 @@
+{
+  "uid": "ega-frr-evpn",
+  "title": "EGA FRR and EVPN",
+  "tags": [
+    "ega",
+    "frr",
+    "evpn"
+  ],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "refresh": 1
+      },
+      {
+        "name": "job",
+        "label": "Job",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(frrk8s_scrape_success, job)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "instance",
+        "label": "Instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(up{job=~\"$job\"}, instance)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Health",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "type": "state-timeline",
+      "title": "Collector success",
+      "description": "Read and parse success does not establish expected-object coverage or forwarding health.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Failed",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "OK",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frrk8s_scrape_success{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{job}}/{{instance}} {{collector}}"
+        }
+      ],
+      "options": {
+        "rowHeight": 0.8
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Targets up",
+      "description": "Up and total selected scrape targets measure HTTP scrape success, not individual collector health.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(up{job=~\"$job\", instance=~\"$instance\"})",
+          "legendFormat": "Up",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "count(up{job=~\"$job\", instance=~\"$instance\"})",
+          "legendFormat": "Total",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "BGP",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      }
+    },
+    {
+      "id": 5,
+      "type": "state-timeline",
+      "title": "Session state",
+      "description": "Established is 1 and down is 0, including administrative shutdown; sampled state can miss short flaps.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Established",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frrk8s_bgp_session_up{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{peer}}"
+        }
+      ],
+      "options": {
+        "rowHeight": 0.8
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Accepted prefixes by family",
+      "description": "FRR's accepted (post-policy) prefix counts are per-family gauges with absent optional counts omitted and do not prove route propagation.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frrk8s_bgp_family_received_prefixes{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{peer}} {{afi}}/{{safi}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Advertised prefixes by family",
+      "description": "Per-family prefix counts are gauges with absent optional counts omitted and do not prove route propagation.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frrk8s_bgp_family_announced_prefixes{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{peer}} {{afi}}/{{safi}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "UPDATE messages",
+      "description": "Session-wide UPDATE message rates are an activity proxy, not counts of individual route additions or withdrawals.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(frrk8s_bgp_updates_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{peer}} sent"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(frrk8s_bgp_updates_total_received{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{peer}} received"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "OPEN messages received",
+      "description": "Each session (re)establishment receives an OPEN, so OPENs while the session reads Established reveal flaps between scrapes; failed connection attempts also count.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "lineWidth": 0
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(frrk8s_bgp_opens_received{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{peer}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "EVPN",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "VNIs",
+      "description": "L2 rows fill MACs, ARP/ND and Remote VTEPs; L3 rows fill Router MACs and Next hops; missing counts stay blank. These counts do not prove forwarding health.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": ""
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frrk8s_evpn_vni_info{job=~\"$job\", instance=~\"$instance\"}",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "frrk8s_evpn_l2_macs{job=~\"$job\", instance=~\"$instance\"}",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "expr": "frrk8s_evpn_l2_neighbors{job=~\"$job\", instance=~\"$instance\"}",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "D",
+          "expr": "frrk8s_evpn_l2_remote_vteps{job=~\"$job\", instance=~\"$instance\"}",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "E",
+          "expr": "frrk8s_evpn_l3_router_macs{job=~\"$job\", instance=~\"$instance\"}",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "F",
+          "expr": "frrk8s_evpn_l3_nexthops{job=~\"$job\", instance=~\"$instance\"}",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "instance",
+            "desc": false
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "exclude": {
+              "names": [
+                "__name__"
+              ]
+            }
+          }
+        },
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #A": true,
+              "Value": true
+            },
+            "indexByName": {
+              "job": 0,
+              "instance": 1,
+              "vni": 2,
+              "type": 3,
+              "vrf": 4,
+              "interface": 5,
+              "Value #B": 6,
+              "Value #C": 7,
+              "Value #D": 8,
+              "Value #E": 9,
+              "Value #F": 10
+            },
+            "renameByName": {
+              "Value #B": "MACs",
+              "Value #C": "ARP/ND",
+              "Value #D": "Remote VTEPs",
+              "Value #E": "Router MACs",
+              "Value #F": "Next hops"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Remote VTEPs per L2 VNI",
+      "description": "Counts describe known remote VTEPs, not reachability, and omitted counts remain absent.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frrk8s_evpn_l2_remote_vteps{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{vni}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "MACs per L2 VNI",
+      "description": "MAC counts measure current L2 occupancy, not learning or aging event rates, with missing counts omitted.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frrk8s_evpn_l2_macs{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{vni}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "ARP/ND entries per L2 VNI",
+      "description": "ARP/ND counts measure current L2 neighbor occupancy, not resolution success or learning event rates.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frrk8s_evpn_l2_neighbors{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{vni}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "BFD",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      }
+    },
+    {
+      "id": 15,
+      "type": "state-timeline",
+      "title": "Session state",
+      "description": "Observed BFD state uses peer/VRF identity that can collide across distinct sessions and does not enumerate expectations.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 60
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Up",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frrk8s_bfd_session_up{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{peer}}"
+        }
+      ],
+      "options": {
+        "rowHeight": 0.8
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Down events",
+      "description": "Counter increases are extrapolated over the selected interval and peer/VRF identity can collide.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 60
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "lineWidth": 0
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(frrk8s_bfd_session_down_events{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
+          "legendFormat": "{{job}}/{{instance}} {{vrf}} {{peer}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ]
+}

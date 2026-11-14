@@ -57,7 +57,7 @@ As of 2026-11-10:
 | Archived full prototype, [`prototype/evpn-metrics-full`](https://github.com/dfarrell07/frr-k8s/tree/prototype/evpn-metrics-full), `87f63e1` | Broader collectors, BFD identity, ES/DF and serving experiments; [historical validation](frr-metrics-details.md#required-evidence-per-slice) includes `62bead0` | Reference evidence; results do not qualify the reduced candidate |
 | Reference exporter prototype, [feature branch](https://github.com/dfarrell07/frr-metrics-exporter/tree/feature/exporter-reference), `f86942d` on fork main | Broader experimental contract; CI passes; [RHEL/runtime evidence and limits](frr-metrics-details.md#required-evidence-per-slice) | Comparison evidence; another shipping source needs amended Jira criteria |
 | Image / collection integration | [Proposed units](frr-metrics-details.md#proposed-units-ownership-and-e2e-checks), role migration, teardown and e2e scrape | 7504/7704 boundary; selected payload/access policy; rootful qualification; coordinate with EGA #23 |
-| Rules / panels | [Drafts](#rules-and-dashboards-buildable-now) pass current promtool cases; corrections remain; no dashboard artifact | Rule-source follow-up, scrape path and dashboard format |
+| Rules / panels | [`monitoring/`](#rules-and-dashboards-buildable-now): six alerts with promtool tests and a Grafana dashboard over #528, including its per-collector success | Expected inventory (slice 7), interface/host rules, scrape path and dashboard format |
 
 Existing exporter/test defects are being extracted into [focused fixes](frr-metrics-details.md#adjacent-findings-to-handle-separately),
 separate from new metrics and access features.
@@ -126,17 +126,17 @@ Questions for OpenShift Monitoring (ask 5):
 
 ## Rules and dashboards buildable now
 
-The [published rule/panel drafts](https://github.com/dfarrell07/evpn-gateway-appliance/tree/corenet-7504-monitoring-drafts/monitoring)
-at `2173e1f` predate the unpublished November 2 EVPN additions. Queries
-assume `ega-frr-metrics` and proposed `frrk8s_*` names; the panel TSV is not a dashboard artifact.
+[`monitoring/`](../../../monitoring/README.md) holds six alert rules, their promtool tests and one
+Grafana dashboard over #528's series, including `frrk8s_scrape_success{collector}`. They key on
+scrape `job`/`instance` only; collector failure raises its own alert;
+tests cover explicit zero versus absent data, missing status and cross-target isolation.
+The dashboard renders in Grafana 11.6.0 against collector output from captured FRR JSON.
 
-Before the rule-source PR: fix interface error/drop counter names (`errs_total`/`drop_total`), observed-zero handling and account for BFD identity limitations; add status-loss,
-source-collision, wrong-VRF, missing-measurement and inventory/discovery-loss cases from the
-[slice 7 identity/capability contract](frr-metrics-details.md#scraping-expectations-dashboards-and-rules).
-Current promtool success does not validate these omissions or panel queries.
-
-Existing-source drafts cover inventory, BGP, configured BFD and interfaces. EVPN rules can use
-the new counts and EVPN-only success; BGP/BFD have no collection-success signal in this candidate.
+Not covered yet: vanished peers/VNIs/collectors and source collisions need the
+[slice 7 identity/capability contract](frr-metrics-details.md#scraping-expectations-dashboards-and-rules);
+target down is left to platform `up` alerting. The
+[earlier drafts](https://github.com/dfarrell07/evpn-gateway-appliance/tree/corenet-7504-monitoring-drafts/monitoring)
+hold inventory and interface rules to revisit then (fix `errs_total`/`drop_total` names first).
 DF/ES, transport and forwarding-probe rules remain work.
 
 ## Implementation slices

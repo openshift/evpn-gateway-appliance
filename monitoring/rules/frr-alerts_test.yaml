@@ -1,0 +1,422 @@
+rule_files:
+  - frr-alerts.yaml
+evaluation_interval: 1m
+tests:
+  - name: Registry errors require an FRR target and an increasing counter for 10m
+    input_series:
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="bgp"}
+        values: 1+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-b",collector="bgp"}
+        values: 1+0x20
+      - series: promhttp_metric_handler_errors_total{job="frr",instance="edge-a",cause="gathering"}
+        values: 0+0.05x20
+      - series: promhttp_metric_handler_errors_total{job="other",instance="edge-a",cause="gathering"}
+        values: 0+0.05x20
+      - series: promhttp_metric_handler_errors_total{job="frr",instance="edge-b",cause="gathering"}
+        values: 1+0x20
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EGAFrrMetricsGatherErrors
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: EGAFrrMetricsGatherErrors
+        exp_alerts:
+          - &gather_errors
+            exp_labels:
+              job: frr
+              instance: edge-a
+              cause: gathering
+              severity: warning
+            exp_annotations:
+              summary: FRR metrics gather errors on edge-a
+              description: 'frr/edge-a: the exporter failed to gather or encode some metrics (cause gathering),
+                for example duplicate BFD series, so series can be missing while up and collector success stay 1.'
+      - eval_time: 20m
+        alertname: EGAFrrMetricsGatherErrors
+        exp_alerts:
+          - *gather_errors
+  - name: 'Observed zeros: pending, firing at the hold time, then recovery'
+    input_series:
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="bgp"}
+        values: 1+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="bfd"}
+        values: 1+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="evpn"}
+        values: 1+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-b",collector="evpn"}
+        values: 0+0x15 1+0x4
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-a",peer="peer-down",vrf="blue"}
+        values: 0+0x15 1+0x4
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-a",peer="peer-empty",vrf="blue"}
+        values: 1+0x20
+      - series: >-
+          frrk8s_bgp_family_received_prefixes{job="frr",instance="edge-a",peer="peer-empty",vrf="blue",
+          afi="l2vpn",safi="evpn"}
+        values: 0+0x15 1+0x4
+      - series: frrk8s_evpn_l2_remote_vteps{job="frr",instance="edge-a",vni="10100",vrf="blue"}
+        values: 0+0x15 1+0x4
+      - series: frrk8s_bfd_session_up{job="frr",instance="edge-a",peer="peer-down",vrf="blue"}
+        values: 0+0x15 1+0x4
+      - series: >-
+          frrk8s_bgp_family_received_prefixes{job="frr",instance="edge-a",peer="peer-down",vrf="blue",
+          afi="l2vpn",safi="evpn"}
+        values: 0+0x15 stale
+      - series: >-
+          frrk8s_bgp_family_received_prefixes{job="frr",instance="edge-a",peer="peer-empty",vrf="blue",
+          afi="ipv4",safi="unicast"}
+        values: 0+0x20
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: EGABfdSessionDown
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: EGABfdSessionDown
+        exp_alerts:
+          - &bfd_down
+            exp_labels:
+              job: frr
+              instance: edge-a
+              peer: peer-down
+              vrf: blue
+              severity: warning
+            exp_annotations:
+              summary: BFD session down on edge-a for peer-down
+              description: 'frr/edge-a: peer peer-down in VRF blue reports BFD down for 2m; peer/VRF identity can
+                collide across distinct BFD sessions.'
+      - eval_time: 4m
+        alertname: EGABgpSessionDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: EGABgpSessionDown
+        exp_alerts:
+          - &bgp_down
+            exp_labels:
+              job: frr
+              instance: edge-a
+              peer: peer-down
+              vrf: blue
+              severity: critical
+            exp_annotations:
+              summary: BGP session down on edge-a for peer-down
+              description: 'frr/edge-a: peer peer-down in VRF blue has not been Established for 5m; administrative
+                shutdown also reads 0.'
+      - eval_time: 9m
+        alertname: EGAFrrCollectorFailed
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: EGAFrrCollectorFailed
+        exp_alerts:
+          - &collector_failed
+            exp_labels:
+              job: frr
+              instance: edge-b
+              collector: evpn
+              severity: warning
+            exp_annotations:
+              summary: FRR evpn collector failed on edge-b
+              description: 'frr/edge-b: evpn reads or parses failed for 10m; successful collection alone does not
+                prove expected-object coverage or forwarding health.'
+      - eval_time: 14m
+        alertname: EGABgpEvpnNoPrefixesAccepted
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: EGABgpEvpnNoPrefixesAccepted
+        exp_alerts:
+          - &evpn_empty
+            exp_labels:
+              job: frr
+              instance: edge-a
+              peer: peer-empty
+              vrf: blue
+              afi: l2vpn
+              safi: evpn
+              severity: warning
+            exp_annotations:
+              summary: No accepted EVPN prefixes on edge-a from peer-empty
+              description: 'frr/edge-a: Established peer peer-empty in VRF blue reports zero accepted l2vpn/evpn prefixes
+                for 15m (FRR''s post-policy count); routes rejected by inbound policy also leave it at zero. Zero
+                may be intentional and counts do not prove propagation.'
+      - eval_time: 14m
+        alertname: EGAEvpnVniNoRemoteVteps
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: EGAEvpnVniNoRemoteVteps
+        exp_alerts:
+          - &vni_empty
+            exp_labels:
+              job: frr
+              instance: edge-a
+              vni: '10100'
+              vrf: blue
+              severity: warning
+            exp_annotations:
+              summary: No remote VTEPs on edge-a for VNI 10100
+              description: 'frr/edge-a: L2 VNI 10100 in VRF blue has zero known remote VTEPs for 15m; zero may be
+                intentional and this count is not reachability.'
+    promql_expr_test:
+      - expr: ALERTS{alertstate="firing"}
+        eval_time: 16m
+        exp_samples: []
+  - name: Collector failures preserve partial BFD sessions; job and instance isolate targets
+    input_series:
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="bgp"}
+        values: 0+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="bfd"}
+        values: 0+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="evpn"}
+        values: 0+0x20
+      - series: frrk8s_bfd_session_up{job="frr",instance="edge-a",peer="peer-down",vrf="blue"}
+        values: 0+0x20
+      - series: frrk8s_bgp_session_up{job="other",instance="edge-a",peer="peer-down",vrf="blue"}
+        values: 0+0x20
+      - series: frrk8s_bgp_session_up{job="other",instance="edge-a",peer="peer-empty",vrf="blue"}
+        values: 1+0x20
+      - series: >-
+          frrk8s_bgp_family_received_prefixes{job="other",instance="edge-a",peer="peer-empty",vrf="blue",
+          afi="l2vpn",safi="evpn"}
+        values: 0+0x20
+      - series: frrk8s_evpn_l2_remote_vteps{job="other",instance="edge-a",vni="10100",vrf="blue"}
+        values: 0+0x20
+      - series: frrk8s_bfd_session_up{job="other",instance="edge-a",peer="peer-down",vrf="blue"}
+        values: 0+0x20
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-b",peer="peer-down",vrf="blue"}
+        values: 0+0x20
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-b",peer="peer-empty",vrf="blue"}
+        values: 1+0x20
+      - series: >-
+          frrk8s_bgp_family_received_prefixes{job="frr",instance="edge-b",peer="peer-empty",vrf="blue",
+          afi="l2vpn",safi="evpn"}
+        values: 0+0x20
+      - series: frrk8s_evpn_l2_remote_vteps{job="frr",instance="edge-b",vni="10100",vrf="blue"}
+        values: 0+0x20
+      - series: frrk8s_bfd_session_up{job="frr",instance="edge-b",peer="peer-down",vrf="blue"}
+        values: 0+0x20
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: EGAFrrCollectorFailed
+        exp_alerts:
+          - exp_labels:
+              job: frr
+              instance: edge-a
+              collector: bgp
+              severity: warning
+            exp_annotations:
+              summary: FRR bgp collector failed on edge-a
+              description: 'frr/edge-a: bgp reads or parses failed for 10m; successful collection alone does not prove
+                expected-object coverage or forwarding health.'
+          - exp_labels:
+              job: frr
+              instance: edge-a
+              collector: bfd
+              severity: warning
+            exp_annotations:
+              summary: FRR bfd collector failed on edge-a
+              description: 'frr/edge-a: bfd reads or parses failed for 10m; successful collection alone does not prove
+                expected-object coverage or forwarding health.'
+          - exp_labels:
+              job: frr
+              instance: edge-a
+              collector: evpn
+              severity: warning
+            exp_annotations:
+              summary: FRR evpn collector failed on edge-a
+              description: 'frr/edge-a: evpn reads or parses failed for 10m; successful collection alone does not
+                prove expected-object coverage or forwarding health.'
+      - eval_time: 15m
+        alertname: EGABgpSessionDown
+        exp_alerts:
+          - exp_labels:
+              job: other
+              instance: edge-a
+              peer: peer-down
+              vrf: blue
+              severity: critical
+            exp_annotations:
+              summary: BGP session down on edge-a for peer-down
+              description: 'other/edge-a: peer peer-down in VRF blue has not been Established for 5m; administrative
+                shutdown also reads 0.'
+          - exp_labels:
+              job: frr
+              instance: edge-b
+              peer: peer-down
+              vrf: blue
+              severity: critical
+            exp_annotations:
+              summary: BGP session down on edge-b for peer-down
+              description: 'frr/edge-b: peer peer-down in VRF blue has not been Established for 5m; administrative
+                shutdown also reads 0.'
+      - eval_time: 15m
+        alertname: EGABgpEvpnNoPrefixesAccepted
+        exp_alerts:
+          - exp_labels:
+              job: other
+              instance: edge-a
+              peer: peer-empty
+              vrf: blue
+              afi: l2vpn
+              safi: evpn
+              severity: warning
+            exp_annotations:
+              summary: No accepted EVPN prefixes on edge-a from peer-empty
+              description: 'other/edge-a: Established peer peer-empty in VRF blue reports zero accepted l2vpn/evpn prefixes
+                for 15m (FRR''s post-policy count); routes rejected by inbound policy also leave it at zero. Zero
+                may be intentional and counts do not prove propagation.'
+          - exp_labels:
+              job: frr
+              instance: edge-b
+              peer: peer-empty
+              vrf: blue
+              afi: l2vpn
+              safi: evpn
+              severity: warning
+            exp_annotations:
+              summary: No accepted EVPN prefixes on edge-b from peer-empty
+              description: 'frr/edge-b: Established peer peer-empty in VRF blue reports zero accepted l2vpn/evpn prefixes
+                for 15m (FRR''s post-policy count); routes rejected by inbound policy also leave it at zero. Zero
+                may be intentional and counts do not prove propagation.'
+      - eval_time: 15m
+        alertname: EGAEvpnVniNoRemoteVteps
+        exp_alerts:
+          - exp_labels:
+              job: other
+              instance: edge-a
+              vni: '10100'
+              vrf: blue
+              severity: warning
+            exp_annotations:
+              summary: No remote VTEPs on edge-a for VNI 10100
+              description: 'other/edge-a: L2 VNI 10100 in VRF blue has zero known remote VTEPs for 15m; zero may be
+                intentional and this count is not reachability.'
+          - exp_labels:
+              job: frr
+              instance: edge-b
+              vni: '10100'
+              vrf: blue
+              severity: warning
+            exp_annotations:
+              summary: No remote VTEPs on edge-b for VNI 10100
+              description: 'frr/edge-b: L2 VNI 10100 in VRF blue has zero known remote VTEPs for 15m; zero may be
+                intentional and this count is not reachability.'
+      - eval_time: 15m
+        alertname: EGABfdSessionDown
+        exp_alerts:
+          - *bfd_down
+          - exp_labels:
+              job: other
+              instance: edge-a
+              peer: peer-down
+              vrf: blue
+              severity: warning
+            exp_annotations:
+              summary: BFD session down on edge-a for peer-down
+              description: 'other/edge-a: peer peer-down in VRF blue reports BFD down for 2m; peer/VRF identity can
+                collide across distinct BFD sessions.'
+          - exp_labels:
+              job: frr
+              instance: edge-b
+              peer: peer-down
+              vrf: blue
+              severity: warning
+            exp_annotations:
+              summary: BFD session down on edge-b for peer-down
+              description: 'frr/edge-b: peer peer-down in VRF blue reports BFD down for 2m; peer/VRF identity can
+                collide across distinct BFD sessions.'
+  - name: Collector failures fire per target alongside partial BFD session data
+    input_series:
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="evpn"}
+        values: 0+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-b",collector="bgp"}
+        values: 0+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-c",collector="bfd"}
+        values: 0+0x20
+      - series: frrk8s_bfd_session_up{job="frr",instance="edge-c",peer="peer-down",vrf="blue"}
+        values: 0+0x20
+    promql_expr_test:
+      - expr: count by (instance, alertname) (ALERTS{alertstate="firing"})
+        eval_time: 15m
+        exp_samples:
+          - labels: '{alertname="EGAFrrCollectorFailed",instance="edge-a"}'
+            value: 1
+          - labels: '{alertname="EGAFrrCollectorFailed",instance="edge-b"}'
+            value: 1
+          - labels: '{alertname="EGAFrrCollectorFailed",instance="edge-c"}'
+            value: 1
+          - labels: '{alertname="EGABfdSessionDown",instance="edge-c"}'
+            value: 1
+  - name: 'Successful empty or partial inventory: absent measurements are not zero'
+    input_series:
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="bgp"}
+        values: 1+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="bfd"}
+        values: 1+0x20
+      - series: frrk8s_scrape_success{job="frr",instance="edge-a",collector="evpn"}
+        values: 1+0x20
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-a",peer="peer-empty",vrf="blue"}
+        values: 1+0x20
+      - series: >-
+          frrk8s_evpn_vni_info{job="frr",instance="edge-a",vni="10100",vrf="blue",type="L2",
+          interface="vxlan10100"}
+        values: 1+0x20
+    promql_expr_test:
+      - expr: ALERTS{alertstate="firing"}
+        eval_time: 20m
+        exp_samples: []
+  - name: Vanished observations and collector status resolve rather than imply zero
+    input_series:
+      - series: frrk8s_scrape_success{job="frr",instance="edge-b",collector="evpn"}
+        values: 0+0x15 stale
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-a",peer="peer-down",vrf="blue"}
+        values: 0+0x15 stale
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-a",peer="peer-empty",vrf="blue"}
+        values: 1+0x20
+      - series: >-
+          frrk8s_bgp_family_received_prefixes{job="frr",instance="edge-a",peer="peer-empty",vrf="blue",
+          afi="l2vpn",safi="evpn"}
+        values: 0+0x15 stale
+      - series: frrk8s_evpn_l2_remote_vteps{job="frr",instance="edge-a",vni="10100",vrf="blue"}
+        values: 0+0x15 stale
+      - series: frrk8s_bfd_session_up{job="frr",instance="edge-a",peer="peer-down",vrf="blue"}
+        values: 0+0x15 stale
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: EGAFrrCollectorFailed
+        exp_alerts:
+          - *collector_failed
+      - eval_time: 15m
+        alertname: EGABgpSessionDown
+        exp_alerts:
+          - *bgp_down
+      - eval_time: 15m
+        alertname: EGABgpEvpnNoPrefixesAccepted
+        exp_alerts:
+          - *evpn_empty
+      - eval_time: 15m
+        alertname: EGAEvpnVniNoRemoteVteps
+        exp_alerts:
+          - *vni_empty
+      - eval_time: 15m
+        alertname: EGABfdSessionDown
+        exp_alerts:
+          - *bfd_down
+    promql_expr_test:
+      - expr: ALERTS{alertstate="firing"}
+        eval_time: 16m
+        exp_samples: []
+  - name: EVPN prefix check requires the same job, instance, peer and VRF session up
+    input_series:
+      - series: >-
+          frrk8s_bgp_family_received_prefixes{job="frr",instance="edge-a",peer="peer-empty",vrf="blue",
+          afi="l2vpn",safi="evpn"}
+        values: 0+0x20
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-a",peer="peer-other",vrf="blue"}
+        values: 1+0x20
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-a",peer="peer-empty",vrf="red"}
+        values: 1+0x20
+      - series: frrk8s_bgp_session_up{job="frr",instance="edge-b",peer="peer-empty",vrf="blue"}
+        values: 1+0x20
+      - series: frrk8s_bgp_session_up{job="other",instance="edge-a",peer="peer-empty",vrf="blue"}
+        values: 1+0x20
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: EGABgpEvpnNoPrefixesAccepted
+        exp_alerts: []
