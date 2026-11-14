@@ -229,8 +229,9 @@ item for decisions 7, 8 and 13 to `@knobunc`.
   observations, with standalone operation. Evidence: the [2026-10-01 Networking direction](https://github.com/openshift/evpn-gateway-appliance/pull/2#issuecomment-5936707328),
   live 7504/7505 criteria (rechecked 2026-11-10), and [Jaime's 2026-11-10 review asking to close 16](https://github.com/openshift/evpn-gateway-appliance/pull/24#issuecomment-6768033317).
   This closes source selection independently of implementation and qualification.
-  [#519/#528](frr-metrics-plan.md#status-and-next-steps) propose standalone serving and basic
-  EVPN additions; they are unmerged. Upstream shared use is conditional on nondivergent behavior
+  [#519](https://github.com/metallb/frr-k8s/pull/519) (merged 2026-11-10) adds standalone serving
+  and [#528](frr-metrics-plan.md#status-and-next-steps) (open) basic EVPN additions.
+  Upstream shared use is conditional on nondivergent behavior
   and metrics ([maintainer reply](https://github.com/metallb/frr-k8s/pull/519#issuecomment-6612226284)).
   Remaining work stays separate: learning/churn meanings in decision 1; DF/ES coverage and
   alert policy in 7504/7502; implementation/downstream ownership, selected image and interim

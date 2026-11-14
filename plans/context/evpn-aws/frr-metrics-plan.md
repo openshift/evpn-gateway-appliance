@@ -1,173 +1,138 @@
 # FRR metrics and observability plan (CORENET-7504)
 
 [CORENET-7504](https://redhat.atlassian.net/browse/CORENET-7504) covers appliance dashboards
-and alerts. Review the FRR metrics below, then the exporter and scrape choices.
-Refreshed 2026-11-10; [details](frr-metrics-details.md) hold source evidence and implementation contracts.
-
-[Decision 16](kickoff-decisions.md#decisions-at-a-glance) closed 2026-11-10: use frr-k8s's
-`frr-metrics`, matching Jira. Decision 10 (payload) and delivery work remain open;
-implementation contracts below are proposals.
-“Slice N” and “ask N” refer to the tables and numbered asks below.
+and alerts. Refreshed 2026-11-13; [details](frr-metrics-details.md) hold source evidence and
+implementation contracts. “Ask N” refers to the numbered asks below.
 
 ## Requirements
 
-Are the expected BGP peers and EVPN routes present, and does each stretch have its VNI,
-learned entries and remote VTEPs? Dave Tucker's configured collectors and health checks
-establish this baseline; his dashboard/HA task list adds churn, BFD and DF views.
-The [prototype mapping](frr-metrics-details.md#what-the-prototypes-checks-become) distinguishes
-implemented checks, intended collector coverage and planned work.
-
-The reduced [frr-k8s candidate (#528)](https://github.com/metallb/frr-k8s/pull/528) adds
-per-family BGP prefix gauges and basic EVPN VNI metrics. Its [metric contract](https://github.com/dfarrell07/frr-k8s/blob/348b6ce29a852c420407a2d0970f8cc2027d381d/cmd/metrics/README.md)
-defines names, labels and behavior; this table explains the coverage we care about:
-
-| Metric we care about | Why / prototype basis | Upstream baseline / reduced addition |
-| --- | --- | --- |
-| BGP session state by peer/VRF | Four checks require expected peers Established | Existing `frrk8s_bgp_session_up`; compare against expected peers |
-| FRR-reported accepted and advertised EVPN prefixes by peer/VRF/AFI/SAFI | Relay checks received EVPN prefixes from both sides; advertised counts help diagnose propagation | Existing gauges sum families; add per-family gauges so IPv4 cannot hide missing EVPN routes |
-| VNI inventory with type, VRF and interface | Identify each configured stretch; scope the per-VNI checks | New L2/L3 inventory gauge |
-| MAC and ARP/ND occupancy per L2 VNI | Preserve the configured L2VPN collector's intended learning view | New L2 gauges; counts, not learn/age event rates |
-| Known remote-VTEP count per L2 VNI | Two per-stretch checks require a listed remote endpoint | New L2 count; known endpoints, not reachability |
-| BGP UPDATE sent/received counters and session re-establishment evidence | Planned BGP churn row and session-drop alerts | Existing UPDATE/OPEN counters and session state; message activity is a churn proxy; sampled state can miss short flaps |
-| Configured BFD session state and down events | Planned BFD/flap alerts; no sessions configured in prototype | Existing series need identity/completeness fixes; require declared expected sessions |
-| Local Ethernet-segment operational and DF state | Planned multihoming and DF alerts | Deferred from the reduced candidate; select a source and agree CORENET-7502 HA policy; a DF change can be correct failover |
-
-The candidate adds one default VNI query per scrape; its success gauge covers EVPN only.
-Existing BGP/BFD behavior and limitations remain. Zero can be valid for an empty stretch;
-compare with declared expectations and check missing series as well as scrape status.
-[Source semantics](frr-metrics-details.md#proposed-additive-metrics) explain the limits;
-[broader collection health](frr-metrics-details.md#failure-visibility-and-deadlines) is a proposed follow-up.
-
-VNI/MAC/VTEP expectations apply to VTEPs; the relay needs BGP/EVPN prefixes without local VNIs.
-Map the prototype's lab workload-VTEP checks to OCP-native EVPN. The [other 7504 areas](pipeline-spec.md#metrics-corenet-74997504) still need
-host/interface, AWS and forwarding/latency integration. FRR membership and route counts do not prove forwarding.
-
-Live Jira (2026-11-05) requires legacy-exporter replacement and EVPN metrics **in the frr-k8s
-binary**; 7505 names it too. Another source needs amended criteria. Decision 1 still needs
-clarification of learning/churn meanings; DF alerts, access and dashboards remain product work.
+| 7504 criterion | Delivered by |
+| --- | --- |
+| 1. Replace the legacy FRR exporter with the frr-k8s metrics binary | Chunk A |
+| 2. Expose required EVPN metrics in the frr-k8s metrics binary | frr-k8s #528; chunk E (ES/DF) |
+| 3. Appliance, VLAN and tunnel status views | Chunk B |
+| 4. BGP sessions, prefix counts and route churn | EGA #44: UPDATE rates as churn |
+| 5. VNI and MAC learning behavior | EGA #44: per-VNI MAC history as learning |
+| 6. DX, VPN, BFD, latency and bandwidth health | EGA #44 (BFD); chunks B (bandwidth), C (DX, VPN) and D (latency) |
+| 7. Alerts for BGP, VTEP, BFD, transport and DF failures | EGA #44 (BGP, BFD, VTEP membership); chunks C (transport), D (VTEP forwarding) and E (DF) |
 
 ## Status and next steps
 
-As of 2026-11-10:
-
-| Work | Evidence / state | Next dependency |
-| --- | --- | --- |
-| Standalone `--disable-metrics-auth` ([#518](https://github.com/metallb/frr-k8s/issues/518), [#519](https://github.com/metallb/frr-k8s/pull/519)) | Open, unmerged; maintainer go-ahead for shared exporter use without divergent behavior/metrics | Upstream review, downstream integration and qualification |
-| Reduced frr-k8s candidate, [#528](https://github.com/metallb/frr-k8s/pull/528), [review branch](https://github.com/dfarrell07/frr-k8s/compare/disable-metrics-auth...evpn-metrics-gr-integration) | Per-family prefixes, VNI inventory and L2 counts; full local Go suite, metrics race tests and lint pass at `348b6ce` (same tree as current `92a4bc8`); [CI at `202b2ff`](https://github.com/dfarrell07/frr-k8s/actions/runs/42088338524) finished: 10 jobs passed, IPv4 Helm prefix-count test failed ([details](frr-metrics-details.md#required-evidence-per-slice)) | Upstream review; downstream build and selected FRR/appliance qualification |
-| Archived full prototype, [`prototype/evpn-metrics-full`](https://github.com/dfarrell07/frr-k8s/tree/prototype/evpn-metrics-full), `87f63e1` | Broader collectors, BFD identity, ES/DF and serving experiments; [historical validation](frr-metrics-details.md#required-evidence-per-slice) includes `62bead0` | Reference evidence; results do not qualify the reduced candidate |
-| Reference exporter prototype, [feature branch](https://github.com/dfarrell07/frr-metrics-exporter/tree/feature/exporter-reference), `f86942d` on fork main | Broader experimental contract; CI passes; [RHEL/runtime evidence and limits](frr-metrics-details.md#required-evidence-per-slice) | Comparison evidence; another shipping source needs amended Jira criteria |
-| Image / collection integration | [Proposed units](frr-metrics-details.md#proposed-units-ownership-and-e2e-checks), role migration, teardown and e2e scrape | 7504/7704 boundary; selected payload/access policy; rootful qualification; coordinate with EGA #23 |
-| Rules / panels | [Drafts](#rules-and-dashboards-buildable-now) pass current promtool cases; corrections remain; no dashboard artifact | Rule-source follow-up, scrape path and dashboard format |
-
-Existing exporter/test defects are being extracted into [focused fixes](frr-metrics-details.md#adjacent-findings-to-handle-separately),
-separate from new metrics and access features.
-
-Next: review #519/#528, then qualify the selected Red Hat image and appliance scrape path.
-Rules, panels and other product work can proceed separately.
+| Work | State |
+| --- | --- |
+| frr-k8s [#519](https://github.com/metallb/frr-k8s/pull/519): standalone serving | Merged 2026-11-10 (`088e638`) |
+| frr-k8s [#528](https://github.com/metallb/frr-k8s/pull/528): per-family prefixes, VNI inventory, L2 and L3 VNI counts, per-collector `frrk8s_scrape_success` | Open; neither it nor #519 is in openshift/frr yet |
+| EGA [#44](https://github.com/openshift/evpn-gateway-appliance/pull/44): alerts and dashboard | Open; see [rules and dashboards](#rules-and-dashboards-buildable-now) |
 
 ## Exporter options
 
-The [2026-11-03 maintainer reply](https://github.com/metallb/frr-k8s/pull/519#issuecomment-6612226284)
-gives the go-ahead for #519 and shared exporter reuse, provided behavior and metrics do not
-diverge. The reduced proposal targets basic L2/L3 EVPN configurations that frr-k8s generates;
-multihoming/DF and access additions are deferred. Metrics outside those configurations may
-belong in a standalone/shared exporter. The [earlier reply](https://github.com/metallb/frr-k8s/pull/519#issuecomment-6578427404)
-also suggests `tynany/frr_exporter`. MetalLB metric compatibility motivated frr-k8s's exporter.
-
-**Proposed delivery path:** retain Red Hat-built `frr-metrics`, matching Jira. Keep #519
-limited to standalone serving; review the additive collector candidate and seek upstream
-agreement. Downstream integration, builds and qualification still
-follow; a maintained downstream patch needs a named owner.
-
-The reference exporter and textfile experiments provide comparison evidence. Selecting the Jira
-target need not wait for shared-project extraction or implementation/qualification of #519/#528.
-
-| Target / comparison alternative | Benefit | Required work |
-| --- | --- | --- |
-| Extend frr-k8s | Jira target; shared series and Red Hat build route | Candidate review, collector agreement, downstream delivery and qualification |
-| Supplement with EVPN textfiles | Reuses embedded node-exporter and endpoint | Amend 7504; parser/timer ownership, freshness/label contract and endpoint hardening |
-| Replace with reference exporter or `tynany/frr_exporter` | Standalone design or existing EVPN collector | Amend 7504/7505; migration/qualification and Red Hat build/update/security ownership |
-
-The [4.22 interim](frr-metrics-details.md#interim-exporter-from-the-embedded-422-image) remains a
-development option. [Implementation routes](frr-metrics-details.md#upstream-evidence) stay in details.
-
-### What the 2026-11-02 checks add
-
-Container-lab results (FRR 10.4.3, some 10.6.2; not appliance/FIPS/AWS qualification):
-control-plane health survived a VXLAN UDP/4789 forwarding failure; the separate textfile
-experiment served metrics over mTLS but needs freshness/job-label checks and protected web
-configuration; daemon-specific vtysh reads isolated an unresponsive daemon. Non-root socket
-access still needs appliance SELinux qualification. These tests inform the [validation contract](frr-metrics-details.md#required-evidence-per-slice).
+[Decision 16](kickoff-decisions.md#decisions-at-a-glance): frr-k8s `frr-metrics`, as Jira requires.
 
 ## Where metrics are scraped and shown
 
-No path is selected. [Evidence](frr-metrics-details.md#scrape-path-evidence) distinguishes
-support precedent from the version/configuration still to qualify. Rule/panel sources can
-proceed now; deployment must validate labels, namespace enforcement and query access.
-
-| Option | Fit | Qualification / ownership |
-| --- | --- | --- |
-| User-workload ServiceMonitor/manual endpoints, Perses, PrometheusRule | Queries with cluster series through Thanos; mTLS API support | Exact EndpointSlice/mTLS recipe and scale under limited external-target guidance; RBAC and transport reachability |
-| COO MonitoringStack / ScrapeConfig | Separate customizable stack | Prometheus/Alertmanager ownership; alpha API support; federation/query path for cluster-series joins |
-| ACM federation of UWM or COO metrics | Multicluster views, retention, Grafana | ACM/add-on version, metric selection and underlying scrape path |
-| Push to COO receiver | Exporter stays on loopback | Appliance agent (decision 10), authenticated receiver and delivery ownership |
-| External/customer-run Prometheus and Grafana | Not evaluated | Owned component or sample integration and qualification |
-
-A failed scrape may share the DX/VPN failure being monitored; it is not an independent
-“appliance unreachable” measurement.
-
-Questions for OpenShift Monitoring (ask 5):
-
-- (a) Which 4.22+ EndpointSlice/mTLS recipe and scale fit external-target guidance?
-- (b) Is user-workload ScrapeConfig/additional-scrape configuration planned?
-- (c) Which COO version supports `monitoring.rhobs/v1alpha1` ScrapeConfig?
-- (d) Will cluster policy permit rule-namespace exemptions, and what query RBAC is needed?
-- (e) Which Perses data source and viewer RBAC should non-admin users use?
+The deployment's own Prometheus and Grafana; EGA ships rule files and dashboards, not a stack.
+The image's node-exporter binds HTTP `127.0.0.1:9100`; chunk A binds `frr-metrics` to
+`127.0.0.1:9141` (HTTPS, self-signed certificate). Remote scraping uses CORENET-7704's access path;
+[evidence](frr-metrics-details.md#scrape-path-evidence).
 
 ## Rules and dashboards buildable now
 
-The [published rule/panel drafts](https://github.com/dfarrell07/evpn-gateway-appliance/tree/corenet-7504-monitoring-drafts/monitoring)
-at `2173e1f` predate the unpublished November 2 EVPN additions. Queries
-assume `ega-frr-metrics` and proposed `frrk8s_*` names; the panel TSV is not a dashboard artifact.
-
-Before the rule-source PR: fix interface error/drop counter names (`errs_total`/`drop_total`), observed-zero handling and account for BFD identity limitations; add status-loss,
-source-collision, wrong-VRF, missing-measurement and inventory/discovery-loss cases from the
-[slice 7 identity/capability contract](frr-metrics-details.md#scraping-expectations-dashboards-and-rules).
-Current promtool success does not validate these omissions or panel queries.
-
-Existing-source drafts cover inventory, BGP, configured BFD and interfaces. EVPN rules can use
-the new counts and EVPN-only success; BGP/BFD have no collection-success signal in this candidate.
-DF/ES, transport and forwarding-probe rules remain work.
+EGA #44 adds `monitoring/`: six alerts with promtool tests, one Grafana dashboard over
+`frrk8s_*` series and `make check-monitoring`.
 
 ## Implementation slices
 
-These proposed work groups separate #528 (slices 3–4), focused collection fixes and product
-integration. Jira defines acceptance. [Evidence per slice](frr-metrics-details.md#required-evidence-per-slice).
+Closing 7504 needs chunks A–E (S: days; M: one to three weeks).
 
-| Slice | Where | Change |
-| --- | --- | --- |
-| 1. Standalone serving | frr-k8s | Explicit auth selection, unchanged Kubernetes TLS/auth defaults, documentation |
-| 2. Reliable collection | frr-k8s, separate fixes | Known BFD identity, failure visibility and vtysh issues remain; no generic collection/serving framework in #528 |
-| 3. EVPN prefixes | frr-k8s | Per-family gauges preserving aggregates |
-| 4. L2 VNI/MAC | frr-k8s | Default VNI collector, L2 counts and EVPN-only success |
-| 5. Local ES/DF and VTEP membership | Product source open | DF needs a source and HA alert policy with 7502; individual-member observations are optional. Deferred from #528 |
-| 6. Red Hat delivery | openshift/frr | Downstream source, selected toolchain, qualified image |
-| 7. Appliance and collection | EGA, 7504/7704 | Runtime/role migration, persistent disable/teardown, access/scraping and expected inventory lifecycle |
-| 8. Complete 7504 | EGA | Packaged dashboards/rules and chosen AWS/probe integration |
+### A. Run frr-metrics instead of the legacy exporter (M)
+
+- Criteria 1–2.
+- Build: rewrite `image/rhel10/frr-metrics.service`, install it into the image with
+  `COPY` to `/usr/lib/systemd/system/`, and enable it to run
+  `podman exec frr /frr-metrics --disable-metrics-auth --metrics-bind-address=127.0.0.1`
+  inside the running router container, with `BindsTo=` and `After=frr-container.service`,
+  `Restart=always`, and an `ExecStop=` that kills that process, since Podman does not forward stop
+  signals to exec sessions ([units](frr-metrics-details.md#proposed-units-ownership-and-e2e-checks)).
+  In `evpn_monitoring`, drive this unit from the `frr_exporter` switch, remove
+  `tynany/frr_exporter`, mask the unit when disabled and tear down on every group
+  ([integration](frr-metrics-details.md#concrete-ega-integration-work)). On non-bootc hosts,
+  where the router roles and handlers start `frr` from `frr_image` with Podman directly, install
+  the same unit without the `frr-container.service` dependency and require `frr_image` to be the
+  same `frr-rhel9` build, since the upstream FRR default lacks `/frr-metrics`.
+- Depends: #528 merged in metallb/frr-k8s; #519 and #528 synced into openshift/frr (ask 3) and built
+  by ART from a `release-5.x` branch as `openshift5/frr-rhel9`; EGA's `FRR_IMAGE` moving from the
+  current `openshift4/frr-rhel9` build to it (CORENET-7505; ask 2); and openshift/release's
+  EGA `base_images.metallb-frr`, which e2e passes as `FRR_IMAGE`, moving from `ocp/4.22` to that
+  stream, with rehearsal. EGA #29 edits the router unit and handlers; #41 makes `FRR_IMAGE`
+  a required build argument.
+- Test: `image/tools/smoke-nested.py` requires the unit and every `frrk8s_scrape_success` at 1.
+  A new `test/ansible/playbooks/monitoring.yml` in e2e checks expected peers up, EVPN prefix
+  counts and VTEP VNI inventory; that stopping the unit while the router runs frees `:9141`; and
+  re-enable and teardown, on bootc and non-bootc hosts.
+
+### B. Appliance, VLAN and tunnel views (S)
+
+- Criteria 3 and 6 (bandwidth).
+- Build: `monitoring/dashboards/appliance.json` over node-exporter, already in the image: node-exporter
+  scrape status, per VXLAN, bridge, VLAN and WireGuard device its operstate and carrier, and
+  traffic for the non-bridge devices. Its job
+  variable comes from `node_network_info` for `vxlanN` or `wg0` devices and its instances from `up`, as in #44, so a down
+  appliance stays selectable; `monitoring/check_dashboards.py` also scopes `node_*` selectors.
+- Depends: EGA #44.
+- Test: `make check-monitoring`.
+
+### C. Direct Connect and VPN health (S)
+
+- Criteria 6 and 7 (transport).
+- Build: `monitoring/dashboards/aws-transport.json` on Grafana's CloudWatch data source: DX
+  `ConnectionState` and `VirtualInterfaceBgpStatus`, and VPN `TunnelState` per VPN connection,
+  with resource IDs as variables. `monitoring/grafana/aws-transport-alerts.yaml`
+  provisions Grafana alerts on a DX connection, virtual interface or VPN tunnel down.
+  `monitoring/README.md` says how to set the CloudWatch data source, region and resource IDs.
+  `monitoring/check_dashboards.py` skips
+  PromQL checks for CloudWatch files and checks each alert's dashboard panel link.
+- Depends: EGA #44.
+- Test: `make check-monitoring`; both files import into Grafana with a CloudWatch data source
+  without errors.
+
+### D. Overlay path probe (S)
+
+- Criteria 6 (latency) and 7 (VTEP forwarding).
+- Build: on on-prem appliances with node-exporter, when a probe address is set, an
+  `evpn_monitoring` timer pings that overlay address, routed through a stretch's `br-vni` SVI so
+  the probe crosses VXLAN (in e2e, the first stretch's cloud gateway that `evpn_health_check` pings). It uses a deadline and writes RTT and success to a textfile
+  under `/var/lib/node_exporter/textfile`. In `image/rhel10/node-exporter.service`, mount that
+  directory read-only with `:z` so SELinux allows reads, and set `--collector.textfile.directory`;
+  do the same for `evpn_monitoring`'s non-bootc node-exporter container. Add an
+  RTT panel to B that hides samples older than two probe intervals, using `node_textfile_mtime_seconds`.
+  Add `EGAEvpnPathProbeFailed` under `monitoring/rules/`: probe success 0, the textfile older
+  than two probe intervals, or a textfile read error on a host that reported the probe, for 5m. The probe address is a new `evpn_monitoring` input.
+- Depends: B.
+- Test: promtool cases for the alert, including a stale or unreadable textfile; e2e
+  sees a positive RTT, takes the stretch's VXLAN device down with BGP up and sees success 0, then
+  recovery.
+
+### E. Ethernet segment and DF (M)
+
+- Criteria 2 and 7 (DF).
+- Build: in frr-k8s, add an ES collector reading `show evpn es detail json` with the archived
+  prototype's parser (`frrk8s_evpn_es_oper_up` and `frrk8s_evpn_es_df` by `esi`) and its own
+  `frrk8s_scrape_success{collector="es"}`, so an ES failure cannot silence VNI alerts. In EGA, alert
+  when an ESI seen in `frrk8s_evpn_es_oper_up` has not had exactly one DF for longer than the agreed
+  allowance, counting a missing role as zero, gated on the `es` collector. Document both series,
+  their omission rules and collector `es` in frr-k8s `cmd/metrics/README.md`.
+- Depends: #528; an frr-k8s issue agreeing ES/DF scope and an upstream-testable configuration
+  (ask 3); 7502's DF allowance (ask 4). Ships as its own frr-k8s PR and reaches EGA by chunk A's
+  path: openshift/frr sync, ART build, then an EGA `FRR_IMAGE` update.
+- Test: Go tests on the prototype's captured ES states; registry tests that ES read or parse
+  failure sets `es` to 0 while VNI series and `evpn` success survive, and that an empty ES list
+  succeeds; e2e through the authenticated endpoint on the agreed configuration; promtool,
+  including a quiet DF handover and both members down or election-pending.
 
 ## Asks and upstream order
 
-Responsibilities remain proposed; route these through the 7504 assignee:
-
-1. **7504 owner:** agree remaining metric meanings and DF/ES sourcing for the selected exporter.
-   Interim runtime belongs to decision 10.
-2. **Epic/7704 owners:** agree 7504 replacement versus 7704 privilege/access work and tests.
-   Keep migration/teardown in 7504 unless reassigned; propose separately deliverable BGP/BFD,
-   EVPN/DF and AWS/latency work.
-3. **PM:** dashboard format; decision 1 clarification; BFD and AWS/latency owners. 7502 covers multihoming BFD only.
-4. **Product Security:** loopback/interim payload support, SBOM/FIPS/update ownership, vtysh control, access and label visibility.
-5. **OpenShift Monitoring:** the five questions above.
-6. **Decision 10 owner:** selected payload and build/update ownership.
-7. **openshift/frr owners:** target branches and integration/build path.
-8. **frr-k8s maintainers:** keep #519 isolated; agree basic EVPN/CI scope and discuss ES/DF separately.
-9. **Network/security:** scrape path, certificates/keys/rotation, AWS access and latency/probe source; reuse 7501 preflight work.
+1. **PM (decision 1):** review the churn, learning and VTEP meanings in the requirements table.
+2. **Decision 10 owner:** approve the `frr-rhel9` payload that chunk A runs.
+3. **frr-k8s and openshift/frr maintainers:** merge #528; agree ES/DF scope and its CI configuration; sync #519,
+   #528 and chunk E's collector into openshift/frr and the `release-5.x` branch EGA will embed.
+4. **7502 owner:** the DF handover allowance.
