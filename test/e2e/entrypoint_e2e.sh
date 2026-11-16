@@ -4,7 +4,7 @@
 # containers are siblings on the host runtime with the host kernel.
 #
 # Kind cluster, the ovn-kubernetes chart, frr-k8s, containerlab appliance/relay/TGW,
-# deploy.yml, which discovers the frr-k8s pods.
+# deploy.yml, which discovers the frr-k8s pods, then each scenario under test/e2e/scenarios.
 # Fails unless each kind node is BGP Established.
 #
 # Stages (EGA_STAGE):
@@ -73,7 +73,9 @@ export EGA_SSH_PUBKEY="${ssh_key}.pub"
 RELAY_PRIVATE_IP=10.100.0.1
 export RELAY_PRIVATE_IP
 export EGA_KIND_CLUSTER="$cluster"
-"${kind_dir}/setup-cluster.sh"
+
+bring_up() {
+	"${kind_dir}/setup-cluster.sh"
 
 kind_nodes=()
 while IFS= read -r node; do
@@ -160,20 +162,77 @@ ee_playbook() {
 			-u root --private-key "$ssh_key"
 }
 
-# The kind network is the workload VPC for this lane. wg-quick installs it
-# from AllowedIPs once deploy brings the tunnel up, which is what covers the
-# node VTEP addresses. 10.44.44.2 is not on-link until then.
-kind_cidr="$(tr -d '[:space:]' < "${EGA_WORK_DIR}/kind-cidr")"
-if [ -z "$kind_cidr" ]; then
-	echo "error: kind network CIDR was not recorded" >&2
+	# The kind network is the workload VPC for this lane. wg-quick installs it
+	# from AllowedIPs once deploy brings the tunnel up, which is what covers the
+	# node VTEP addresses. 10.44.44.2 is not on-link until then.
+	kind_cidr="$(tr -d '[:space:]' < "${EGA_WORK_DIR}/kind-cidr")"
+	if [ -z "$kind_cidr" ]; then
+		echo "error: kind network CIDR was not recorded" >&2
+		exit 1
+	fi
+	echo ">> workload VPC CIDR ${kind_cidr}"
+	ee_playbook network.evpn_gateway_test.simulate
+	ee_playbook network.evpn_gateway.deploy \
+		-e frr_k8s_ns=frr-k8s-system \
+		-e frr_k8s_lbl=app=frr-k8s \
+		-e "workload_vpc_cidr=${kind_cidr}"
+
+	export EGA_LAB="$lab"
+	export EGA_LAB_DIR="$lab_dir"
+	export EGA_RELAY_CTR="$relay_ctr"
+	export EGA_KIND_NODE_IPS="${kind_node_ips[*]}"
+}
+
+run_scenario() {
+	local dir="$1"
+	echo ">> scenario $(basename "$dir")"
+	if [ -d "${dir}/manifests" ]; then
+		kubectl apply -f "${dir}/manifests"
+	fi
+	"${dir}/checks.sh"
+}
+
+bring_up
+
+shopt -s nullglob
+if [ -n "${EGA_SCENARIO:-}" ]; then
+	scenario_dirs=("${self_dir}/scenarios/${EGA_SCENARIO}")
+	[ -d "${scenario_dirs[0]}" ] || {
+		echo "error: no scenario ${EGA_SCENARIO}" >&2
+		exit 1
+	}
+else
+	scenario_dirs=("${self_dir}/scenarios"/*/)
+fi
+if [ "${#scenario_dirs[@]}" -eq 0 ]; then
+	echo ">> no scenarios; deploy only"
+	exit 0
+fi
+
+failed=0
+rebuild=false
+for scenario_dir in "${scenario_dirs[@]}"; do
+	if [ "$rebuild" = true ]; then
+		echo ">> previous scenario is exclusive; rebuilding the cluster"
+		destroy_lab
+		bring_up
+		rebuild=false
+	fi
+	if ! run_scenario "$scenario_dir"; then
+		echo ">> scenario $(basename "$scenario_dir") failed" >&2
+		failed=1
+	fi
+	if [ -d "${scenario_dir}/manifests" ]; then
+		kubectl delete --ignore-not-found=true -f "${scenario_dir}/manifests" || true
+	fi
+	exclusive="$(awk '$1 == "exclusive:" { print $2 }' "${scenario_dir}/scenario.yml")"
+	if [ "$exclusive" = true ]; then
+		rebuild=true
+	fi
+done
+
+if [ "$failed" -ne 0 ]; then
 	exit 1
 fi
-echo ">> workload VPC CIDR ${kind_cidr}"
-ee_playbook network.evpn_gateway_test.simulate
-ee_playbook network.evpn_gateway.deploy \
-	-e frr_k8s_ns=frr-k8s-system \
-	-e frr_k8s_lbl=app=frr-k8s \
-	-e "workload_vpc_cidr=${kind_cidr}"
-
-echo ">> frr-k8s discovery and relay BGP peering ok"
+echo ">> e2e scenarios ok"
 exit 0

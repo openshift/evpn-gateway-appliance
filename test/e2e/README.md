@@ -24,7 +24,8 @@ Prow sets `EGA_ENTRYPOINT=entrypoint_e2e.sh` for `ci/prow/e2e`. `run_remote.sh` 
 ovn-kubernetes v1.4.0 chart, the NetworkAttachmentDefinition, MultiNetworkPolicy, and IPAMClaim
 CRDs, and the frr-k8s manifest. The lane applies those CRDs and the
 FRRConfiguration CRD, installs the chart, applies the manifest, then
-`deploy.yml`, which discovers the frr-k8s pods.
+`deploy.yml`, which discovers the frr-k8s pods. It then runs each directory under
+`scenarios/`.
 
 `entrypoint_simulate.sh` (`run_simulate.sh`) deploys a standalone workload VTEP and passes
 `-e skip_frr_discovery=true`. That lane has no Kubernetes API, so the cloud infra role keeps
@@ -44,10 +45,11 @@ test/
     run_e2e.sh            wrapper: select the e2e lane (entrypoint_e2e.sh)
     run_simulate.sh       wrapper: select the simulate lane (entrypoint_simulate.sh)
     run_molecule.sh       wrapper: select the molecule lane (entrypoint_molecule.sh; skips the EE build)
-    entrypoint_e2e.sh     e2e lane: kind, frr-k8s, ovn-kubernetes chart, simulate, deploy.yml
+    entrypoint_e2e.sh     e2e lane: kind, frr-k8s, ovn-kubernetes chart, simulate, deploy.yml, then scenarios/
     entrypoint_simulate.sh  simulate lane: clab, simulate, standalone VTEP, deploy -e skip_frr_discovery=true
     entrypoint_molecule.sh  molecule in-container steps: molecule test against the rootful socket
-    kind/                 kind cluster config, topology, inventory, relay FRRConfiguration, setup-cluster.sh
+    kind/                 kind cluster substrate: topology, inventory, setup-cluster.sh
+    scenarios/            one directory per e2e scenario (manifests and checks)
     topology/
       evpn.clab.yml       the emulated fabric
     inventory/            e2e Ansible inventory + group_vars
