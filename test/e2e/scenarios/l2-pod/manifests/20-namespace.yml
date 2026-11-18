@@ -5,3 +5,4 @@ metadata:
   name: ega-evpn
   labels:
     ega-lane: e2e
+    k8s.ovn.org/primary-user-defined-network: ""
