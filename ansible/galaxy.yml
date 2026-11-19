@@ -25,6 +25,7 @@ dependencies:
   ansible.posix: ">=1.5.0"
   amazon.aws: ">=7.0.0"
   ansible.utils: ">=2.10.0"   # ipsubnet/ipaddr/ipmath filters; was used but undeclared (source-audit.md-style gap, fixed here).
+  kubernetes.core: ">=2.4.0"  # k8s_info for OCP frr-k8s peer discovery in the cloud infra role.
 
 # Deny-list, no negation — keep lab/dev-only paths out of the published tarball (source-audit.md §0).
 build_ignore:

@@ -1,0 +1,47 @@
+---
+# Read running frr-k8s pods from the Ansible controller. The relay has no kubeconfig.
+- name: Get running frr-k8s pods
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ frr_k8s_ns | default('openshift-frr-k8s') }}"
+    label_selectors:
+      - "{{ frr_k8s_lbl | default('app=frr-k8s') }}"
+    field_selectors:
+      - status.phase=Running
+  delegate_to: localhost
+  become: false
+  register: _evpn_cloud_infra_frr_pods
+
+- name: Fail if no frr-k8s pods found
+  ansible.builtin.assert:
+    that: _evpn_cloud_infra_frr_pods.resources | length > 0
+    fail_msg: "No running frr-k8s pods in {{ frr_k8s_ns | default('openshift-frr-k8s') }}"
+
+- name: Populate cloud_workload from frr-k8s nodes
+  ansible.builtin.add_host:
+    name: "{{ item.spec.nodeName }}"
+    groups: cloud_workload
+    private_ip: "{{ item.status.hostIP }}"
+    frr_k8s_discovered: true
+  loop: "{{ _evpn_cloud_infra_frr_pods.resources }}"
+  loop_control:
+    label: "{{ item.spec.nodeName }}"
+
+- name: Get FRRConfiguration
+  kubernetes.core.k8s_info:
+    api_version: frrk8s.metallb.io/v1beta1
+    kind: FRRConfiguration
+  delegate_to: localhost
+  become: false
+  register: _evpn_cloud_infra_frr_configs
+
+# bgp is the role argument the relay templates already read.
+- name: Set workload ASN on relay hosts  # noqa: var-naming[no-role-prefix]
+  ansible.builtin.set_fact:
+    bgp: "{{ bgp | combine({'workload_asn': _evpn_cloud_infra_frr_configs.resources[0].spec.bgp.routers[0].asn}) }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  become: false
+  loop: "{{ groups['cloud_infra'] | default([]) }}"
+  when: _evpn_cloud_infra_frr_configs.resources | length > 0

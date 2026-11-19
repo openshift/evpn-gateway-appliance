@@ -42,7 +42,8 @@ RUN ANSIBLE_HOME="$(mktemp -d)" && \
         amazon.aws:11.5.0 \
         ansible.posix:2.2.2 \
         ansible.utils:6.1.1 \
-        containers.podman:1.21.1 && \
+        containers.podman:1.21.1 \
+        kubernetes.core:2.4.0 && \
     rm -rf "$ANSIBLE_HOME"
 
 # markdownlint-cli2 from the ci/markdownlint lockfile (see its README). Node and npm
@@ -96,6 +97,23 @@ RUN printf 'namespace: stub\nname: stub\nversion: 0.0.0\n' > galaxy.yml && \
     rm -rf /tmp/ansible_collections && \
     chown -R 1001:0 "$HOME/.ansible" && chmod -R g=u "$HOME/.ansible"
 WORKDIR /
+
+# Kind peers lane: kind v0.33.0, kubectl v1.36.1, helm v3.19.0.
+# The lane needs a podman CLI; the image has podman-remote, so the shim
+# forwards `podman` to the mounted host socket. run_remote.sh fetches the
+# ovn-kubernetes chart, the multi-network CRDs, and the frr-k8s manifest for the e2e lane.
+RUN curl -fsSL -o /usr/local/bin/kind \
+        https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64 && \
+    curl -fsSL -o /usr/local/bin/kubectl \
+        https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl && \
+    curl -fsSL -o /tmp/helm.tgz https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz && \
+    tar -C /tmp -xzf /tmp/helm.tgz && \
+    mv /tmp/linux-amd64/helm /usr/local/bin/helm && \
+    rm -rf /tmp/helm.tgz /tmp/linux-amd64 && \
+    printf '%s\n' '#!/bin/sh' \
+        "exec podman-remote --url \"\${DOCKER_HOST:-unix:///run/podman/podman.sock}\" \"\$@\"" \
+        > /usr/local/bin/podman && \
+    chmod +x /usr/local/bin/kind /usr/local/bin/kubectl /usr/local/bin/helm /usr/local/bin/podman
 
 # Copy the source code into the container
 COPY . /src

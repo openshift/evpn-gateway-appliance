@@ -22,9 +22,8 @@ tunnel:
   port: 51820              # WG only
 
 # ── Fabric peer hostnames ───────────────────────────────────────
-# Must name an actual host in the cloud_infra / cloud_workload inventory groups.
+# Must name an actual host in the cloud_infra inventory group.
 infra_relay_host: infra-router
-workload_vtep_host: workload-router
 
 # ── Cloud network CIDRs (shared by evpn_aws_infra provisioning and the onprem WireGuard client's AllowedIPs) ──
 # All optional — templates fall back to these same values if left unset; set here once to keep both roles in sync if you change them.
