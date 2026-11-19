@@ -1,0 +1,15 @@
+---
+# Primary CUDN pod. Its address is on 10.42.1.0/24, the appliance stretch subnet.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ega-test-workload
+  namespace: ega-evpn
+spec:
+  containers:
+    - name: agnhost
+      image: registry.k8s.io/e2e-test-images/agnhost:2.43
+      args:
+        - netexec
+        - --http-port=8080
+  restartPolicy: Always

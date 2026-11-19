@@ -1,0 +1,13 @@
+---
+# Deploy the standalone workload VTEP. The simulate lane runs this, then
+# network.evpn_gateway.deploy -e skip_frr_discovery=true.
+
+- name: Deploy cloud workload (standalone VTEP)
+  hosts: cloud_workload
+  become: true
+  pre_tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+  roles:
+    - evpn_cloud_workload
+    - network.evpn_gateway.evpn_monitoring

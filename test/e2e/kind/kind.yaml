@@ -1,0 +1,24 @@
+# kube-proxy and the default CNI stay off so ovn-kubernetes owns the node.
+# service-lb-controller is disabled: it breaks this Kubernetes version
+# (https://github.com/kubernetes/kubernetes/issues/128121).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  kubeProxyMode: "none"
+  disableDefaultCNI: true
+  podSubnet: 10.244.0.0/16
+  serviceSubnet: 10.96.0.0/16
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    apiVersion: kubeadm.k8s.io/v1beta4
+    metadata:
+      name: config
+    controllerManager:
+      extraArgs:
+        - name: controllers
+          value: "*,bootstrap-signer-controller,token-cleaner-controller,-service-lb-controller"
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

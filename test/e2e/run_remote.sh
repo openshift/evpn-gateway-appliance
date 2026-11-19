@@ -5,13 +5,15 @@
 # target, loads a local registry, builds the appliance images (and the EE for the e2e lane), and
 # runs test/e2e/run.sh.
 #
-# Shared core for both lanes: the e2e lane (default) and the molecule lane select the in-container
-# script via EGA_ENTRYPOINT. Call this directly for e2e (backward compatible), or go through the
-# named wrappers run_e2e.sh / run_molecule.sh, which only set EGA_ENTRYPOINT.
+# Shared core for the lanes: the e2e lane (default), the simulate lane, and the molecule lane
+# select the in-container script via EGA_ENTRYPOINT. Call this directly for e2e (backward
+# compatible), or go through the named wrappers run_e2e.sh / run_simulate.sh / run_molecule.sh,
+# which only set EGA_ENTRYPOINT.
 #
 # Env:
-#   EGA_ENTRYPOINT  in-container lane script run.sh executes; entrypoint_e2e.sh (default) or
-#                   entrypoint_molecule.sh. Also gates the EE build (built unless molecule).
+#   EGA_ENTRYPOINT  in-container lane script run.sh executes; entrypoint_e2e.sh (default),
+#                   entrypoint_simulate.sh, or entrypoint_molecule.sh. Also gates the EE
+#                   build (built unless molecule).
 #   SSH_REMOTE   user@host of the target VM; UNSET -> run on this host (needs root + podman/systemd)
 #   SSH_OPTS     ssh/scp options, word-split (remote only), e.g.
 #                "-i /path/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -26,6 +28,10 @@
 #       honored (CI_IMAGE has no public image, so it defaults to
 #       containers-storage:localhost/evpn-gateway-appliance-ci:local).
 #   REGISTRY_AUTH_FILE   pull secret for the export (default: local docker config; used only if present)
+#   RELEASE_IMAGE_LATEST  e2e lane only. Release payload whose ovn-kubernetes image is shipped
+#                         to the VM. Ignored when OVN_K_IMAGE is already set.
+#   OVN_K_IMAGE  e2e lane only. Pullspec to ship instead of the release lookup. The lane always
+#                receives localhost/ovn-kubernetes:ci, the name loaded into the VM store.
 #   ARTIFACTS    local dir the lane's artifacts are collected into (default /tmp/ega/artifact; Prow
 #                sets it). For a remote target they are copied back here off the target.
 set -euo pipefail
@@ -47,9 +53,10 @@ readonly APPLIANCE_BASE_IMAGE="${APPLIANCE_BASE_IMAGE:-quay.io/centos-bootc/cent
 readonly CI_IMAGE="${CI_IMAGE:-containers-storage:localhost/evpn-gateway-appliance-ci:local}"
 
 # Lane selection. The in-container script run.sh launches; defaults to the e2e entrypoint so a
-# direct call (and the live Prow wiring) is unchanged. run_molecule.sh sets entrypoint_molecule.sh.
-# The execution environment is only consumed by the e2e entrypoint (it runs deploy.yml through
-# it), so build it unless this is the molecule lane -- derived from the entrypoint, no extra flag.
+# direct call (and the live Prow wiring) is unchanged. run_simulate.sh sets
+# entrypoint_simulate.sh and run_molecule.sh sets entrypoint_molecule.sh.
+# The execution environment is consumed by the e2e and simulate entrypoints (they run deploy.yml
+# through it), so build it unless this is the molecule lane -- derived from the entrypoint, no extra flag.
 readonly EGA_ENTRYPOINT="${EGA_ENTRYPOINT:-entrypoint_e2e.sh}"
 if [[ "${EGA_ENTRYPOINT}" == entrypoint_molecule.sh ]]; then build_ee=0; else build_ee=1; fi
 readonly build_ee
@@ -77,6 +84,17 @@ else
     lane_artifacts="${ARTIFACTS}"
 fi
 
+run_as_root() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo >/dev/null; then
+        sudo "$@"
+    else
+        echo "run_remote: local target requires root" >&2
+        return 1
+    fi
+}
+
 # Scratch staging dir (the same path is created on the target). On exit, tear down the target:
 # the scratch dir, the registry container, and the host state the steps wrote (run.sh tears down
 # its own clab topology). Runs on the VM too when remote -- best-effort, harmless if already gone.
@@ -92,7 +110,7 @@ cleanup() {
         # shellcheck disable=SC2029 # client-side expansion is intended; the remote shell gets the final path
         ssh "${ssh_opts[@]}" "${SSH_REMOTE}" "rm -rf '${WORK}'; sudo sh -c '${teardown}'" >/dev/null 2>&1 || true
     else
-        sudo sh -c "${teardown}" >/dev/null 2>&1 || true
+        run_as_root sh -c "${teardown}" >/dev/null 2>&1 || true
     fi
 }
 trap cleanup EXIT
@@ -104,28 +122,162 @@ run_step() {
         # shellcheck disable=SC2029 # client-side expansion is intended; the remote shell gets the final path
         ssh "${ssh_opts[@]}" "${SSH_REMOTE}" "sudo bash ${WORK}/${script}"
     else
-        sudo bash "${WORK}/${script}"
+        run_as_root bash "${WORK}/${script}"
     fi
 }
 
 # --- Build the ship directory: base-image tarballs + the three step scripts ------------
 save_image() {
-    echo "run_remote: exporting $1 -> $2"
+    local src="$1" dest="$2"
+    shift 2
+    echo "run_remote: exporting ${src} -> ${dest}"
     # A bare reference is a docker:// registry pullspec; an explicit skopeo transport (e.g.
     # containers-storage:... for a local-canary CI image) is passed through as given.
     # --remove-signatures: a docker-archive tarball can't store signatures (signed registries
     # like registry.redhat.io otherwise fail), and they aren't needed for this flow.
-    case "$1" in
+    # Extra skopeo flags (the ovn export passes --override-os/--override-arch) come from "$@".
+    case "$src" in
         *://* | containers-storage:*)
-            skopeo copy --remove-signatures "$1" "docker-archive:${WORK}/$2" ;;
+            skopeo copy "$@" --remove-signatures "$src" "docker-archive:${WORK}/${dest}" ;;
         *)
             # --src-tls-verify=false tolerates an untrusted source cert (e.g. the in-cluster CI
             # registry); CI images are pulled by digest, so content is verified regardless.
-            skopeo copy --remove-signatures --src-tls-verify=false "${auth[@]}" "docker://$1" "docker-archive:${WORK}/$2" ;;
+            skopeo copy "$@" --remove-signatures --src-tls-verify=false "${auth[@]}" "docker://${src}" "docker-archive:${WORK}/${dest}" ;;
     esac
 }
+
+# Pullspec of one image inside a release payload. The payload is a small image
+# whose layers hold release-manifests/image-references.
+release_image_for() {
+    local release="$1" component="$2" tmp src
+    tmp="$(mktemp -d)"
+    # shellcheck disable=SC2064 # tmp is expanded now; the trap must remove this directory
+    trap 'rm -rf "'"${tmp}"'"' RETURN
+    case "$release" in
+        *://* | containers-storage:*) src="$release" ;;
+        *) src="docker://${release}" ;;
+    esac
+    skopeo copy --remove-signatures --src-tls-verify=false \
+        --override-os=linux --override-arch="${host_arch}" \
+        "${auth[@]}" "$src" "dir:${tmp}" >&2 || return 1
+    python3 - "$tmp" "$component" <<'PY' || return 1
+import gzip, io, json, os, sys, tarfile
+
+root, name = sys.argv[1], sys.argv[2]
+with open(os.path.join(root, "manifest.json"), "rb") as fh:
+    manifest = json.loads(fh.read())
+
+def layer_paths():
+    if isinstance(manifest, list):
+        for layer in manifest[0].get("Layers", []):
+            yield os.path.join(root, layer)
+        return
+    for layer in manifest.get("layers") or []:
+        digest = layer["digest"].split(":", 1)[1]
+        yield os.path.join(root, digest)
+        yield os.path.join(root, "sha256", digest)
+
+found = None
+for path in layer_paths():
+    if not os.path.isfile(path):
+        continue
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if data[:2] == b"\x1f\x8b":
+        data = gzip.decompress(data)
+    try:
+        tf = tarfile.open(fileobj=io.BytesIO(data), mode="r:")
+    except tarfile.TarError:
+        continue
+    member = None
+    for info in tf.getmembers():
+        if info.name.endswith("release-manifests/image-references"):
+            member = tf.extractfile(info)
+            break
+    if member is None:
+        continue
+    found = json.load(member)
+
+if found is None:
+    sys.exit("run_remote: release image has no image-references")
+for tag in found.get("spec", {}).get("tags", []):
+    pullspec = (tag.get("from") or {}).get("name")
+    if tag.get("name") == name and pullspec:
+        print(pullspec)
+        raise SystemExit(0)
+sys.exit(f"run_remote: release has no {name} image")
+PY
+}
+
+# e2e lane: ovn-kubernetes chart at v1.4.0, the NetworkAttachmentDefinition,
+# MultiNetworkPolicy, and IPAMClaim CRDs, and the frr-k8s manifest at b43efcb206be.
+# The lane bind-mounts the tree this tarball is unpacked into.
+fetch_kind_overlay() {
+    local dest src chart
+    dest="$(mktemp -d)"
+    src="$(mktemp -d)"
+    # shellcheck disable=SC2064 # dest and src are expanded now; the trap must remove these directories
+    trap 'rm -rf "'"${dest}"'" "'"${src}"'"' RETURN
+    GIT_TERMINAL_PROMPT=0 git clone --depth 1 --filter=blob:none --sparse --branch v1.4.0 \
+        https://github.com/ovn-org/ovn-kubernetes.git "${src}/ovn-kubernetes"
+    git -C "${src}/ovn-kubernetes" sparse-checkout set helm/ovn-kubernetes
+    chart="${src}/ovn-kubernetes/helm/ovn-kubernetes"
+    mkdir -p "${dest}/test/e2e/kind/ovnk-helm" "${dest}/test/e2e/kind/manifests"
+    find "${chart}" -type f \
+        ! -name README.md \
+        ! -name README.md.gotmpl \
+        ! -name .helmignore \
+        ! -name values-single-node-zone-dpu.yaml \
+        -printf '%P\0' \
+        | tar --null -C "${chart}" -T - -cf - \
+        | tar -C "${dest}/test/e2e/kind/ovnk-helm" -xf -
+    [ -f "${dest}/test/e2e/kind/ovnk-helm/Chart.yaml" ] || {
+        echo "run_remote: ovn-kubernetes chart checkout is empty" >&2
+        return 1
+    }
+    # NetworkAttachmentDefinition from multus-cni v4.1.3, MultiNetworkPolicy v1.0.1,
+    # IPAMClaim v0.5.1-alpha.
+    curl -fsSL \
+        "https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.1.3/deployments/multus-daemonset.yml" \
+        | python3 -c 'import sys; docs = sys.stdin.read().split("\n---\n"); sys.stdout.write(docs[1].strip() + "\n")' \
+        > "${dest}/test/e2e/kind/manifests/network-attachment-definition.yaml"
+    grep -q '^kind: CustomResourceDefinition$' \
+        "${dest}/test/e2e/kind/manifests/network-attachment-definition.yaml" || {
+        echo "run_remote: NetworkAttachmentDefinition CRD extract is empty" >&2
+        return 1
+    }
+    curl -fsSL -o "${dest}/test/e2e/kind/manifests/multi-networkpolicy.yaml" \
+        https://raw.githubusercontent.com/k8snetworkplumbingwg/multi-networkpolicy/refs/tags/v1.0.1/scheme.yml
+    curl -fsSL -o "${dest}/test/e2e/kind/manifests/ipamclaims.yaml" \
+        https://raw.githubusercontent.com/k8snetworkplumbingwg/ipamclaims/v0.5.1-alpha/artifacts/k8s.cni.cncf.io_ipamclaims.yaml
+    curl -fsSL -o "${dest}/test/e2e/kind/manifests/frr-k8s.yaml" \
+        https://raw.githubusercontent.com/metallb/frr-k8s/b43efcb206be/config/all-in-one/frr-k8s.yaml
+    tar -C "${dest}" -cf "${WORK}/kind-overlay.tar" .
+}
 # The exports are independent, so run them concurrently and wait for all (overlaps each
-# image's download/decompress/digest work).
+# image's download/decompress/digest work). The e2e lane also ships the release
+# payload's ovn-kubernetes image.
+host_arch="$(uname -m)"
+case "${host_arch}" in
+    x86_64) host_arch=amd64 ;;
+    aarch64) host_arch=arm64 ;;
+esac
+ovn_pullspec=""
+kind_overlay_pid=""
+if [[ "${EGA_ENTRYPOINT}" == entrypoint_e2e.sh ]]; then
+    command -v python3 >/dev/null || { echo "run_remote: required tool not found: python3" >&2; exit 1; }
+    command -v git >/dev/null || { echo "run_remote: required tool not found: git" >&2; exit 1; }
+    command -v curl >/dev/null || { echo "run_remote: required tool not found: curl" >&2; exit 1; }
+    if [[ -n "${OVN_K_IMAGE:-}" ]]; then
+        ovn_pullspec="${OVN_K_IMAGE}"
+    else
+        : "${RELEASE_IMAGE_LATEST:?e2e lane needs RELEASE_IMAGE_LATEST or OVN_K_IMAGE}"
+        ovn_pullspec="$(release_image_for "${RELEASE_IMAGE_LATEST}" ovn-kubernetes)"
+    fi
+    echo "run_remote: ovn-kubernetes image ${ovn_pullspec}"
+    fetch_kind_overlay &
+    kind_overlay_pid=$!
+fi
 banner "export base images"
 pids=()
 save_image "${FRR_IMAGE}"            metallb-frr.tar &                pids+=($!)
@@ -133,9 +285,18 @@ save_image "${NODE_EXPORTER_IMAGE}"  prometheus-node-exporter.tar &  pids+=($!)
 save_image "${EE_BASE_IMAGE}"        ee-base.tar &                   pids+=($!)
 save_image "${CI_IMAGE}"             ci.tar &                        pids+=($!)
 save_image "${APPLIANCE_BASE_IMAGE}" appliance-base.tar &            pids+=($!)
+if [[ -n "${ovn_pullspec}" ]]; then
+    save_image "${ovn_pullspec}" ovn.tar --override-os=linux --override-arch="${host_arch}" &
+    pids+=($!)
+fi
 export_rc=0
 for p in "${pids[@]}"; do wait "${p}" || export_rc=1; done
+overlay_rc=0
+if [[ -n "${kind_overlay_pid}" ]]; then
+    wait "${kind_overlay_pid}" || overlay_rc=1
+fi
 [ "${export_rc}" -eq 0 ] || { echo "run_remote: a base-image export failed" >&2; exit 1; }
+[ "${overlay_rc}" -eq 0 ] || { echo "run_remote: kind chart fetch failed" >&2; exit 1; }
 
 # load.sh: start a local insecure registry on the target and load the base images into it.
 cat > "${WORK}/load.sh" <<'EOF'
@@ -157,6 +318,11 @@ skopeo copy --dest-tls-verify=false docker-archive:./appliance-base.tar         
 # under the tag the Makefile and run.sh expect.
 skopeo copy docker-archive:./ci.tar containers-storage:localhost/evpn-gateway-appliance-ci:local
 EOF
+if [[ -n "${ovn_pullspec}" ]]; then
+    cat >> "${WORK}/load.sh" <<'EOF'
+skopeo copy docker-archive:./ovn.tar containers-storage:localhost/ovn-kubernetes:ci
+EOF
+fi
 
 # build.sh: build the appliance images (:ci parent + vfs :nested-ci child) and, for the e2e lane,
 # the EE on the target, using the passed-in CI image and the base images in the local registry.
@@ -173,6 +339,10 @@ for c in podman make; do command -v "$c" >/dev/null || { echo "build: required t
 # Source comes from the CI image (it bakes the repo at /src); the CI image is already loaded.
 rm -rf /tmp/ega/build && mkdir -p /tmp/ega/build
 podman run --rm --user 0 localhost/evpn-gateway-appliance-ci:local tar -C /src -cf - . | tar -C /tmp/ega/build -xf -
+overlay="$(cd "$(dirname "$0")" && pwd)/kind-overlay.tar"
+if [ -f "${overlay}" ]; then
+    tar -C /tmp/ega/build -xf "${overlay}"
+fi
 cd /tmp/ega/build
 # Build the EE with the passed-in CI image (ee-image no longer rebuilds it) and the EE base
 # from the local registry. Only the e2e lane consumes the EE.
@@ -194,11 +364,15 @@ EOF
 # lane.sh: run the selected lane (repo-default image tags, so no EGA_* image overrides). Pin the
 # artifact dir so we know where to collect from; run.sh makes it world-readable on exit. Pass the
 # entrypoint through so run.sh runs the e2e or the molecule in-container script.
+ovn_lane_env=""
+if [[ -n "${ovn_pullspec}" ]]; then
+    ovn_lane_env="OVN_K_IMAGE=localhost/ovn-kubernetes:ci EGA_E2E_SRC=/tmp/ega/build"
+fi
 cat > "${WORK}/lane.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 cd /tmp/ega/build
-EGA_ARTIFACT_DIR="${lane_artifacts}" EGA_ENTRYPOINT="${EGA_ENTRYPOINT}" bash test/e2e/run.sh
+${ovn_lane_env} EGA_ARTIFACT_DIR="${lane_artifacts}" EGA_ENTRYPOINT="${EGA_ENTRYPOINT}" bash test/e2e/run.sh
 EOF
 
 chmod +x "${WORK}"/*.sh

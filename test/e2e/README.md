@@ -15,9 +15,21 @@ Entry points, by how they are meant to be run:
 - `test/e2e/run_remote.sh` — the **shared CI core**: from an unprivileged local checkout it builds
   and runs a lane on a target over SSH (and, with no target, locally for convenience). Called
   directly it runs the e2e lane (backward compatible); the named wrappers below just set the lane.
-- `test/e2e/run_e2e.sh` / `test/e2e/run_molecule.sh` — thin wrappers over `run_remote.sh` selecting
-  the e2e or molecule lane. A Prow status then reads `e2e` / `molecule`. The molecule wrapper also
-  skips the EE build (molecule drives the role with the CI image's own ansible, not the shipped EE).
+- `test/e2e/run_e2e.sh` / `test/e2e/run_simulate.sh` / `test/e2e/run_molecule.sh` — thin wrappers
+  over `run_remote.sh` selecting the lane. A Prow status then reads `e2e` / `molecule`. The
+  molecule wrapper also skips the EE build (molecule drives the role with the CI image's own
+  ansible, not the shipped EE).
+
+Prow sets `EGA_ENTRYPOINT=entrypoint_e2e.sh` for `ci/prow/e2e`. `run_remote.sh` fetches the
+ovn-kubernetes v1.4.0 chart, the NetworkAttachmentDefinition, MultiNetworkPolicy, and IPAMClaim
+CRDs, and the frr-k8s manifest. The lane applies those CRDs and the
+FRRConfiguration CRD, installs the chart, applies the manifest, then
+`deploy.yml`, which discovers the frr-k8s pods. It then runs each directory under
+`scenarios/`.
+
+`entrypoint_simulate.sh` (`run_simulate.sh`) deploys a standalone workload VTEP and passes
+`-e skip_frr_discovery=true`. That lane has no Kubernetes API, so the cloud infra role keeps
+the peers already listed in inventory.
 
 All are runner-agnostic — the same scripts work under a Prow test step or a GitHub Actions
 VM; the runner only provides env and collects artifacts.
@@ -26,14 +38,18 @@ VM; the runner only provides env and collects artifacts.
 
 ```text
 test/
-  ansible/                test-only collection (network.evpn_gateway_test): on-prem sim role + playbooks; installed into the EE
+  ansible/                test-only collection (network.evpn_gateway_test): on-prem sim, standalone VTEP, playbooks; installed into the EE
   e2e/
     run.sh                run a lane locally (rootful): podman run the toolchain image, run ${EGA_ENTRYPOINT}
     run_remote.sh         shared core: against a remote target (or locally): export, ship, build, run
     run_e2e.sh            wrapper: select the e2e lane (entrypoint_e2e.sh)
+    run_simulate.sh       wrapper: select the simulate lane (entrypoint_simulate.sh)
     run_molecule.sh       wrapper: select the molecule lane (entrypoint_molecule.sh; skips the EE build)
-    entrypoint_e2e.sh     e2e in-container steps: clab deploy -> simulate -> deploy.yml -> health checks
+    entrypoint_e2e.sh     e2e lane: kind, frr-k8s, ovn-kubernetes chart, simulate, deploy.yml, then scenarios/
+    entrypoint_simulate.sh  simulate lane: clab, simulate, standalone VTEP, deploy -e skip_frr_discovery=true
     entrypoint_molecule.sh  molecule in-container steps: molecule test against the rootful socket
+    kind/                 kind cluster substrate: topology, inventory, setup-cluster.sh
+    scenarios/            one directory per e2e scenario (manifests and checks)
     topology/
       evpn.clab.yml       the emulated fabric
     inventory/            e2e Ansible inventory + group_vars
@@ -102,13 +118,14 @@ images are registry pullspecs/digests, sets them explicitly.
 The clab node image is the appliance `nested-ci` image (vfs baked in); build it with
 `make nested-ci-appliance-image`, which builds the `:ci` parent (CentOS CI base + FRR/node-exporter,
 pulled with your registry pull secret) and layers the vfs drop-in. Everything is rootful, so
-build into the rootful store and run under `sudo`:
+build into the rootful store and run under `sudo`. These commands run the simulate lane.
+`sudo test/e2e/run_e2e.sh` runs the kind lane; `run_remote.sh` fetches the chart, the multi-network CRDs, and the frr-k8s manifest for it.
 
 ```bash
 sudo make ci-image          # localhost/evpn-gateway-appliance-ci:local (Dockerfile.ci)
 sudo make ee-image          # localhost/evpn-gateway-appliance-ee:local (the EE that runs deploy.yml)
 sudo make nested-ci-appliance-image CONTAINER_AUTH_FILE="$HOME/.docker/config.json"   # the clab node image
-sudo test/e2e/run.sh
+sudo test/e2e/run_simulate.sh
 ```
 
 The images above use the default tags, so no image env is needed; override any of
@@ -118,14 +135,14 @@ The toolchain image bakes the repo (`COPY . /src` in `Dockerfile.ci`), so by def
 runs exactly what the image carries. For a faster dev loop, set `EGA_E2E_SRC="$PWD"` to bind
 your live checkout over the baked `/src` and pick up harness edits (`test/e2e/` — topology,
 inventory, `entrypoint.sh`, tests) without rebuilding the toolchain image (`sudo
-EGA_E2E_SRC="$PWD" test/e2e/run.sh`). It does **not** affect the collection: `deploy.yml` runs
+EGA_E2E_SRC="$PWD" test/e2e/run_simulate.sh`). It does **not** affect the collection: `deploy.yml` runs
 from `EGA_EE_IMAGE`, so collection edits need `make ee-image`.
 
 Leave the lab up for inspection with `EGA_STAGE=deploy`, then tear it down with
 `EGA_STAGE=destroy`:
 
 ```bash
-sudo EGA_STAGE=destroy test/e2e/run.sh
+sudo EGA_STAGE=destroy test/e2e/run_simulate.sh
 ```
 
 ## run_remote.sh — remote target (or local, no target)
@@ -155,6 +172,8 @@ host, which is then the rootful one.
   is honored.
 - `REGISTRY_AUTH_FILE` — pull secret for the export, used only if present (default the local
   docker config).
+- `RELEASE_IMAGE_LATEST` — e2e lane. Release payload; its `ovn-kubernetes` image is loaded on
+  the VM as `localhost/ovn-kubernetes:ci`. Set `OVN_K_IMAGE` to a pullspec to skip that lookup.
 - `ARTIFACTS` — local dir the lane's artifacts are collected into (default `/tmp/ega/artifact`;
   Prow sets it). For a remote target they are copied back off the target into it (even on failure);
   `run.sh` makes the artifact dir world-readable on exit so the SSH user can collect it without
@@ -170,6 +189,7 @@ make ci-image               # localhost/evpn-gateway-appliance-ci:local, rootles
 SSH_REMOTE=user@vm \
 SSH_OPTS="-i /path/key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
 FRR_IMAGE=<ocp frr> NODE_EXPORTER_IMAGE=<ocp node-exporter> \
+RELEASE_IMAGE_LATEST=<release payload> \
 REGISTRY_AUTH_FILE="$HOME/.docker/config.json" \
 test/e2e/run_remote.sh
 ```
@@ -184,6 +204,7 @@ store and run under `sudo`:
 ```bash
 sudo make ci-image
 sudo env FRR_IMAGE=<ocp frr> NODE_EXPORTER_IMAGE=<ocp node-exporter> \
+    RELEASE_IMAGE_LATEST=<release payload> \
     REGISTRY_AUTH_FILE="$HOME/.docker/config.json" \
     test/e2e/run_remote.sh
 ```

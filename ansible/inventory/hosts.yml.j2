@@ -15,9 +15,6 @@ all:
           ansible_user: ec2-user
           private_ip: {{ evpn_aws_infra_infra_private_ip }}
 
+    # Filled by evpn_cloud_infra from running frr-k8s pods.
     cloud_workload:
-      hosts:
-        workload-router:
-          ansible_host: {{ evpn_aws_infra_workload_public_ip }}
-          ansible_user: ec2-user
-          private_ip: {{ evpn_aws_infra_workload_private_ip }}
+      hosts: {}

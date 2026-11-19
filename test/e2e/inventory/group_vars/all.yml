@@ -11,9 +11,8 @@ tunnel:
   network_cidr: 10.44.44.0/24
   port: 51820
 
-# Fabric peers — must match host names in cloud_infra / cloud_workload.
+# Fabric peers — must match a host name in cloud_infra.
 infra_relay_host: infra-router
-workload_vtep_host: workload-router
 
 # These drive the onprem WireGuard client's AllowedIPs, which must cover the workload VTEP
 # (10.200.0.1) so the tunnel admits and routes onprem<->workload VXLAN. With the TGW node
