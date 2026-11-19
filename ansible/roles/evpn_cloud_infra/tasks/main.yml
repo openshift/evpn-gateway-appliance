@@ -77,7 +77,7 @@
       fabricd=no
       vrrpd=no
       pathd=no
-  notify: Restart FRR
+  register: _evpn_cloud_infra_frr_daemons
 
 - name: Deploy FRR vtysh config
   ansible.builtin.copy:
@@ -90,7 +90,7 @@
     src: frr-infra-relay.conf.j2
     dest: /etc/frr/frr.conf
     mode: "0644"
-  notify: Restart FRR
+  register: _evpn_cloud_infra_frr_config
 
 - name: Start FRR via systemd service (bootc image)
   ansible.builtin.systemd:
@@ -112,6 +112,17 @@
       - /etc/frr:/etc/frr:Z
       - /var/run/frr:/var/run/frr:Z
   when: _evpn_cloud_infra_frr_systemd is skipped
+  register: _evpn_cloud_infra_frr_container
+
+- name: Reconcile the running FRR configuration
+  ansible.builtin.include_role:
+    name: evpn_frr
+  vars:
+    evpn_frr_config_changed: "{{ _evpn_cloud_infra_frr_config.changed | default(false) }}"
+    evpn_frr_daemons_changed: "{{ _evpn_cloud_infra_frr_daemons.changed | default(false) }}"
+    evpn_frr_started_changed: >-
+      {{ (_evpn_cloud_infra_frr_systemd.changed | default(false) | bool) or
+         (_evpn_cloud_infra_frr_container.changed | default(false) | bool) }}
 
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers

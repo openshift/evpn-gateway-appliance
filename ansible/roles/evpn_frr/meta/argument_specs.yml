@@ -1,0 +1,21 @@
+---
+argument_specs:
+  main:
+    short_description: Reconcile a running FRR instance after configuration changes.
+    options:
+      evpn_frr_config_changed:
+        type: bool
+        default: false
+        description: The rendered frr.conf changed.
+      evpn_frr_daemons_changed:
+        type: bool
+        default: false
+        description: The FRR daemon-selection file changed and requires a restart.
+      evpn_frr_started_changed:
+        type: bool
+        default: false
+        description: FRR was started by the caller during this converge.
+      evpn_frr_container_name:
+        type: str
+        default: frr
+        description: Name of the running FRR container.

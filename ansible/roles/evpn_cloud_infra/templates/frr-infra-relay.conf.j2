@@ -12,6 +12,7 @@ no ipv6 forwarding
 router bgp {{ bgp.infra_asn }}
  bgp router-id {{ private_ip }}
  bgp log-neighbor-changes
+ bgp graceful-restart
  no bgp ebgp-requires-policy
  no bgp default ipv4-unicast
  !

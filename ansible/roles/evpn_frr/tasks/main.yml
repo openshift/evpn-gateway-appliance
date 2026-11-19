@@ -1,0 +1,80 @@
+---
+# The parent role renders the files and starts FRR before including this role.
+# A first start already consumed the new files, so only an already-running
+# daemon needs an in-place reconciliation.
+- name: Determine whether FRR is systemd-managed
+  ansible.builtin.set_fact:
+    _evpn_frr_systemd_managed: >-
+      {{ ansible_facts.services is defined and
+         'frr-container.service' in ansible_facts.services }}
+
+- name: Check whether the running FRR image provides frr-reload.py
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - "{{ evpn_frr_container_name | default('frr') }}"
+      - sh
+      - -c
+      - >-
+        for candidate in /usr/lib/frr/frr-reload.py /usr/bin/frr-reload.py;
+        do test -x "$candidate" && { printf '%s' "$candidate"; exit 0; };
+        done;
+        command -v frr-reload.py
+  register: _evpn_frr_reload_helper
+  changed_when: false
+  failed_when: false
+  when:
+    - evpn_frr_config_changed | default(false) | bool
+    - not (evpn_frr_started_changed | default(false) | bool)
+    - not (evpn_frr_daemons_changed | default(false) | bool)
+
+- name: Reload the changed FRR configuration in place
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - "{{ evpn_frr_container_name | default('frr') }}"
+      - "{{ _evpn_frr_reload_helper.stdout | trim }}"
+      - --reload
+      - /etc/frr/frr.conf
+  register: _evpn_frr_reload
+  changed_when: true
+  when:
+    - evpn_frr_config_changed | default(false) | bool
+    - not (evpn_frr_started_changed | default(false) | bool)
+    - not (evpn_frr_daemons_changed | default(false) | bool)
+    - _evpn_frr_reload_helper is not skipped
+    - _evpn_frr_reload_helper.rc == 0
+
+- name: Restart FRR through its systemd unit when reload is unavailable
+  ansible.builtin.systemd:
+    name: frr-container.service
+    state: restarted
+  when:
+    - not (evpn_frr_started_changed | default(false) | bool)
+    - >-
+      (evpn_frr_daemons_changed | default(false) | bool) or
+      ((evpn_frr_config_changed | default(false) | bool) and
+       (_evpn_frr_reload_helper is skipped or _evpn_frr_reload_helper.rc != 0))
+    - _evpn_frr_systemd_managed | bool
+
+- name: Restart FRR through its existing Podman container when reload is unavailable
+  containers.podman.podman_container:
+    name: "{{ evpn_frr_container_name | default('frr') }}"
+    state: started
+    restart: true
+    image: "{{ frr_image }}"
+    privileged: true
+    network: host
+    restart_policy: always
+    volumes:
+      - /etc/frr:/etc/frr:Z
+      - /var/run/frr:/var/run/frr:Z
+  when:
+    - not (evpn_frr_started_changed | default(false) | bool)
+    - >-
+      (evpn_frr_daemons_changed | default(false) | bool) or
+      ((evpn_frr_config_changed | default(false) | bool) and
+       (_evpn_frr_reload_helper is skipped or _evpn_frr_reload_helper.rc != 0))
+    - not (_evpn_frr_systemd_managed | bool)
