@@ -154,59 +154,51 @@ frr-k8s metrics binary, `frr-metrics`, as its acceptance criteria require.
 implementation and qualification remain delivery work.
 The merged upstream baseline
 (`20c36775`) has BGP and BFD collectors. Its coverage below differs from the
-[implementation candidates](frr-metrics-plan.md#status-and-next-steps):
+[implementation candidates](frr-metrics-plan.md#status-and-next-steps).
 
-Review the [proposed FRR metric contract](frr-metrics-plan.md#requirements) first: expected
-BGP peers, EVPN prefixes by family, per-VNI inventory/MAC/ARP-ND/remote-VTEP counts, then
-churn and configured BFD/HA signals. Its [prototype mapping](frr-metrics-details.md#what-the-prototypes-checks-become)
-distinguishes implemented checks and enabled collectors from planned dashboard/HA work.
+The plan's [requirements](frr-metrics-plan.md#requirements) map each 7504 criterion to #528,
+EGA #44 or chunks A–D; DF is proposed to move to CORENET-7502 (chunk E).
 
 | 7504 criterion | Source | Coverage |
 | --- | --- | --- |
-| Appliance, VLAN and tunnel status views | node-exporter (source checked at v1.12.1; the role pins v1.9.1): default [`netclass`](https://github.com/prometheus/node_exporter/blob/6044da783597cc3b57aef7580ddcdcff58a4ee99/collector/netclass_linux.go) (`node_network_up`, carrier and carrier-change counters for every device, so VLAN, bridge, VXLAN and WireGuard interfaces) and `netdev` counters; `systemd`, off by default, for service state | Interface/service state is available; `node_network_up=0` includes `unknown`, which can still carry traffic ([kernel semantics](https://docs.kernel.org/networking/operstates.html)). IPsec has no per-tunnel series on the appliance: `xfrm`, also off by default, gives aggregate error counters only; use CloudWatch `TunnelState` for AWS VPN tunnels; appliance-side per-tunnel views need a selected source, for example a textfile from `ipsec status` |
-| BGP sessions, route churn | `frr-metrics`: per-peer, per-VRF session state and message counters (updates, keepalives, notifications) | Sessions covered; update-message counts are a churn proxy, not counts of individual route additions/withdrawals. Qualify the dashboard's stated meaning |
+| Appliance, VLAN and tunnel status views | node-exporter (source checked at v1.12.1; the role pins v1.9.1): default [`netclass`](https://github.com/prometheus/node_exporter/blob/6044da783597cc3b57aef7580ddcdcff58a4ee99/collector/netclass_linux.go) (`node_network_up`, carrier and carrier-change counters for every device, so VLAN, bridge, VXLAN and WireGuard interfaces) and `netdev` counters; `systemd`, off by default, for service state | Interface/service state is available; `node_network_up=0` includes `unknown`, which can still carry traffic ([kernel semantics](https://docs.kernel.org/networking/operstates.html)). IPsec has no per-tunnel series on the appliance: `xfrm`, also off by default, gives aggregate error counters only; use CloudWatch `TunnelState` for AWS VPN tunnels; appliance-side per-tunnel views (CORENET-7504 as [proposed under decision 16](kickoff-decisions.md#gate-c-stage--trial-publication), for the tunnels CORENET-7500 adds) need a selected source, for example a textfile from `ipsec status` |
+| BGP sessions, route churn | `frr-metrics`: per-peer, per-VRF session state and message counters (updates, keepalives, notifications) | Sessions covered; decision 1's proposal (2026-11-17) defines churn as each peer's UPDATE message rate, not route additions or withdrawals |
 | Prefix counts | `frr-metrics`: advertised and accepted prefix gauges **summed across every address family** of a neighbor ([`parse.go`](https://github.com/metallb/frr-k8s/blob/20c36775/internal/frr/parse.go)) | Partial: EVPN routes cannot be separated from IPv4/IPv6 on a session that carries both; OpenShift's `release-4.22` and `release-5.1` builds parse it the same way and label series only by peer and VRF |
-| BFD | `frr-metrics` BFD collector: control/echo packets, session up/down events | Series exist; BGP-based VRF discovery misses BFD-only VRFs, and peer/VRF labels can collide for distinct sessions ([source and live audit](frr-metrics-details.md#existing-series)). Qualify identity and completeness before alerting |
-| VNI and MAC learning, VTEP and DF alerts | None | Gap. The legacy L2VPN collector provides VNI MAC/ARP-ND and known remote-VTEP counts, not DF state, learning-event rates or VTEP reachability ([source comparison](frr-metrics-details.md#legacy-migration-contract)) |
-| DX, VPN, latency, bandwidth | CloudWatch ([`AWS/DX`](https://docs.aws.amazon.com/directconnect/latest/UserGuide/monitoring-cloudwatch.html), [`AWS/VPN`](https://docs.aws.amazon.com/vpn/latest/s2svpn/monitoring-cloudwatch-vpn.html) including `TunnelState`) | State and traffic/rates; latency needs a selected measurement source |
-| Cluster-side EVPN status | OVN-K's `ovnkube_clustermanager_cluster_user_defined_networks` gains a `transport` label, and CUDN and RouteAdvertisements condition metrics are planned ([CORENET-6581](https://redhat.atlassian.net/browse/CORENET-6581), Code Review) | Complements the appliance series from the OCP side; confirm names in the selected OCP release |
+| BFD | `frr-metrics` BFD collector: control/echo packets, session up/down events | Series exist; BGP-based VRF discovery misses BFD-only VRFs, and peer/VRF labels can collide for distinct sessions ([evidence](https://github.com/openshift/evpn-gateway-appliance/blob/a7739d046379655fa628808ccb72d971cc0cc4c3/plans/context/evpn-aws/frr-metrics-details.md#existing-series)); #44's BFD alerts assume one session per peer and VRF |
+| VNI and MAC learning, VTEP alerts | frr-k8s #528 (open) | Gap until #528 merges: per-L2-VNI MAC, ARP/ND and remote-VTEP counts, which decision 1's proposal (2026-11-17) defines as learning; not VTEP reachability (DF: CORENET-7502) ([evidence](https://github.com/openshift/evpn-gateway-appliance/blob/a7739d046379655fa628808ccb72d971cc0cc4c3/plans/context/evpn-aws/frr-metrics-details.md#legacy-migration-contract)) |
+| DX, VPN, latency, bandwidth | CloudWatch ([`AWS/DX`](https://docs.aws.amazon.com/directconnect/latest/UserGuide/monitoring-cloudwatch.html), [`AWS/VPN`](https://docs.aws.amazon.com/vpn/latest/s2svpn/monitoring-cloudwatch-vpn.html) including `TunnelState`) | State and traffic/rates; latency: chunk D's overlay probe (EGA #48) |
+| Cluster-side EVPN status | OVN-K's `ovnkube_clustermanager_cluster_user_defined_networks` has a `transport` label, and CUDN, RouteAdvertisements and VTEP condition metrics are in upstream ovn-kubernetes ([`cluster_manager.go`](https://github.com/ovn-kubernetes/ovn-kubernetes/blob/744cc414c93a674a9e4ae2ccd3ae4e0f6be041e4/go-controller/pkg/metrics/cluster_manager.go); [CORENET-6581](https://redhat.atlassian.net/browse/CORENET-6581)) | Complements the appliance series from the OCP side; confirm names in the selected OCP release |
 
 **Standalone operation.** `frr-metrics` does not run outside Kubernetes on every build.
 OpenShift's `release-4.22` serves plain HTTP on `127.0.0.1:7573` and needs no cluster (a
-kube-rbac-proxy sidecar fronts it there). From 4.23, 5.0 to 5.2 and upstream main, since
-upstream's 2026-03-24 change "Replace kube-rbac-proxy with native TLS and RBAC", it serves
-HTTPS on `0.0.0.0:9141` with a self-signed certificate unless given one, authenticates and
-authorizes every scrape through the Kubernetes API, and builds that handler with
+kube-rbac-proxy sidecar fronts it there). The checked 4.23 and 5.0–5.2 builds, and upstream (without `--disable-metrics-auth`), follow upstream's 2026-03-24 change "Replace kube-rbac-proxy with
+native TLS and RBAC": they serve
+HTTPS on `0.0.0.0:9141` with a self-signed certificate unless given one, authenticate and
+authorize every scrape through the Kubernetes API, and builds that handler with
 `rest.InClusterConfig()` only. Upstream v0.0.26 run without a cluster exits at start-up with
 `unable to load in-cluster configuration, KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT
 must be defined`. The 5.x builds, which are the 5.1 target, therefore cannot serve an
 appliance as they stand. The 2026-10-01 review directs `frr-metrics` to be fixed to need
-no cluster. Decision 16 selects that source; whether the change lands upstream or as a
-maintained patch of the OCP build remains delivery work.
-Interim options checked so far are the 4.22 binary, a build with authentication made optional
-(upstream or a maintained patch), and node-exporter textfile series (below). Any interim
-exporter needs owner approval and standalone qualification. Configure the selected
-build's bind options and the deployment's TLS/authentication path explicitly; available
-flags and defaults differ by release.
+no cluster. Decision 16 selects that source; upstream merged the fix as
+`--disable-metrics-auth` ([#519](https://github.com/metallb/frr-k8s/pull/519)), which skips the
+Kubernetes authentication but still serves HTTPS, self-signed unless given a certificate. The
+appliance will run the pinned 4.22 image's exporter (EGA #53, open); moving to a build with #528's series needs openshift/frr
+to carry #519 and #528.
+Configure the selected build's bind options and the deployment's TLS/authentication path
+explicitly; available flags and defaults differ by release.
 
 The [implementation plan](frr-metrics-plan.md) proposes a reduced [frr-k8s addition (#528)](https://github.com/metallb/frr-k8s/pull/528)
-for per-family prefixes and basic VNI metrics. It adds one default VNI query per scrape and
-EVPN-only success; existing BFD limitations and the serving/vtysh implementation remain.
+for per-family prefixes, basic VNI metrics and per-collector scrape success. It adds one default
+VNI query per scrape; existing BFD limitations and serving remain.
 The archived full prototype and reference exporter retain broader experiments and historical
-Red Hat runtime evidence; those results do not qualify this candidate. Maintainers support
-[#519](https://github.com/metallb/frr-k8s/pull/519) and shared exporter reuse without divergent behavior/metrics. Upstream review,
-downstream delivery and appliance qualification remain. DF alerts and endpoint access remain
-product work in 7504/7502 and 7704; payload/runtime choices remain under decision 10.
-The [broader collection-health proposal](frr-metrics-details.md#failure-visibility-and-deadlines)
-does not change #528's current EVPN-only status behavior.
+Red Hat runtime evidence; those results do not qualify this candidate. Maintainers merged
+[#519](https://github.com/metallb/frr-k8s/pull/519) and support shared exporter reuse without divergent
+behavior/metrics. Upstream review of #528, downstream delivery and appliance qualification remain. DF alerts [moved to CORENET-7502](frr-metrics-plan.md#e-ethernet-segment-and-df-m) and
+endpoint access CORENET-7704's; payload/runtime choices remain under decision 10.
 
-An EVPN textfile supplement can reuse node-exporter: gather counts from `vtysh ... json`
-or `bridge fdb` (or per-tunnel IPsec state from `ipsec status`). That producer still needs
-an owner, freshness/label contract and tests. Select the source with the 7504 owner under
-the [Jira constraint](frr-metrics-plan.md#requirements); use existing diagnostics during early role/build work.
 Coordinate endpoint binding/authentication and privilege changes with CORENET-7704,
 including its permitted/rejected-access CI evidence. None of this is a prerequisite for
-source CI. Confirm the OpenShift build's collectors match upstream.
+source CI.
 
 When the rules arrive, use pinned `promtool check rules --lint=all --lint-fatal` and
 [`promtool test rules`](https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/)
