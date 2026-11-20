@@ -16,5 +16,6 @@ schema (`stretches`, `bgp`, `frr_image`).
 ## Requirements
 
 - `infra_relay_host` must name an actual inventory host with a `private_ip`
-  host variable (defaults to `infra-router`; no multi-peer/HA support yet).
+  host variable (defaults to `infra-router`). When multiple hosts exist in
+  the `cloud_infra` group, the template peers with all of them for relay HA.
 - `private_ip` set as a host variable on the host this role runs against.

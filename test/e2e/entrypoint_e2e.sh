@@ -10,11 +10,21 @@
 set -euo pipefail
 
 stage="${EGA_STAGE:-full}"
+scenario="${EGA_SCENARIO:-base}"
 : "${EGA_NODE_IMAGE:?}"
 : "${EGA_RUNTIME_SOCK:?}"
 : "${EGA_EE_IMAGE:?}"
 EGA_TOPOLOGY="${EGA_TOPOLOGY:-evpn.clab.yml}"
+EGA_INVENTORY="${EGA_INVENTORY:-inventory}"
 EGA_WORK_DIR="${EGA_WORK_DIR:-/tmp/ega/work}"
+
+case "$scenario" in
+	base|relay-ha) ;;
+	*)
+		echo "error: unsupported EGA_SCENARIO=$scenario" >&2
+		exit 2
+		;;
+esac
 
 self_dir="$(cd "$(dirname "$0")" && pwd)"
 
@@ -61,10 +71,34 @@ trap cleanup EXIT
 echo ">> containerlab deploy: $topo"
 EGA_NODE_IMAGE="$EGA_NODE_IMAGE" containerlab deploy -t "$topo" --reconfigure
 
+# The 7503 lab has a shared L2 underlay. Containerlab creates all veths only after
+# deployment, so configuring its bridge from a topology exec hook races link creation.
+# Attach the links after deploy instead, before Ansible starts configuring BGP.
+if [ "$EGA_TOPOLOGY" = evpn-7503.clab.yml ]; then
+	container_name="clab-ega-7503-underlay-switch"
+	# The single-quoted script is evaluated inside the switch container.
+	# shellcheck disable=SC2016
+	podman-remote --url "unix://${EGA_RUNTIME_SOCK}" exec "$container_name" \
+		bash -c 'for i in 1 2 3; do nmcli dev set "eth${i}" managed no 2>/dev/null || true; done
+		systemctl stop NetworkManager 2>/dev/null || true
+		ip link add br-underlay type bridge 2>/dev/null || true
+		ip link set br-underlay up
+		for i in 1 2 3; do
+			for attempt in $(seq 1 60); do
+				if ip link set "eth${i}" master br-underlay 2>/dev/null; then
+					ip link set "eth${i}" up
+					break
+				fi
+				sleep 1
+			done
+		done'
+fi
+
 # The nodes are still booting right after deploy (sshd starts only after host-key
 # generation), so wait for it instead of racing the boot.
 export ANSIBLE_HOST_KEY_CHECKING=False
-inv="${lab_dir}/clab-ega-evpn/ansible-inventory.yml"
+lab_name="$(awk '$1 == "name:" {print $2; exit}' "$topo")"
+inv="${lab_dir}/clab-${lab_name}/ansible-inventory.yml"
 echo ">> waiting for SSH on all nodes"
 ansible -i "$inv" all -u root --private-key "$ssh_key" \
 	-m ansible.builtin.wait_for_connection -a 'timeout=120'
@@ -75,7 +109,7 @@ ansible -i "$inv" all -u root --private-key "$ssh_key" \
 # the work dir persists across runs, and `cp -r` into an existing dir would nest
 # (inventory/inventory/) and silently reuse the stale inventory from an earlier run.
 rm -rf "${lab_dir}/inventory"
-cp -r "${self_dir}/inventory" "${lab_dir}/inventory"
+cp -r "${self_dir}/${EGA_INVENTORY}" "${lab_dir}/inventory"
 
 # Run the collection's deploy.yml from the execution environment — the same artifact AAP
 # runs. The EE carries the collection and its derived deps (wireguard-tools for the
@@ -105,6 +139,56 @@ ee_playbook() {
 ee_playbook network.evpn_gateway_test.simulate
 ee_playbook network.evpn_gateway.deploy
 ee_playbook network.evpn_gateway_test.healthcheck
+
+# Exercise relay HA independently of the collection's deploy health check.  The 7503
+# topology uses two relays with the same EVPN VNIs, so stopping FRR on either relay must
+# leave all three stretched networks reachable through the other relay.
+if [ "$EGA_TOPOLOGY" = evpn-7503.clab.yml ]; then
+	assert_relay_failover() {
+		local relay="$1"
+		local failed=0
+		local node="clab-ega-7503-${relay}"
+		local targets=(
+			"appliance vm-production 10.42.1.2"
+			"appliance vm-staging 10.42.2.2"
+			"appliance vm-management 10.42.3.2"
+			"workload - 10.42.1.1"
+			"workload - 10.42.2.1"
+			"workload - 10.42.3.1"
+		)
+
+		echo ">> relay failover: stopping FRR on ${relay}"
+		podman-remote --url "unix://${EGA_RUNTIME_SOCK}" exec "$node" \
+			systemctl stop frr-container.service
+		trap 'podman-remote --url "unix://${EGA_RUNTIME_SOCK}" exec "$node" systemctl start frr-container.service >/dev/null 2>&1 || true' RETURN
+		sleep 8
+
+		for target in "${targets[@]}"; do
+			read -r side namespace address <<<"$target"
+			if [ "$side" = appliance ]; then
+				command=(ip netns exec "$namespace" ping -c 5 -W 1 "$address")
+			else
+				command=(ping -c 5 -W 1 "$address")
+			fi
+			output="$(podman-remote --url "unix://${EGA_RUNTIME_SOCK}" exec \
+				"clab-ega-7503-${side}" "${command[@]}" 2>&1 || true)"
+			if ! grep -qE '[[:space:]]0([.]0+)?% packet loss([[:space:]]|$)' <<<"$output"; then
+				echo "ERROR: ${side}/${namespace:-workload} cannot reach ${address} with ${relay} FRR down" >&2
+				echo "$output" >&2
+				failed=1
+			fi
+		done
+
+		podman-remote --url "unix://${EGA_RUNTIME_SOCK}" exec "$node" \
+			systemctl start frr-container.service
+		trap - RETURN
+		sleep 15
+		[ "$failed" -eq 0 ] || return "$failed"
+	}
+
+	assert_relay_failover relay-a
+	assert_relay_failover relay-b
+fi
 
 echo ">> deploy + simulated-host health checks complete"
 exit 0

@@ -15,7 +15,8 @@ schema (`tunnel`, `bgp`, `frr_image`, `stretches`).
 ## Requirements
 
 - `workload_vtep_host` must name an actual inventory host with a `private_ip`
-  host variable (defaults to `workload-router`; no multi-peer/HA support yet).
+  host variable (defaults to `workload-router`). When multiple hosts exist in
+  the `cloud_workload` group, the relay peers with all of them.
 - `stretches` (only `subnet` is read) must match the on-prem/workload stretch
   list — used to build the WireGuard server's `AllowedIPs` (wireguard
   transport only).

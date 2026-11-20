@@ -1,0 +1,20 @@
+---
+# Minimal two-relay inventory used to render and inspect the relay-HA FRR templates locally.
+all:
+  vars:
+    ansible_connection: local
+  children:
+    cloud_infra:
+      hosts:
+        infra-a:
+          private_ip: 10.100.0.1
+        infra-b:
+          private_ip: 10.100.0.2
+    cloud_workload:
+      hosts:
+        workload:
+          private_ip: 10.200.0.1
+    onprem_appliances:
+      hosts:
+        appliance:
+          private_ip: 10.44.44.1

@@ -15,27 +15,38 @@ router bgp {{ bgp.onprem_asn }}
  no bgp ebgp-requires-policy
  no bgp default ipv4-unicast
  !
- neighbor {{ tunnel.cloud_ip }} remote-as {{ bgp.infra_asn }}
- neighbor {{ tunnel.cloud_ip }} description infra-relay
+{% set infra_peers = bgp.infra_peers | default([tunnel.cloud_ip]) %}
+{% for peer in infra_peers %}
+ neighbor {{ peer }} remote-as {{ bgp.infra_asn }}
+ neighbor {{ peer }} description infra-relay
+ neighbor {{ peer }} ebgp-multihop 4
+{% endfor %}
  !
  address-family ipv4 unicast
   network {{ tunnel.network_cidr | default('10.44.44.0/24') }}
-  neighbor {{ tunnel.cloud_ip }} activate
-  neighbor {{ tunnel.cloud_ip }} soft-reconfiguration inbound
+  maximum-paths 2
+{% for peer in infra_peers %}
+  neighbor {{ peer }} activate
+  neighbor {{ peer }} soft-reconfiguration inbound
+{% endfor %}
  exit-address-family
  !
  address-family l2vpn evpn
-  neighbor {{ tunnel.cloud_ip }} activate
-  neighbor {{ tunnel.cloud_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% for peer in infra_peers %}
+  neighbor {{ peer }} activate
+  neighbor {{ peer }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% endfor %}
   advertise-all-vni
+  advertise-svi-ip
+{% for s in stretches %}
+{% set vni = 10000 + s.vlan %}
+  route-target import {{ bgp.onprem_asn }}:{{ vni }}
+  route-target import {{ bgp.workload_asn }}:{{ vni }}
+  route-target export {{ bgp.onprem_asn }}:{{ vni }}
+{% endfor %}
 {% for s in stretches %}
 {% set vni = 10000 + s.vlan %}
   vni {{ vni }}
-   rd {{ tunnel.onprem_ip }}:{{ vni }}
-   rt import {{ bgp.onprem_asn }}:{{ vni }}
-   rt import {{ bgp.workload_asn }}:{{ vni }}
-   rt export {{ bgp.onprem_asn }}:{{ vni }}
-   advertise-svi-ip
   exit-vni
 {% endfor %}
  exit-address-family

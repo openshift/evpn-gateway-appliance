@@ -120,6 +120,12 @@ argument_specs:
             type: int
             required: true
             description: BGP ASN of the workload VTEP.
+          infra_peers:
+            type: list
+            elements: str
+            description: >-
+              BGP addresses of all infra relays. Defaults to tunnel.cloud_ip;
+              use this for relay HA when the transport exposes multiple peers.
           max_prefix:
             type: int
             default: 1000

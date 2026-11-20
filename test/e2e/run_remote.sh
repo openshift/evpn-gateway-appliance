@@ -21,6 +21,10 @@
 #   CI_IMAGE
 #   EE_BASE_IMAGE
 #   APPLIANCE_BASE_IMAGE
+#   EGA_SCENARIO, EGA_SCENARIOS, EGA_INVENTORY, EGA_TOPOLOGY
+#       scenario list, inventory directory and topology file under test/e2e to run on the target.
+#       EGA_SCENARIOS accepts comma-separated scenario:topology[:inventory] entries and runs
+#       them sequentially with isolated work and artifact directories.
 #       exported base images; the OS bases default to public images (CI injects in-cluster
 #       registry pullspecs). A bare ref is a docker:// pullspec; an explicit skopeo transport is
 #       honored (CI_IMAGE has no public image, so it defaults to
@@ -45,6 +49,8 @@ readonly NODE_EXPORTER_IMAGE="${NODE_EXPORTER_IMAGE:?set NODE_EXPORTER_IMAGE (CI
 readonly EE_BASE_IMAGE="${EE_BASE_IMAGE:-quay.io/centos/centos:stream10}"
 readonly APPLIANCE_BASE_IMAGE="${APPLIANCE_BASE_IMAGE:-quay.io/centos-bootc/centos-bootc:stream10}"
 readonly CI_IMAGE="${CI_IMAGE:-containers-storage:localhost/evpn-gateway-appliance-ci:local}"
+readonly EGA_INVENTORY="${EGA_INVENTORY:-inventory}"
+readonly EGA_TOPOLOGY="${EGA_TOPOLOGY:-evpn.clab.yml}"
 
 # Lane selection. The in-container script run.sh launches; defaults to the e2e entrypoint so a
 # direct call (and the live Prow wiring) is unchanged. run_molecule.sh sets entrypoint_molecule.sh.
@@ -87,7 +93,7 @@ cleanup() {
     # Leave the artifact dir (/tmp/ega/artifact): it is the collected output locally, and already
     # copied back from a remote target. The rest under /tmp/ega is scratch (the extracted source
     # and the work dir, which holds the throwaway key).
-    local teardown='podman rm -f mirror >/dev/null 2>&1 || true; rm -rf /tmp/ega/build /tmp/ega/work /tmp/ega/empty-auth.json /etc/containers/registries.conf.d/99-local.conf'
+    local teardown='podman rm -f mirror >/dev/null 2>&1 || true; rm -rf /tmp/ega/build /tmp/ega/work /tmp/ega/work-* /tmp/ega/empty-auth.json /etc/containers/registries.conf.d/99-local.conf'
     if [[ -n "${SSH_REMOTE:-}" ]]; then
         # shellcheck disable=SC2029 # client-side expansion is intended; the remote shell gets the final path
         ssh "${ssh_opts[@]}" "${SSH_REMOTE}" "rm -rf '${WORK}'; sudo sh -c '${teardown}'" >/dev/null 2>&1 || true
@@ -191,14 +197,58 @@ make nested-ci-appliance-image \
     CONTAINER_AUTH_FILE=/tmp/ega/empty-auth.json
 EOF
 
-# lane.sh: run the selected lane (repo-default image tags, so no EGA_* image overrides). Pin the
-# artifact dir so we know where to collect from; run.sh makes it world-readable on exit. Pass the
+# lane.sh: run the selected lane (repo-default image tags, so no EGA_* image overrides). Pin each
+# scenario's work and artifact directory so sequential scenarios cannot reuse stale state. Pass the
 # entrypoint through so run.sh runs the e2e or the molecule in-container script.
 cat > "${WORK}/lane.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 cd /tmp/ega/build
-EGA_ARTIFACT_DIR="${lane_artifacts}" EGA_ENTRYPOINT="${EGA_ENTRYPOINT}" bash test/e2e/run.sh
+scenarios="${EGA_SCENARIOS:-}"
+if [ -z "\$scenarios" ]; then
+    scenarios="${EGA_SCENARIO:-base}:${EGA_TOPOLOGY:-evpn.clab.yml}:${EGA_INVENTORY:-inventory}"
+fi
+
+rc=0
+old_ifs="\$IFS"
+IFS=,
+read -ra entries <<< "\$scenarios"
+IFS="\$old_ifs"
+for entry in "\${entries[@]}"; do
+    scenario="\${entry%%:*}"
+    rest="\${entry#*:}"
+    if [ "\$rest" = "\$entry" ]; then
+        # A bare scenario uses the normal topology and its scenario-specific inventory.
+        topology="evpn.clab.yml"
+        inventory=""
+    elif [[ "\$rest" == *:* ]]; then
+        # A three-field entry explicitly selects scenario, topology, and inventory.
+        topology="\${rest%%:*}"
+        inventory="\${rest#*:}"
+    else
+        # A two-field entry selects scenario and topology, while retaining the
+        # scenario-specific inventory default.
+        topology="\$rest"
+        inventory=""
+    fi
+    if [ -z "\$inventory" ]; then
+        case "\$scenario" in
+            multihoming) inventory="inventory/multihoming" ;;
+            relay-ha) inventory="inventory/7503" ;;
+            *) inventory="inventory" ;;
+        esac
+    fi
+    echo "========== e2e scenario: \$scenario (\$topology, \$inventory) =========="
+    EGA_ARTIFACT_DIR="${lane_artifacts}/\$scenario" \
+    EGA_WORK_DIR="/tmp/ega/work-\$scenario" \
+    EGA_ENTRYPOINT="${EGA_ENTRYPOINT}" \
+    EGA_SCENARIO="\$scenario" \
+    EGA_INVENTORY="\$inventory" \
+    EGA_TOPOLOGY="\$topology" \
+    EGA_STAGE="${EGA_STAGE:-full}" \
+    bash test/e2e/run.sh || rc=1
+done
+exit "\$rc"
 EOF
 
 chmod +x "${WORK}"/*.sh

@@ -15,29 +15,41 @@ router bgp {{ bgp.workload_asn }}
  no bgp ebgp-requires-policy
  no bgp default ipv4-unicast
  !
-{% set infra_host = hostvars[infra_relay_host] %}
+{% set infra_hosts = groups['cloud_infra'] | default([infra_relay_host]) %}
+{% for infra_name in infra_hosts %}
+{% set infra_host = hostvars[infra_name] %}
  neighbor {{ infra_host.private_ip }} remote-as {{ bgp.infra_asn }}
  neighbor {{ infra_host.private_ip }} description infra-relay
  neighbor {{ infra_host.private_ip }} ebgp-multihop 4
+{% endfor %}
  !
  address-family ipv4 unicast
   network {{ private_ip }}/32
+  maximum-paths 2
+{% for infra_name in infra_hosts %}
+{% set infra_host = hostvars[infra_name] %}
   neighbor {{ infra_host.private_ip }} activate
   neighbor {{ infra_host.private_ip }} soft-reconfiguration inbound
+{% endfor %}
  exit-address-family
  !
  address-family l2vpn evpn
+{% for infra_name in infra_hosts %}
+{% set infra_host = hostvars[infra_name] %}
   neighbor {{ infra_host.private_ip }} activate
   neighbor {{ infra_host.private_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% endfor %}
   advertise-all-vni
+  advertise-svi-ip
+{% for s in stretches %}
+{% set vni = 10000 + s.vlan %}
+  route-target import {{ bgp.workload_asn }}:{{ vni }}
+  route-target import {{ bgp.onprem_asn }}:{{ vni }}
+  route-target export {{ bgp.workload_asn }}:{{ vni }}
+{% endfor %}
 {% for s in stretches %}
 {% set vni = 10000 + s.vlan %}
   vni {{ vni }}
-   rd {{ private_ip }}:{{ vni }}
-   rt import {{ bgp.workload_asn }}:{{ vni }}
-   rt import {{ bgp.onprem_asn }}:{{ vni }}
-   rt export {{ bgp.workload_asn }}:{{ vni }}
-   advertise-svi-ip
   exit-vni
 {% endfor %}
  exit-address-family

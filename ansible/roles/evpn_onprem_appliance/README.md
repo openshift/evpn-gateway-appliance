@@ -21,6 +21,9 @@ left unset — only override them if your VPC/pod-network CIDRs differ.
 - The FRR templates set no inbound/outbound route policy beyond a
   defensive `maximum-prefix`; see the comment at the top of
   `templates/frr-onprem-appliance.conf.j2`.
+- Relay HA uses `bgp.infra_peers` to configure multiple FRR relay neighbors.
+  The current WireGuard client template still has one endpoint; multi-relay
+  WireGuard transport is a separate follow-up from the BGP peer fan-out.
 
 ## Example
 

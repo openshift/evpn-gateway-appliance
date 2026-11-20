@@ -86,6 +86,11 @@ of its own and builds nothing. `run_remote.sh` is what builds and stages those i
   `/tmp/ega/artifact`; Prow sets it to `$ARTIFACTS`). Mounted but **empty for now** — nothing is
   written here until diagnostics/JUnit capture is added (see Testing plan).
 - `EGA_TOPOLOGY` — topology file under `topology/` (default `evpn.clab.yml`).
+- `EGA_INVENTORY` — inventory directory under `inventory/` (default `inventory`; use
+  `inventory/7503` with `evpn-7503.clab.yml`).
+- `EGA_SCENARIOS` — comma-separated `scenario:topology[:inventory]` entries to run sequentially.
+  Each scenario receives isolated work and artifact directories; when unset, the individual
+  `EGA_SCENARIO`, `EGA_TOPOLOGY`, and `EGA_INVENTORY` values select one run.
 - `EGA_STAGE` — `full` (deploy + validate + tear down), `deploy` (same but leave the lab up
   for inspection), or `destroy` (tear down a lab left up by `deploy`). Default `full`.
 - `EGA_E2E_SRC` — bind a repo checkout over the image's baked `/src` for live dev (default
