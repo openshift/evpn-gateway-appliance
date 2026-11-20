@@ -45,6 +45,16 @@
     - _evpn_monitoring_frr_exp_systemd is skipped
 
 # ── node_exporter ──────────────────────────────────────────────
+- name: Ensure node-exporter textfile directory exists
+  ansible.builtin.file:
+    path: /var/lib/node_exporter/textfile
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+    setype: container_file_t  # node-exporter reads it from a container
+  when: monitoring.node_exporter | default(false)
+
 - name: Start node-exporter via systemd (bootc image)
   ansible.builtin.systemd:
     name: node-exporter.service
@@ -67,10 +77,119 @@
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/rootfs:ro
+      - /var/lib/node_exporter/textfile:/var/lib/node_exporter/textfile:ro,z
     command: >
       --path.procfs=/host/proc
       --path.sysfs=/host/sys
       --path.rootfs=/rootfs
+      --collector.textfile.directory=/var/lib/node_exporter/textfile
   when:
     - monitoring.node_exporter | default(false)
     - _evpn_monitoring_node_exp_systemd is skipped
+
+- name: Configure overlay path probe
+  when:
+    - "'onprem_appliances' in group_names"
+    - monitoring.node_exporter | default(false)
+    - evpn_monitoring_path_probe_target | length > 0
+  block:
+    # Any other stretch address, such as this appliance's own or an on-prem host, answers
+    # without crossing VXLAN.
+    - name: Check the overlay path probe target is a stretch's cloud_gateway
+      ansible.builtin.assert:
+        that: evpn_monitoring_path_probe_target in (stretches | default([]) | map(attribute='cloud_gateway') | list)
+        fail_msg: evpn_monitoring_path_probe_target must be a stretch's cloud_gateway.
+        quiet: true
+
+    - name: Remove the overlay path probe disabled marker
+      ansible.builtin.file:
+        path: /var/lib/node_exporter/textfile/ega-path-probe-disabled.prom
+        state: absent
+
+    # /usr is read-only on bootc; keep the script in /etc and run it through sh.
+    - name: Ensure overlay path probe directory exists
+      ansible.builtin.file:
+        path: /etc/ega
+        state: directory
+        mode: "0755"
+
+    - name: Install overlay path probe
+      ansible.builtin.copy:
+        src: ega-path-probe.sh
+        dest: /etc/ega/ega-path-probe.sh
+        mode: "0644"
+
+    - name: Install overlay path probe units
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/{{ item.name }}
+        content: "{{ item.content }}"
+        mode: "0644"
+      loop:
+        - name: ega-path-probe.service
+          content: |
+            [Unit]
+            Description=EGA overlay path probe
+
+            [Service]
+            Type=oneshot
+            TimeoutStartSec=20s
+            ExecStart=/bin/sh /etc/ega/ega-path-probe.sh {{ evpn_monitoring_path_probe_target }}
+            CapabilityBoundingSet=CAP_NET_RAW
+            NoNewPrivileges=yes
+            PrivateTmp=yes
+            ProtectHome=yes
+            ProtectSystem=strict
+            ReadWritePaths=/var/lib/node_exporter/textfile
+        - name: ega-path-probe.timer
+          content: |
+            [Unit]
+            Description=Probe one EGA overlay path every 30 seconds
+
+            [Timer]
+            OnBootSec=30s
+            OnUnitActiveSec=30s
+            AccuracySec=1s
+
+            [Install]
+            WantedBy=timers.target
+      loop_control:
+        label: "{{ item.name }}"
+
+    # Always reload: a rerun after a failed run must not keep stale units. The units are not
+    # copied in check mode, so there is nothing to start.
+    - name: Enable overlay path probe timer
+      ansible.builtin.systemd:
+        name: ega-path-probe.timer
+        daemon_reload: true
+        state: started
+        enabled: true
+      when: not ansible_check_mode
+
+    # Restarting the oneshot service runs one probe and returns when it exits, failing when the
+    # probe cannot run, so a result left by an earlier run cannot satisfy the wait below.
+    - name: Run the overlay path probe once
+      ansible.builtin.systemd:
+        name: ega-path-probe.service
+        state: restarted
+      changed_when: false
+      when: not ansible_check_mode
+
+    # Waiting for node-exporter to export a result for the configured target proves that it reads
+    # the textfile directory (older images do not).
+    - name: Wait for node-exporter to export the probe result
+      ansible.builtin.uri:
+        url: http://127.0.0.1:9100/metrics
+        return_content: true
+      register: _evpn_monitoring_node_metrics
+      until: >-
+        _evpn_monitoring_node_metrics.content | default('')
+        is search('ega_path_probe_success\\{target="' ~ (evpn_monitoring_path_probe_target | regex_escape) ~ '"\\}')
+      retries: 12
+      delay: 5
+      when: not ansible_check_mode
+
+- name: Remove the overlay path probe when it is not configured
+  ansible.builtin.include_tasks: path_probe_absent.yml
+  when:
+    - "'onprem_appliances' in group_names"
+    - not (monitoring.node_exporter | default(false)) or evpn_monitoring_path_probe_target | length == 0

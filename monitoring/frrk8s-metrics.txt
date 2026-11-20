@@ -1,0 +1,34 @@
+# Series that frr-k8s frr-metrics exports, read from metallb/frr-k8s#528 at
+# 5a4123372afe3b732f99fa7dc8f8cb6692c71b39 (cmd/metrics/collector). check_dashboards.py fails
+# when a rule or dashboard names an frrk8s_* series that is not listed here; update this list
+# with the frr-k8s revision EGA ships.
+frrk8s_bfd_control_packet_input
+frrk8s_bfd_control_packet_output
+frrk8s_bfd_echo_packet_input
+frrk8s_bfd_echo_packet_output
+frrk8s_bfd_session_down_events
+frrk8s_bfd_session_up
+frrk8s_bfd_session_up_events
+frrk8s_bfd_zebra_notifications
+frrk8s_bgp_announced_prefixes_total
+frrk8s_bgp_family_announced_prefixes
+frrk8s_bgp_family_received_prefixes
+frrk8s_bgp_keepalives_received
+frrk8s_bgp_keepalives_sent
+frrk8s_bgp_notifications_sent
+frrk8s_bgp_opens_received
+frrk8s_bgp_opens_sent
+frrk8s_bgp_received_prefixes_total
+frrk8s_bgp_route_refresh_sent
+frrk8s_bgp_session_up
+frrk8s_bgp_total_received
+frrk8s_bgp_total_sent
+frrk8s_bgp_updates_total
+frrk8s_bgp_updates_total_received
+frrk8s_evpn_l2_macs
+frrk8s_evpn_l2_neighbors
+frrk8s_evpn_l2_remote_vteps
+frrk8s_evpn_l3_nexthops
+frrk8s_evpn_l3_router_macs
+frrk8s_evpn_vni_info
+frrk8s_scrape_success

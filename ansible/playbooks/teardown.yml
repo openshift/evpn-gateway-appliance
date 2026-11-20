@@ -6,6 +6,11 @@
   hosts: onprem_appliances
   become: true
   tasks:
+    - name: Remove the overlay path probe
+      ansible.builtin.include_role:
+        name: evpn_monitoring
+        tasks_from: path_probe_absent
+
     - name: Tear down the on-prem appliance
       ansible.builtin.include_role:
         name: evpn_onprem_appliance

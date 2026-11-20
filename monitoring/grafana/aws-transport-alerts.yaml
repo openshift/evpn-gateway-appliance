@@ -1,0 +1,143 @@
+apiVersion: 1
+groups:
+  - name: ega-aws-transport
+    folder: EGA
+    interval: 5m
+    rules:
+      - uid: ega-dx-connection-down
+        title: EGADxConnectionDown
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: cloudwatch
+            relativeTimeRange:
+              from: 900
+            model:
+              refId: A
+              region: default
+              namespace: AWS/DX
+              metricName: ConnectionState
+              dimensions:
+                ConnectionId: ['*']
+              statistic: Minimum
+              period: '300'
+              matchExact: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: math
+              expression: $B < 1
+        noDataState: KeepLast
+        execErrState: Error
+        dashboardUid: ega-aws-transport
+        panelId: 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'DX connection {{ $labels.ConnectionId }} down'
+          runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egadxconnectiondown
+          description: >-
+            The minimum CloudWatch ConnectionState for {{ $labels.ConnectionId }} has been 0 in each
+            5-minute period for 10m, so the connection is down or flapping. EVPN BGP can stay up over a
+            VPN backup, so this can be the only sign of lost redundancy.
+      - uid: ega-dx-vif-bgp-down
+        title: EGADxVirtualInterfaceBgpDown
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: cloudwatch
+            relativeTimeRange:
+              from: 900
+            model:
+              refId: A
+              region: default
+              namespace: AWS/DX
+              metricName: VirtualInterfaceBgpStatus
+              dimensions:
+                VirtualInterfaceId: ['*']
+                IpAddressFamily: ['*']
+                ConnectionId: ['*']
+              statistic: Minimum
+              period: '300'
+              matchExact: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: math
+              expression: $B < 1
+        noDataState: KeepLast
+        execErrState: Error
+        dashboardUid: ega-aws-transport
+        panelId: 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'DX VIF {{ $labels.VirtualInterfaceId }} {{ $labels.IpAddressFamily }} on {{ $labels.ConnectionId }} BGP down'
+          runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egadxvirtualinterfacebgpdown
+          description: >-
+            The minimum CloudWatch VirtualInterfaceBgpStatus for {{ $labels.VirtualInterfaceId }}
+            ({{ $labels.IpAddressFamily }}) has been 0 in each 5-minute period for 10m, so its BGP session
+            is down or flapping. EVPN BGP can stay up over a VPN backup.
+      - uid: ega-vpn-tunnel-down
+        title: EGAVpnTunnelDown
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: cloudwatch
+            relativeTimeRange:
+              from: 900
+            model:
+              refId: A
+              region: default
+              namespace: AWS/VPN
+              metricName: TunnelState
+              dimensions:
+                VpnId: ['*']
+              statistic: Minimum
+              period: '300'
+              matchExact: true
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: math
+              expression: $B < 1
+        noDataState: KeepLast
+        execErrState: Error
+        dashboardUid: ega-aws-transport
+        panelId: 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'VPN {{ $labels.VpnId }} has a tunnel down'
+          runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egavpntunneldown
+          description: >-
+            The minimum CloudWatch TunnelState for {{ $labels.VpnId }} has been below 1 in each 5-minute
+            period for 10m, so at least one of its tunnels is down or flapping. A VPN that uses only one
+            tunnel reads 0.5 and keeps this firing.

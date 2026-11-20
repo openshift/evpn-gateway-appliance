@@ -1,0 +1,107 @@
+---
+- name: Overlay path probe detects forwarding failure
+  hosts: onprem_appliances
+  become: true
+  gather_facts: false
+  vars:
+    _path_probe_success: 'ega_path_probe_success{target="{{ evpn_monitoring_path_probe_target }}"} 1'
+    _path_probe_failure: 'ega_path_probe_success{target="{{ evpn_monitoring_path_probe_target }}"} 0'
+    _path_probe_rtt: '(?m)^ega_path_probe_rtt_seconds\{target="{{ evpn_monitoring_path_probe_target }}"\} ([0-9.eE+-]+)$'
+    _path_probe_mtime: '(?m)^node_textfile_mtime_seconds\{file="/var/lib/node_exporter/textfile/ega-path-probe[.]prom"\} ([0-9.eE+-]+)$'
+  tasks:
+    - name: Skip hosts without a probe target
+      ansible.builtin.meta: end_host
+      when: not (evpn_monitoring_path_probe_target | default(''))
+
+    # FRR runs as frr.service on an RPM-based image and in the frr container otherwise.
+    - name: Gather service facts to find FRR
+      ansible.builtin.service_facts:
+
+    - name: Choose how to run vtysh
+      ansible.builtin.set_fact:
+        _path_probe_vtysh: "{{ 'vtysh' if 'frr.service' in ansible_facts.services else 'podman exec frr vtysh' }}"
+
+    - name: Wait for a successful overlay probe and RTT sample
+      ansible.builtin.uri: &metrics
+        url: http://127.0.0.1:9100/metrics
+        return_content: true
+      register: _path_probe_metrics
+      until:
+        - _path_probe_success in _path_probe_metrics.content
+        - (_path_probe_metrics.content | regex_findall(_path_probe_rtt) | first | default(0) | float) > 0
+        - _path_probe_metrics.content is search(_path_probe_mtime)
+      retries: 12
+      delay: 5
+
+    # Drop VXLAN on the wire so FRR still sees the VNI, its remote VTEP and the BGP session.
+    - name: Check forwarding failure with the EVPN control plane still up
+      block:
+        - name: Drop outgoing VXLAN packets
+          ansible.builtin.command:
+            cmd: nft -f -
+            stdin: table inet ega_e2e_path_probe { chain out { type filter hook output priority 0; udp dport 4789 drop; }; }
+          changed_when: true
+
+        - name: Wait for the overlay probe to fail
+          ansible.builtin.uri: *metrics
+          register: _path_probe_metrics
+          until: _path_probe_failure in _path_probe_metrics.content
+          retries: 12
+          delay: 5
+
+        # Whatever the transport, an EVPN session must stay up while VXLAN is dropped.
+        - name: Confirm an EVPN BGP session remains Established
+          ansible.builtin.command: "{{ _path_probe_vtysh }} -c 'show bgp l2vpn evpn summary json'"
+          register: _path_probe_bgp
+          changed_when: false
+          failed_when: >-
+            _path_probe_bgp.rc != 0 or
+            (_path_probe_bgp.stdout | from_json).get('peers', {}).values()
+            | selectattr('state', 'equalto', 'Established') | list | length == 0
+
+        - name: Confirm the first stretch VNI still has a remote VTEP
+          ansible.builtin.command: "{{ _path_probe_vtysh }} -c 'show evpn vni {{ 10000 + stretches[0].vlan }} json'"
+          register: _path_probe_vni
+          changed_when: false
+          failed_when: >-
+            _path_probe_vni.rc != 0 or
+            (_path_probe_vni.stdout | from_json).get('numRemoteVteps', 0) | int < 1
+      always:
+        - name: Stop dropping VXLAN packets
+          ansible.builtin.command: nft delete table inet ega_e2e_path_probe
+          register: _path_probe_nft_delete
+          changed_when: _path_probe_nft_delete.rc == 0
+          failed_when: false
+
+    - name: Wait for overlay probe recovery
+      ansible.builtin.uri: *metrics
+      register: _path_probe_metrics
+      until: _path_probe_success in _path_probe_metrics.content
+      retries: 12
+      delay: 5
+
+    # Clearing the target must remove the probe and leave a readable disabled marker.
+    - name: Remove the probe by clearing its target
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_monitoring
+      vars:
+        evpn_monitoring_path_probe_target: ""
+
+    - name: Wait for the probe to be gone and marked disabled
+      ansible.builtin.uri: *metrics
+      register: _path_probe_metrics
+      until:
+        - "'ega_path_probe_disabled 1' in _path_probe_metrics.content"
+        - "'ega_path_probe_success{' not in _path_probe_metrics.content"
+        - "'node_textfile_scrape_error 0' in _path_probe_metrics.content"
+      retries: 12
+      delay: 5
+
+    - name: Check the probe units are gone
+      ansible.builtin.command: systemctl cat {{ item }}
+      register: _path_probe_unit
+      changed_when: false
+      failed_when: _path_probe_unit.rc == 0
+      loop:
+        - ega-path-probe.timer
+        - ega-path-probe.service
