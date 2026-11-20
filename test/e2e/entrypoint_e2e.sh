@@ -10,6 +10,7 @@
 set -euo pipefail
 
 stage="${EGA_STAGE:-full}"
+scenario="${EGA_SCENARIO:-base}"
 : "${EGA_NODE_IMAGE:?}"
 : "${EGA_RUNTIME_SOCK:?}"
 : "${EGA_EE_IMAGE:?}"
@@ -23,6 +24,19 @@ export DOCKER_HOST="unix://${EGA_RUNTIME_SOCK}"
 export CONTAINERLAB_RUNTIME="podman"
 
 src_topo="${self_dir}/topology/${EGA_TOPOLOGY}"
+
+case "$scenario" in
+	base)
+		inventory_src="${self_dir}/inventory"
+		;;
+	multihoming)
+		inventory_src="${self_dir}/inventory/multihoming"
+		;;
+	*)
+		echo "error: unsupported EGA_SCENARIO=$scenario" >&2
+		exit 2
+		;;
+esac
 
 # containerlab writes its lab dir (clab-<name>/) NEXT TO the topology file, and the repo
 # is mounted read-only. Stage the topology into the writable work dir and deploy from
@@ -75,7 +89,7 @@ ansible -i "$inv" all -u root --private-key "$ssh_key" \
 # the work dir persists across runs, and `cp -r` into an existing dir would nest
 # (inventory/inventory/) and silently reuse the stale inventory from an earlier run.
 rm -rf "${lab_dir}/inventory"
-cp -r "${self_dir}/inventory" "${lab_dir}/inventory"
+cp -r "$inventory_src" "${lab_dir}/inventory"
 
 # Run the collection's deploy.yml from the execution environment — the same artifact AAP
 # runs. The EE carries the collection and its derived deps (wireguard-tools for the
@@ -102,9 +116,13 @@ ee_playbook() {
 # Build the simulated on-prem side (trunk + fake hosts) BEFORE the product deploy so
 # the appliance role finds the trunk to build its VTEP on; deploy the product; then run
 # the simulated-host data-plane checks.
-ee_playbook network.evpn_gateway_test.simulate
-ee_playbook network.evpn_gateway.deploy
-ee_playbook network.evpn_gateway_test.healthcheck
+if [ "$scenario" = multihoming ]; then
+	ee_playbook network.evpn_gateway_test.multihoming
+else
+	ee_playbook network.evpn_gateway_test.simulate
+	ee_playbook network.evpn_gateway.deploy
+	ee_playbook network.evpn_gateway_test.healthcheck
+fi
 
 echo ">> deploy + simulated-host health checks complete"
 exit 0

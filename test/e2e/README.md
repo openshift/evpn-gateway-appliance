@@ -19,6 +19,53 @@ Entry points, by how they are meant to be run:
   the e2e or molecule lane. A Prow status then reads `e2e` / `molecule`. The molecule wrapper also
   skips the EE build (molecule drives the role with the CI image's own ansible, not the shipped EE).
 
+Set `EGA_SCENARIO=multihoming EGA_TOPOLOGY=evpn-7502.clab.yml` to run the CORENET-7502
+lane. It configures two appliances with the product role, verifies the shared Ethernet
+Segment identity, checks the requested 802.3ad bond members, and verifies VLAN traffic
+survives one appliance bond being disabled. The same test playbook is intended for later
+qualification runs; only the topology and inventory change.
+
+The remote runner can execute multiple scenarios sequentially in one provisioned lane by
+setting `EGA_SCENARIOS` to comma-separated `scenario:topology` pairs, for example:
+
+```bash
+EGA_SCENARIOS=base:evpn.clab.yml,multihoming:evpn-7502.clab.yml \
+  test/e2e/run_remote.sh
+```
+
+Each scenario receives its own work and artifact directory. This is the mode used by the
+shared Prow e2e job, so adding a scenario does not require another Prow job or another VM.
+
+## CORENET-7502 coverage boundary
+
+The CI topology emulates the upstream DVS/edge segment with a VLAN-aware Linux bridge
+and a VLAN trunk. The edge side has one single-member 802.3ad bond per appliance-facing
+link, with both bonds joined to the bridge; each appliance contributes one link through
+its own single-member 802.3ad bond. This avoids claiming that a plain Linux bond can
+provide MLAG state shared across independent namespaces.
+Both appliances run FRR EVPN-MH with the same numeric discriminator and system MAC,
+which produces the shared Type-3 ESI. The multihoming path uses one fixed-VNI VXLAN
+device per stretch, attached to the shared bridge as an access port;
+this avoids requiring the SVD-only NetworkManager/nmstate attributes. VLANs 100, 200,
+and 300 are trunked across it.
+
+The lane validates:
+
+- LACP negotiation on both single-member appliance bonds against the shared edge bond;
+- shared EVPN Ethernet Segment configuration;
+- EVPN BGP session establishment through the relay;
+- inventory-derived appliance peer and BFD configuration;
+- Type-1 EAD and Type-4 ESR route generation for the shared Ethernet Segment;
+- VLAN reachability through the shared edge;
+- traffic continuity after one appliance is taken out of the data path.
+
+This is CI emulation, not physical NSX DVS/MLAG qualification. It validates the EVPN-MH
+control-plane contract and a Linux LACP edge, but cannot prove NSX/DVS behavior, physical
+switch cabling failure, vendor-specific RARP handling, or a live BFD session between the
+appliances because the emulated underlay reaches each appliance through the relay rather
+than directly connecting their underlay interfaces. Those require a separate qualification
+environment or topology extension.
+
 All are runner-agnostic — the same scripts work under a Prow test step or a GitHub Actions
 VM; the runner only provides env and collects artifacts.
 
@@ -86,6 +133,9 @@ of its own and builds nothing. `run_remote.sh` is what builds and stages those i
   `/tmp/ega/artifact`; Prow sets it to `$ARTIFACTS`). Mounted but **empty for now** — nothing is
   written here until diagnostics/JUnit capture is added (see Testing plan).
 - `EGA_TOPOLOGY` — topology file under `topology/` (default `evpn.clab.yml`).
+- `EGA_SCENARIOS` — comma-separated `scenario:topology` pairs to run sequentially. When set,
+  it takes precedence over `EGA_SCENARIO` and `EGA_TOPOLOGY`; each scenario gets isolated work
+  and artifact directories.
 - `EGA_STAGE` — `full` (deploy + validate + tear down), `deploy` (same but leave the lab up
   for inspection), or `destroy` (tear down a lab left up by `deploy`). Default `full`.
 - `EGA_E2E_SRC` — bind a repo checkout over the image's baked `/src` for live dev (default
@@ -176,6 +226,9 @@ test/e2e/run_remote.sh
 
 The remote must be provisioned with `podman`, `skopeo` and `make`, `podman.socket` enabled, and
 passwordless `sudo`; the script installs nothing on it.
+
+The runner stages image exports under `/var/tmp` by default so hosts with a small `/tmp` tmpfs do
+not run out of space. Override `TMPDIR` when a different staging filesystem is required.
 
 For convenience and testing it can also run with **no target** (`SSH_REMOTE` unset), doing the
 same export/build/run entirely on this host. That path is rootful, so build into the rootful

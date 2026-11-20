@@ -41,56 +41,95 @@
     enabled: true
   when: tunnel.type == 'wireguard'
 
+# ── Persistent all-active multihoming bond ──────────────────────
+- name: Configure all-active multihoming bond
+  ansible.builtin.include_tasks: multihoming.yml
+  when: multihoming.enabled | default(false) | bool
+
 # ── On-prem networking (nmstate) ────────────────────────────────
 - name: Configure on-prem networking
   ansible.builtin.include_tasks: nm_networking.yml
+  when: not (multihoming.enabled | default(false) | bool)
 
-# ── FRR ────────────────────────────────────────────────────────
-- name: Ensure FRR directories exist
-  ansible.builtin.file:
-    path: "{{ item.path }}"
-    state: directory
-    mode: "{{ item.mode }}"
-  loop:
-    - { path: /etc/frr, mode: '0755' }
-    - { path: /var/run/frr, mode: '0777' }
+# The current nmstate path owns the normal per-VNI layout. Multihoming uses the shared
+# VLAN-aware trunk bridge with one fixed-VNI VXLAN device per stretch, attached as an
+# access port. This avoids requiring the SVD-only external/vni-filter/vlan_tunnel
+# netlink attributes.
+- name: Set up physical multihoming trunk
+  ansible.builtin.include_tasks: physical.yml
+  when: multihoming.enabled | default(false) | bool
 
-- name: Deploy FRR daemons config
-  ansible.builtin.copy:
-    dest: /etc/frr/daemons
-    mode: "0644"
-    content: |
-      bgpd=yes
-      ospfd=no
-      ospf6d=no
-      ripd=no
-      ripngd=no
-      isisd=no
-      pimd=no
-      ldpd=no
-      nhrpd=no
-      eigrpd=no
-      babeld=no
-      sharpd=no
-      pbrd=no
-      bfdd=yes
-      fabricd=no
-      vrrpd=no
-      pathd=no
-  notify: Restart FRR
+- name: Create one fixed-VNI VXLAN device per multihoming stretch
+  ansible.builtin.command: >-
+    ip link add vxlan{{ 10000 + item.vlan }} type vxlan id {{ 10000 + item.vlan }}
+    dstport 4789 local {{ tunnel.onprem_ip }} nolearning
+  register: _mh_vxlan_create
+  failed_when: _mh_vxlan_create.rc != 0 and 'File exists' not in _mh_vxlan_create.stderr
+  changed_when: _mh_vxlan_create.rc == 0
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "VNI {{ 10000 + item.vlan }}"
+  when: multihoming.enabled | default(false) | bool
 
-- name: Deploy FRR vtysh config
-  ansible.builtin.copy:
-    dest: /etc/frr/vtysh.conf
-    mode: "0644"
-    content: "service integrated-vtysh-config\n"
+- name: Configure fixed-VNI VXLAN devices as access ports
+  ansible.builtin.shell: |
+    set -e
+    dev=vxlan{{ 10000 + item.vlan }}
+    ip link set "$dev" master trunk-br
+    bridge vlan del vid 1 dev "$dev" 2>/dev/null || true
+    bridge vlan add vid {{ item.vlan }} dev "$dev" pvid untagged
+    bridge link set dev "$dev" neigh_suppress on learning off
+    ip link set "$dev" up
+  args:
+    executable: /bin/bash
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "VLAN {{ item.vlan }} access port"
+  changed_when: true
+  when: multihoming.enabled | default(false) | bool
 
-- name: Deploy FRR config (on-prem VTEP)
-  ansible.builtin.template:
-    src: frr-onprem-appliance.conf.j2
-    dest: /etc/frr/frr.conf
-    mode: "0644"
-  notify: Restart FRR
+- name: Admit multihoming VLANs on the shared bridge
+  ansible.builtin.shell: |
+    set -e
+    bridge vlan add vid {{ item.vlan }} dev trunk-br self
+  args:
+    executable: /bin/bash
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "VLAN {{ item.vlan }} ↔ VNI {{ 10000 + item.vlan }}"
+  changed_when: true
+  when: multihoming.enabled | default(false) | bool
+
+- name: Assign multihoming SVIs to the shared VLAN-aware bridge
+  ansible.builtin.command: >-
+    ip addr add {{ item.onprem_gateway }}/{{ item.subnet | ansible.utils.ipaddr('prefix') }}
+    dev trunk.{{ item.vlan }}
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.onprem_gateway }} on trunk.{{ item.vlan }}"
+  register: _mh_ip_add
+  failed_when: _mh_ip_add.rc != 0 and 'already' not in _mh_ip_add.stderr and 'File exists' not in _mh_ip_add.stderr
+  changed_when: _mh_ip_add.rc == 0
+  when: multihoming.enabled | default(false) | bool
+
+- name: Discover multihoming appliance peers from inventory
+  ansible.builtin.set_fact:
+    _evpn_mh_peer_addresses: >-
+      {{
+        multihoming.peer_addresses
+        | default(
+            groups['onprem_appliances'] | default([])
+            | map('extract', hostvars, 'evpn_underlay_ip')
+            | reject('undefined')
+            | reject('equalto', evpn_underlay_ip | default(''))
+            | list,
+            true
+          )
+      }}
+  when: multihoming.enabled | default(false) | bool
+
+- name: Render FRR configuration
+  ansible.builtin.include_tasks: frr_config.yml
 
 - name: Start FRR via systemd service (bootc image)
   ansible.builtin.systemd:
