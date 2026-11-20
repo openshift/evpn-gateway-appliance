@@ -80,3 +80,5 @@ RUN chmod 755 /usr/libexec/evpn-appliance/payload-load.sh \
 LABEL description="EVPN Migration Appliance"
 LABEL version="0.1.0"
 LABEL prototype=frr-embed
+
+RUN bootc container lint
