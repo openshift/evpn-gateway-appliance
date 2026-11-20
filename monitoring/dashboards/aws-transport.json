@@ -1,0 +1,494 @@
+{
+  "uid": "ega-aws-transport",
+  "title": "EGA AWS transport",
+  "tags": [
+    "ega",
+    "aws"
+  ],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "cloudwatch",
+        "refresh": 1
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "queryType": "regions"
+        },
+        "refresh": 1
+      },
+      {
+        "name": "connection_id",
+        "label": "Connection ID",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "queryType": "dimensionValues",
+          "region": "$region",
+          "namespace": "AWS/DX",
+          "metricName": "ConnectionState",
+          "dimensionKey": "ConnectionId"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": "*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "virtual_interface_id",
+        "label": "Virtual interface ID",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "queryType": "dimensionValues",
+          "region": "$region",
+          "namespace": "AWS/DX",
+          "metricName": "VirtualInterfaceBgpStatus",
+          "dimensionKey": "VirtualInterfaceId",
+          "dimensionFilters": {
+            "ConnectionId": "$connection_id"
+          }
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": "*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "vpn_id",
+        "label": "VPN ID",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "queryType": "dimensionValues",
+          "region": "$region",
+          "namespace": "AWS/VPN",
+          "metricName": "TunnelState",
+          "dimensionKey": "VpnId"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": "*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "state-timeline",
+      "title": "DX connection state",
+      "description": "Minimum of 5-minute CloudWatch ConnectionState: 1 up, 0 down.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Up",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "$region",
+          "namespace": "AWS/DX",
+          "metricName": "ConnectionState",
+          "dimensions": {
+            "ConnectionId": "$connection_id"
+          },
+          "statistic": "Minimum",
+          "period": "300",
+          "matchExact": false,
+          "label": "${PROP('Dim.ConnectionId')}"
+        }
+      ],
+      "options": {
+        "rowHeight": 0.8
+      }
+    },
+    {
+      "id": 2,
+      "type": "state-timeline",
+      "title": "DX virtual-interface BGP status",
+      "description": "Minimum of 5-minute CloudWatch VirtualInterfaceBgpStatus per address family: 1 up, 0 down.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Up",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "$region",
+          "namespace": "AWS/DX",
+          "metricName": "VirtualInterfaceBgpStatus",
+          "dimensions": {
+            "VirtualInterfaceId": "$virtual_interface_id",
+            "IpAddressFamily": [
+              "*"
+            ],
+            "ConnectionId": "$connection_id"
+          },
+          "statistic": "Minimum",
+          "period": "300",
+          "matchExact": false,
+          "label": "${PROP('Dim.VirtualInterfaceId')} ${PROP('Dim.IpAddressFamily')}"
+        }
+      ],
+      "options": {
+        "rowHeight": 0.8
+      }
+    },
+    {
+      "id": 3,
+      "type": "state-timeline",
+      "title": "VPN tunnel state",
+      "description": "Minimum of 5-minute CloudWatch TunnelState per VPN: 1 all tunnels up, 0 all down, between some down. A VPN that uses one tunnel reads 0.5 (Partly down).",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Up",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 0,
+                "to": 1,
+                "result": {
+                  "text": "Partly down",
+                  "color": "orange",
+                  "index": 2
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "$region",
+          "namespace": "AWS/VPN",
+          "metricName": "TunnelState",
+          "dimensions": {
+            "VpnId": "$vpn_id"
+          },
+          "statistic": "Minimum",
+          "period": "300",
+          "matchExact": true,
+          "label": "${PROP('Dim.VpnId')}"
+        }
+      ],
+      "options": {
+        "rowHeight": 0.8
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Direct Connect throughput",
+      "description": "5-minute average throughput to AWS (ingress) and from AWS (egress) per connection. ConnectionBpsIngress and ConnectionBpsEgress are already bits per second.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "min": 0
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "$region",
+          "namespace": "AWS/DX",
+          "metricName": "ConnectionBpsIngress",
+          "dimensions": {
+            "ConnectionId": "$connection_id"
+          },
+          "statistic": "Average",
+          "period": "300",
+          "matchExact": true,
+          "label": "AWS ingress ${PROP('Dim.ConnectionId')}"
+        },
+        {
+          "refId": "B",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "$region",
+          "namespace": "AWS/DX",
+          "metricName": "ConnectionBpsEgress",
+          "dimensions": {
+            "ConnectionId": "$connection_id"
+          },
+          "statistic": "Average",
+          "period": "300",
+          "matchExact": true,
+          "label": "AWS egress ${PROP('Dim.ConnectionId')}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "VPN throughput",
+      "description": "Per-tunnel throughput to AWS (ingress) and from AWS (egress). 5-minute Sum of TunnelDataIn/Out bytes * 8 / 300 gives bits per second.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "AWS ingress ${__field.labels.VpnId} ${__field.labels.TunnelIpAddress}"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "AWS egress ${__field.labels.VpnId} ${__field.labels.TunnelIpAddress}"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "$region",
+          "namespace": "AWS/VPN",
+          "metricName": "TunnelDataIn",
+          "dimensions": {
+            "VpnId": "$vpn_id",
+            "TunnelIpAddress": [
+              "*"
+            ]
+          },
+          "statistic": "Sum",
+          "period": "300",
+          "matchExact": true,
+          "label": "AWS ingress ${PROP('Dim.VpnId')} ${PROP('Dim.TunnelIpAddress')}",
+          "hide": true
+        },
+        {
+          "refId": "B",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "region": "$region",
+          "namespace": "AWS/VPN",
+          "metricName": "TunnelDataOut",
+          "dimensions": {
+            "VpnId": "$vpn_id",
+            "TunnelIpAddress": [
+              "*"
+            ]
+          },
+          "statistic": "Sum",
+          "period": "300",
+          "matchExact": true,
+          "label": "AWS egress ${PROP('Dim.VpnId')} ${PROP('Dim.TunnelIpAddress')}",
+          "hide": true
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "type": "math",
+          "expression": "$A * 8 / 300"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "type": "math",
+          "expression": "$B * 8 / 300"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterByRefId",
+          "options": {
+            "include": "C|D"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,453 @@
+{
+  "uid": "ega-appliance",
+  "title": "EGA appliance",
+  "tags": [
+    "ega"
+  ],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "refresh": 1
+      },
+      {
+        "name": "job",
+        "label": "Job",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(node_network_info{device=~\"vxlan[0-9]+|wg0\"}, job)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "instance",
+        "label": "Instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(node_network_info{job=~\"$job\", device=~\"vxlan[0-9]+|wg0\"}, instance)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "state-timeline",
+      "title": "Node-exporter scrape",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Up",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{job}}/{{instance}}"
+        }
+      ],
+      "options": {
+        "rowHeight": 0.8
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Device operstate",
+      "description": "VXLAN and WireGuard devices can report unknown while carrying traffic.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "operstate"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "up": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "down": {
+                        "color": "red",
+                        "index": 1
+                      },
+                      "lowerlayerdown": {
+                        "color": "red",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "instance",
+            "desc": false
+          },
+          {
+            "displayName": "device",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_network_info{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|br-vni[0-9]+|trunk-br|trunk[.][0-9]+|wg0\"}",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "job",
+                "instance",
+                "device",
+                "operstate",
+                "adminstate"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "job": 0,
+              "instance": 1,
+              "device": 2,
+              "operstate": 3,
+              "adminstate": 4
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "state-timeline",
+      "title": "Device carrier",
+      "description": "VXLAN, WireGuard and br-vniN carrier stays up while administratively up, so trunk loss shows only on trunk-br and trunk.N.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Up",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (job, instance, device) (node_network_carrier{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|br-vni[0-9]+|trunk-br|trunk[.][0-9]+|wg0\"}) or on(job, instance, device) 0 * max by (job, instance, device) (node_network_info{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|br-vni[0-9]+|trunk-br|trunk[.][0-9]+|wg0\"})",
+          "legendFormat": "{{job}}/{{instance}} {{device}}"
+        }
+      ],
+      "options": {
+        "rowHeight": 0.8
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Device receive traffic",
+      "description": "VLAN, VXLAN and WireGuard devices; tunnel counts exclude outer headers.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(node_network_receive_bytes_total{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|trunk[.][0-9]+|wg0\"}[$__rate_interval]) * 8",
+          "legendFormat": "{{job}}/{{instance}} {{device}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Device transmit traffic",
+      "description": "VLAN, VXLAN and WireGuard devices; tunnel counts exclude outer headers.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(node_network_transmit_bytes_total{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|trunk[.][0-9]+|wg0\"}[$__rate_interval]) * 8",
+          "legendFormat": "{{job}}/{{instance}} {{device}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Device drops and errors",
+      "description": "Kernel drops and errors per second; WireGuard counts a packet with no matching peer as a transmit error.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(node_network_receive_drop_total{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|trunk[.][0-9]+|wg0\"}[$__rate_interval])",
+          "legendFormat": "{{job}}/{{instance}} {{device}} rx drop"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(node_network_transmit_drop_total{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|trunk[.][0-9]+|wg0\"}[$__rate_interval])",
+          "legendFormat": "{{job}}/{{instance}} {{device}} tx drop"
+        },
+        {
+          "refId": "C",
+          "expr": "rate(node_network_receive_errs_total{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|trunk[.][0-9]+|wg0\"}[$__rate_interval])",
+          "legendFormat": "{{job}}/{{instance}} {{device}} rx error"
+        },
+        {
+          "refId": "D",
+          "expr": "rate(node_network_transmit_errs_total{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|trunk[.][0-9]+|wg0\"}[$__rate_interval])",
+          "legendFormat": "{{job}}/{{instance}} {{device}} tx error"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "hideZeros": true
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Device carrier changes",
+      "description": "Carrier transitions per device in each graph interval, including flaps between scrapes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "custom": {
+            "showPoints": "never",
+            "drawStyle": "bars",
+            "fillOpacity": 40
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(node_network_carrier_changes_total{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|br-vni[0-9]+|trunk-br|trunk[.][0-9]+|wg0\"} - node_network_carrier_changes_total{job=~\"$job\", instance=~\"$instance\", device=~\"vxlan[0-9]+|br-vni[0-9]+|trunk-br|trunk[.][0-9]+|wg0\"} offset $__interval, 0)",
+          "legendFormat": "{{job}}/{{instance}} {{device}}"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "hideZeros": true
+        }
+      }
+    }
+  ]
+}

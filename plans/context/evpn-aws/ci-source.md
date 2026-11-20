@@ -264,6 +264,15 @@ Checked: 2.15.1 source at `2eece559`; behavior rechecked with the `hadolint-py` 
   lint does not replace an image build. Earlier #6 Containerfiles reported DL3006, DL3041 and
   DL3059; #6 has since been rewritten.
 
+### promtool
+
+Checked: 3.5.0, [`8be3a956`](https://github.com/prometheus/prometheus/tree/8be3a9560fbdd18a94dedec4b747c35178177202), 2026-11-14;
+`Dockerfile.ci` verifies the release tarball against the release's `sha256sums.txt`.
+
+- `check rules` reads a rule file from stdin when given no file
+  ([`main.go`](https://github.com/prometheus/prometheus/blob/8be3a9560fbdd18a94dedec4b747c35178177202/cmd/promtool/main.go)), which lets
+  `check_dashboards.py` compile every panel and variable PromQL expression in one call as recording rules.
+
 ### markdownlint-cli2
 
 Checked: 0.23.3, [`916ad0aa`](https://github.com/DavidAnson/markdownlint-cli2/blob/916ad0aaa108c64d294101002066f530ea170b10/README.md).
@@ -352,5 +361,6 @@ Custom CI code needs a requirement that no maintained tool covers. Current code:
 | `plans/context/evpn-aws/tools/check-links.py`, `check-pins.py` | 111 + 45 | Relative links and anchors in the plans; online, external URLs including fragments (rate-limited hosts are reported as unreachable rather than broken, but still fail the run; rerun later) and GitHub blob/tree paths at a hexadecimal revision through authenticated `gh`. A resolving pin proves the path exists, not the claim made about it | A native link checker handles literal filenames and authenticated revision paths |
 | `plans/context/evpn-aws/tools/check-all.sh` | 15 | Runs the helpers above and accumulates failures; `--offline` skips URLs and pins | The helpers above are retired |
 | `ansible/tools/check-collection-tarball.sh` | 26 | Tarball root paths against an allowlist, required `meta/runtime.yml` and `README.md`; prints the `MANIFEST.json` digest | The native `manifest` directive plus required-path checks replace it |
+| `monitoring/check_dashboards.py` (tests in `monitoring/tests/test_check_dashboards.py`) | 144 + 114 | Panel and variable PromQL compiled through promtool after Grafana variable substitution; unique panel IDs and CloudWatch panel query fields; `frrk8s_*` names in `monitoring/rules/*.yaml` and dashboard expressions against `monitoring/frrk8s-metrics.txt`; each Grafana alert rule's states, CloudWatch query fields, expression references, condition and linked panel; every alert's `runbook_url` naming its own `## <alert>` section of `monitoring/runbooks.md`, every section an alert, and no section repeated | A maintained dashboard and alert linter covers template PromQL compilation, a metric catalog and runbook links, and a Grafana provisioning dry run covers alert rules |
 
 Add a row here when a PR adds custom glue, with the reason.

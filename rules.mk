@@ -9,9 +9,9 @@ verify: check
 
 # Static source checks aggregating the planning-docs corpus integrity, the
 # public-safety scan, the repo-wide yaml, Markdown, python, shell and container-file lint, and the
-# Ansible collection checks.
+# Ansible collection and monitoring checks.
 .PHONY: check
-check: check-corpus check-public check-yaml check-markdown check-python check-shell check-dockerfiles check-ansible
+check: check-corpus check-public check-yaml check-markdown check-python check-shell check-dockerfiles check-ansible check-monitoring
 
 # Planning-docs corpus integrity: link + anchor + pin resolution and public-safe
 # over the plans/ docs (check-all.sh bundles them).
@@ -86,6 +86,17 @@ check-dockerfiles:
 	# virtiofs. COPY the file into a stage and bind-mount from that stage instead.
 	if git grep -n --untracked -E 'relabel=' -- ':(glob)**/Dockerfile*' ':(glob)**/Containerfile*'; then \
 		echo 'build mounts must not relabel checkout files; COPY into a stage and mount from=<stage>' >&2; exit 1; fi
+
+# Monitoring rules and their promtool tests (promtool pinned in Dockerfile.ci), dashboard
+# PromQL compilation, the frr-k8s series-name contract, Grafana alert rules, alert runbook
+# links, and the checker's unit tests.
+PROMTOOL ?= promtool
+.PHONY: check-monitoring
+check-monitoring:
+	git ls-files -z -c -o --exclude-standard -- 'monitoring/rules/*.yaml' | xargs -0 -r $(PROMTOOL) check rules --lint=all --lint-fatal --
+	git ls-files -z -c -o --exclude-standard -- 'monitoring/tests/*_test.yaml' | xargs -0 -r $(PROMTOOL) test rules --
+	git ls-files -z -c -o --exclude-standard -- 'monitoring/rules/*.yaml' 'monitoring/dashboards/*.json' 'monitoring/grafana/*.yaml' | xargs -0 -r env PROMTOOL="$(PROMTOOL)" python3 monitoring/check_dashboards.py
+	env PROMTOOL="$(PROMTOOL)" PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s monitoring/tests -p 'test_*.py'
 
 # ── Ansible collection source checks ─────────────────────────────────────────
 # Lint, playbook syntax, collection build + tarball allowlist, a clean-env install
