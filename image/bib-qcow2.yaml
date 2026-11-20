@@ -1,0 +1,19 @@
+# BIB wrapper for the qcow2 disk derivative.
+# The build-vm-image task reads exactly three keys.
+# Pipeline parameter IMAGE_TYPE=qcow2; this file is BIB_CONFIG_FILE.
+# See plans/context/evpn-aws/bib-configuration-spec.md.
+#
+# TODO(bib-digest): Replace with the approved bootc-image-builder digest for the
+#   target cluster. The digest below is the current :latest (9.9) index; have the
+#   platform owner confirm it is the approved bundle on the build cluster.
+# TODO(source-image): Confirm the tenant/component pull-spec path. If builds run
+#   in a team tenant (not ocp-art-tenant), the path is
+#   quay.io/redhat-user-workloads/<team-tenant>/evpn-gateway-appliance/ose-5-1-evpn-gateway-appliance.
+#   Nudging rewrites this digest automatically.
+# TODO(tagged-as): Confirm the customer update-channel tag. This must be the
+#   bootc registry channel customers pull updates from, not the disk-artifact
+#   repository. Example: 5.1 or v5.1 per the product's tag policy. The task uses
+#   this as a local alias and the installed update origin.
+bootc-builder-image: registry.redhat.io/rhel9/bootc-image-builder@sha256:5228c67556eb768e6d7eff95f1cdee4c8e5daf970e0299b523f585525ef1a90a
+source-image: quay.io/redhat-user-workloads/ocp-art-tenant/evpn-gateway-appliance/ose-5-1-evpn-gateway-appliance@sha256:7bb233d85c40c657fb6b9a29ffe32dfa8808e312bf26a8b2beb185df8d84c434
+tagged-as: registry.redhat.io/openshift5/evpn-gateway-appliance-rhel10:5.1
