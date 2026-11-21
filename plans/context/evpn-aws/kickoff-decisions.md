@@ -29,10 +29,10 @@ and publication needs its destination. Resolve the remaining choices alongside r
 | 12 | Artifact set: qcow2, AMI, vmdk/ova, installers, FIPS variant | PM / Architecture | Before adding optional formats/variants, then [Gate C-stage](#gate-c-stage--trial-publication); qcow2/AMI remain Jira requirements | Open |
 | 13 | AMI channel and entitlement | PM / cloud publishing / releng | [Gate C-stage](#gate-c-stage--trial-publication) | Open; action item assigned 2026-10-01 |
 | 14 | Stage publication objects and how the collection finds the released AMI | Releng / channel owners / Architecture | [Gate C-stage](#gate-c-stage--trial-publication) | Open |
-| 15 | Collection publisher and destination | PM / AAP content / releng | [Gate C-stage](#gate-c-stage--trial-publication) | Open |
+| 15 | Collection publisher and destination | Jaime Caamaño Ruiz (team lead) | [Gate C-stage](#gate-c-stage--trial-publication) | Open; owner assigned 2026-11-17 |
 | 16 | Metric source for 7504's VNI/MAC views and the standalone `frr-metrics` question | Daniel Farrell (CORENET-7504) | Source choice, independently of implementation/qualification | Closed 2026-11-10: frr-k8s `frr-metrics` for BGP/BFD and basic EVPN, with standalone operation; [Networking review](https://github.com/openshift/evpn-gateway-appliance/pull/24#issuecomment-6768033317), following the [2026-10-01 direction](https://github.com/openshift/evpn-gateway-appliance/pull/2#issuecomment-5936707328) |
 | 17 | Product identity: Engineering ID, CPE, registry paths, ProdSec stream | PM / Product Security / releng | [Gate C-stage](#gate-c-stage--trial-publication) for the Engineering ID; [Gate C-prod](#gate-c-prod--supported-release) for the rest | Open |
-| 18 | Support matrix, including the AWS/OCP support decision and ROSA | PM / Architecture / QE | [Gate C-prod](#gate-c-prod--supported-release) | Open |
+| 18 | Support matrix, including the AWS/OCP support decision and ROSA | Jaime Caamaño Ruiz (team lead) | [Gate C-prod](#gate-c-prod--supported-release) | Open; owner assigned 2026-11-17 |
 | 19 | Qualification evidence and sign-offs | Networking / QE / Product Security / docs | [Gate C-prod](#gate-c-prod--supported-release) | Open |
 
 ## Already settled
@@ -223,7 +223,8 @@ item for decisions 7, 8 and 13 to `@knobunc`.
   GitHub release → pinned `release_ah.yaml` with a Hub service account, as `hashicorp.vault`
   does. Destination and publisher remain decision 15, not an approved default; a trusted
   native publisher or AAP's Zuul path can meet the same contract. Prove the selected path
-  with trial credentials on an isolated server first. *Owner: PM / AAP content / releng.*
+  with trial credentials on an isolated server first. *Owner: Jaime Caamaño Ruiz (team lead),
+  assigned 2026-11-17 ([CORENET-7705](https://redhat.atlassian.net/browse/CORENET-7705)), with PM / AAP content / releng input.*
 - **Observability.** Decision 16 closed 2026-11-10. Accountable owner: **Daniel Farrell**
   (CORENET-7504). Select frr-k8s's `frr-metrics` for existing BGP/BFD and basic EVPN VNI/MAC
   observations, with standalone operation. Evidence: the [2026-10-01 Networking direction](https://github.com/openshift/evpn-gateway-appliance/pull/2#issuecomment-5936707328),
@@ -254,8 +255,8 @@ item for decisions 7, 8 and 13 to `@knobunc`.
   PERFSCALE-5814), AWS regions, FRR version, transports and their bandwidth limits, architecture,
   topology/HA and scale. Published 4.22 EVPN and BGP support is bare-metal only, so AWS needs an
   explicit support decision. The parent outcome HPSTRAT-714 names ROSA, so decide whether ROSA HCP
-  is in the matrix. L2 versus the parent feature's L2+L3 requirement. *Owner: PM / Architecture /
-  QE.*
+  is in the matrix. L2 versus the parent feature's L2+L3 requirement. *Owner: Jaime Caamaño Ruiz
+  (team lead), assigned 2026-11-17 ([CORENET-7705](https://redhat.atlassian.net/browse/CORENET-7705)), with PM / Architecture / QE input.*
 - **Qualification.** Approved source/test revisions and vulnerability-assessment freshness; OCP VTEP
   addressing on AWS; transport/MTU and HA capacity; automatic rollback including lost host access;
   supported OCP update paths with external EVPN; dashboards/docs and security/performance

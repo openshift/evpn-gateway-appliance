@@ -187,6 +187,20 @@ ownership):
   model (VRF-per-tenant or a forwarding filter, or accepting inter-tenant
   routing). CORENET-7508 calls for L2/VNI isolation testing in integration CI.
 
+## Feedback and contributing
+
+Report bugs in [OCPBUGS](https://redhat.atlassian.net/browse/OCPBUGS) under the
+`Networking / evpn-gateway-appliance` component, request features in
+[issues](https://github.com/openshift/evpn-gateway-appliance/issues), and report
+vulnerabilities privately to
+[Red Hat Product Security](https://access.redhat.com/security/team/contact).
+Contribute by pull request to the
+[source repository](https://github.com/openshift/evpn-gateway-appliance): sign
+off each commit (`git commit -s`), start the title with a Jira key
+(`CORENET-1234: ...`) or `NO-JIRA:`, and pass `make check OFFLINE=1` from its
+root. Changes that add major functionality must add tests to the Molecule
+(`ansible/extensions/molecule`) or e2e (`test/e2e`) suites.
+
 ## License and conduct
 
 Apache-2.0; see [LICENSE](LICENSE). Contributors follow the
