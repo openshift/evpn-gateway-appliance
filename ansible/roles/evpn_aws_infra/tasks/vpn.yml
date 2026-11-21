@@ -1,0 +1,40 @@
+---
+# Included only for ipsec. AWS terminates the VPN; no router IKE/NAT-T ingress.
+# ec2_vpc_vpn tunnel_options accept only TunnelInsideCidr/TunnelInsideIpv6Cidr/PreSharedKey;
+# the CLI is required to pin IKE/ESP proposals, lifetimes, DPD and StartupAction.
+- name: Set pinned VPN tunnel options
+  ansible.builtin.set_fact:
+    # Names and values verified against VpnTunnelOptionsSpecification and
+    # https://docs.aws.amazon.com/cli/latest/reference/ec2/create-vpn-connection.html
+    _evpn_aws_infra_vpn_pinned_options:
+      IKEVersions: [{Value: ikev2}]
+      Phase1EncryptionAlgorithms: [{Value: AES256-GCM-16}]
+      Phase1IntegrityAlgorithms: [{Value: SHA2-256}]
+      Phase1DHGroupNumbers: [{Value: 14}]
+      Phase2EncryptionAlgorithms: [{Value: AES256-GCM-16}]
+      Phase2IntegrityAlgorithms: [{Value: SHA2-256}]
+      Phase2DHGroupNumbers: [{Value: 14}]
+      Phase1LifetimeSeconds: 28800
+      Phase2LifetimeSeconds: 3600
+      RekeyMarginTimeSeconds: 270
+      RekeyFuzzPercentage: 100
+      DPDTimeoutSeconds: 40
+      DPDTimeoutAction: clear
+      StartupAction: add
+
+- name: Provision one VPN connection per appliance
+  ansible.builtin.include_tasks: vpn_connection.yml
+  loop: "{{ _evpn_aws_infra_vpn_appliances }}"
+  loop_control:
+    loop_var: _evpn_aws_infra_vpn_appliance
+    label: "{{ _evpn_aws_infra_vpn_appliance.customer_gateway_ip }}"
+
+- name: Route the on-premises network through the TGW
+  ansible.builtin.command: >
+    aws ec2 create-route --region {{ _evpn_aws_infra_region }}
+    --route-table-id {{ _evpn_aws_infra_infra_rt.stdout | trim }}
+    --destination-cidr-block {{ tunnel.network_cidr | default('10.44.44.0/24') }}
+    --transit-gateway-id {{ _evpn_aws_infra_tgw.stdout | trim }}
+  register: _evpn_aws_infra_r
+  failed_when: _evpn_aws_infra_r.rc != 0 and 'already exists' not in _evpn_aws_infra_r.stderr
+  changed_when: _evpn_aws_infra_r.rc == 0

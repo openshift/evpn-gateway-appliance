@@ -1,0 +1,55 @@
+---
+# trafficstatus lists Child SAs, rather than accepting an IKE SA as proof of a working tunnel.
+# Names match evpn_onprem_appliance's ega-aws.conf.j2. No handoff secrets are needed for health checks.
+- name: "HEALTH [onprem]: Both AWS VPN connections have an established Child SA"
+  ansible.builtin.shell: |
+    traffic=$(ipsec trafficstatus) || exit 1
+    rc=0
+    for c in ega-aws-1 ega-aws-2; do
+      grep -F "\"$c\"" <<< "$traffic" || { echo "$c: no established Child SA"; rc=1; }
+    done
+    exit "$rc"
+  args:
+    executable: /bin/bash
+  changed_when: false
+  register: _evpn_health_check_ipsec_child_sas
+  until: _evpn_health_check_ipsec_child_sas.rc == 0
+  retries: 12
+  delay: 5
+
+- name: "HEALTH [onprem]: Both AWS underlay BGP peers are Established"
+  ansible.builtin.shell: |
+    set -o pipefail
+    podman exec frr vtysh -c "show bgp summary json" | python3 -c '
+    import json, sys
+    peers = json.load(sys.stdin).get("ipv4Unicast", {}).get("peers", {})
+    for peer, data in peers.items():
+        print(peer + ": " + data.get("state", "Missing"))
+    assert len(peers) == 2, "Expected exactly two AWS underlay BGP peers"
+    assert all(data.get("state") == "Established" for data in peers.values()), "Both AWS underlay peers must be Established"
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+  register: _evpn_health_check_ipsec_underlay_bgp
+  until: _evpn_health_check_ipsec_underlay_bgp.rc == 0
+  retries: 12
+  delay: 5
+
+- name: Check telemetry for AWS IPsec
+  delegate_to: localhost
+  connection: local
+  run_once: true
+  become: false
+  when: evpn_health_check_vpn_telemetry | default(false) | bool
+  block:
+    - name: Require the control-node credential context for VPN telemetry
+      ansible.builtin.assert:
+        that:
+          - hostvars['localhost'].ansible_connection | default('local') in ['local', 'ansible.builtin.local', 'ansible.legacy.local']
+          - hostvars['localhost'].ansible_become | default(false) is ansible.builtin.falsy(convert_bool=true)
+        fail_msg: VPN telemetry requires local execution without privilege escalation to use controller credentials.
+    - name: Check both project VPN tunnel states
+      ansible.builtin.include_role:
+        name: evpn_aws_infra
+        tasks_from: vpn_status

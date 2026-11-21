@@ -2,8 +2,7 @@
 # ── Tunnel ────────────────────────────────────────────────────
 # Supported types:
 #   wireguard      — dev/test, terminates on infra EC2
-#   ipsec          — Site-to-Site VPN, TGW cloud-side, Libreswan on-prem
-#                    requires on-prem public IP for Customer Gateway
+#   ipsec          — AWS VPN on TGW; on-prem Libreswan + FRR (not yet qualified)
 #   direct-connect — production, DX partner + jumbo MTU
 #
 # MTU modes:
@@ -38,6 +37,10 @@ bgp:
   infra_asn: 65100
   workload_asn: 65200
   # max_prefix: 1000   # Defensive backstop only; defaults to 1000 if omitted (source-audit.md §1).
+
+# IPsec: set evpn_aws_infra_vpn_customer_gateway_ip (per host in host_vars/ for several appliances); map the ASN and enable AWS telemetry.
+evpn_aws_infra_vpn_customer_gateway_asn: "{{ bgp.onprem_asn }}"
+evpn_health_check_vpn_telemetry: "{{ tunnel.type == 'ipsec' }}"
 
 # ── VLAN Stretches ────────────────────────────────────────────
 stretches:

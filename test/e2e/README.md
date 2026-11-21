@@ -128,6 +128,14 @@ Leave the lab up for inspection with `EGA_STAGE=deploy`, then tear it down with
 sudo EGA_STAGE=destroy test/e2e/run.sh
 ```
 
+## Transport scenarios
+
+The default lane runs the base WireGuard scenario. Set `EGA_SCENARIO=ipsec
+EGA_TOPOLOGY=evpn-ipsec.clab.yml` for `run.sh` to run the IPsec scenario instead. Its TGW
+node runs Libreswan responders and FRR in place of the AWS VPN endpoint, with a public
+test-only handoff. It does not prove AWS telemetry, NAT-T, rekey or maintenance behavior,
+ECMP or route limits.
+
 ## run_remote.sh — remote target (or local, no target)
 
 ### Execution model

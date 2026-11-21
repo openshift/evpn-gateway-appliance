@@ -1,0 +1,41 @@
+! Test-only AWS VPN/TGW emulator. Zebra installs BGP routes into the kernel.
+! frr version line derived from frr_image; revisit if frr_image moves to digest pinning.
+frr version {{ frr_image.split(":")[-1] }}
+frr defaults traditional
+hostname tgw
+log syslog informational
+!
+! Each appliance advertises its own VTEP network within the shared one.
+ip prefix-list EGA-ONPREM seq 10 permit {{ tunnel.network_cidr }} le 32
+ip prefix-list EGA-VPCS seq 10 permit {{ infra_vpc_cidr }}
+ip prefix-list EGA-VPCS seq 20 permit {{ workload_vpc_cidr }}
+!
+router bgp {{ evpn_aws_vpn_sim_vpns[0].tunnels[0].aws_bgp_asn }}
+ bgp router-id {{ evpn_aws_vpn_sim_management_ip }}
+ bgp log-neighbor-changes
+ bgp ebgp-requires-policy
+ no bgp default ipv4-unicast
+ ! Emulated VPC attachments are /24s; originate their enclosing /16s.
+ no bgp network import-check
+{% for vpn_tunnel in evpn_aws_vpn_sim_vpns | map(attribute='tunnels') | flatten | sort(attribute='inside_cidr') %}
+{% set cgw = vpn_tunnel.inside_cidr | ansible.utils.ipmath(2) %}
+ neighbor {{ cgw }} remote-as {{ vpn_tunnel.cgw_bgp_asn }}
+ neighbor {{ cgw }} update-source {{ vpn_tunnel.inside_cidr | ansible.utils.ipmath(1) }}
+ neighbor {{ cgw }} timers 10 30
+ neighbor {{ cgw }} timers connect 10
+{% endfor %}
+ !
+ address-family ipv4 unicast
+  network {{ infra_vpc_cidr }}
+  network {{ workload_vpc_cidr }}
+{% for vpn_tunnel in evpn_aws_vpn_sim_vpns | map(attribute='tunnels') | flatten | sort(attribute='inside_cidr') %}
+{% set cgw = vpn_tunnel.inside_cidr | ansible.utils.ipmath(2) %}
+  neighbor {{ cgw }} activate
+  neighbor {{ cgw }} prefix-list EGA-ONPREM in
+  neighbor {{ cgw }} prefix-list EGA-VPCS out
+{% endfor %}
+  maximum-paths 1
+ exit-address-family
+exit
+!
+end

@@ -40,17 +40,27 @@
     p=d['ipv4Unicast']['peers']['{{ tunnel.onprem_ip }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
-  when: "'cloud_infra' in group_names"
+  when:
+    - "'cloud_infra' in group_names"
+    - tunnel.type != 'ipsec'
 
 - name: "HEALTH [infra]: EVPN prefixes relayed from on-prem"
   ansible.builtin.shell: >
     set -o pipefail;
     podman exec frr vtysh -c "show bgp l2vpn evpn summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
-    p=d['peers']['{{ tunnel.onprem_ip }}'];
+    p=d['peers']['{{ item }}'];
     assert int(p['pfxRcd'])>0, f'pfxRcd={p[\"pfxRcd\"]}'"
   changed_when: false
+  register: _evpn_health_check_onprem_prefixes
+  until: _evpn_health_check_onprem_prefixes.rc == 0
+  retries: 12
+  delay: 5
   when: "'cloud_infra' in group_names"
+  # IPsec peers the relay with every appliance's VTEP.
+  loop: >-
+    {{ groups['onprem_appliances'] | map('extract', hostvars) | map(attribute='tunnel') | map(attribute='onprem_ip') | list
+       if tunnel.type == 'ipsec' else [tunnel.onprem_ip] }}
 
 - name: "HEALTH [infra]: EVPN prefixes relayed from workload"
   ansible.builtin.shell: >
@@ -125,7 +135,15 @@
     p=d['ipv4Unicast']['peers']['{{ tunnel.cloud_ip }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
-  when: "'onprem_appliances' in group_names"
+  when:
+    - "'onprem_appliances' in group_names"
+    - tunnel.type != 'ipsec'
+
+- name: Check on-prem IPsec health
+  ansible.builtin.include_tasks: ipsec.yml
+  when:
+    - "'onprem_appliances' in group_names"
+    - tunnel.type == 'ipsec'
 
 - name: "HEALTH [onprem]: remote VTEP present per VNI"
   ansible.builtin.shell: >

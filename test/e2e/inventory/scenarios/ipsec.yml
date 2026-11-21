@@ -1,0 +1,26 @@
+---
+tunnel:
+  type: ipsec
+  mtu_mode: unsafe
+  onprem_ip: 10.44.44.1
+  network_cidr: 10.44.44.0/24
+
+# simulate.yml adds this host in memory only; AWS telemetry stays disabled by default.
+evpn_aws_vpn_sim_management_ip: 172.20.20.13
+
+# PUBLIC TEST-ONLY PSKs for an isolated, disposable lab. Never use these in AWS
+# or on a real customer gateway. This fixture deliberately matches the handoff
+# schema; tasks reading keys must still use no_log and suppress secret diffs.
+evpn_onprem_appliance_ipsec:
+  customer_gateway_ip: 172.20.20.11
+  tunnels:
+    - outside_ip: 172.20.20.21
+      inside_cidr: 169.254.10.0/30
+      aws_bgp_asn: 64512
+      cgw_bgp_asn: 65044
+      secret_preshared_key: TEST_ONLY_EGA_IPSEC_TUNNEL_1_0123456789abcdefghijklmnopqrstuvwxy
+    - outside_ip: 172.20.20.22
+      inside_cidr: 169.254.11.0/30
+      aws_bgp_asn: 64512
+      cgw_bgp_asn: 65044
+      secret_preshared_key: TEST_ONLY_EGA_IPSEC_TUNNEL_2_0123456789abcdefghijklmnopqrstuvwxy

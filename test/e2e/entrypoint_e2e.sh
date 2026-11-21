@@ -10,6 +10,7 @@
 set -euo pipefail
 
 stage="${EGA_STAGE:-full}"
+scenario="${EGA_SCENARIO:-base}"
 : "${EGA_NODE_IMAGE:?}"
 : "${EGA_RUNTIME_SOCK:?}"
 : "${EGA_EE_IMAGE:?}"
@@ -21,6 +22,23 @@ self_dir="$(cd "$(dirname "$0")" && pwd)"
 # containerlab talks to the mounted host socket; podman is its runtime.
 export DOCKER_HOST="unix://${EGA_RUNTIME_SOCK}"
 export CONTAINERLAB_RUNTIME="podman"
+
+scenario_args=()
+case "$scenario" in
+	base) ;;
+	ipsec)
+		# The ipsec overlay needs the topology with the simulated AWS VPN endpoint.
+		if [ "$EGA_TOPOLOGY" != "evpn-ipsec.clab.yml" ]; then
+			echo "error: EGA_SCENARIO=ipsec requires EGA_TOPOLOGY=evpn-ipsec.clab.yml" >&2
+			exit 2
+		fi
+		scenario_args=(-e "@${EGA_WORK_DIR}/lab/inventory/scenarios/ipsec.yml")
+		;;
+	*)
+		echo "error: unsupported EGA_SCENARIO=$scenario" >&2
+		exit 2
+		;;
+esac
 
 src_topo="${self_dir}/topology/${EGA_TOPOLOGY}"
 
@@ -95,6 +113,7 @@ ee_playbook() {
 		-w "${lab_dir}" \
 		"$EGA_EE_IMAGE" \
 		ansible-playbook -i "${lab_dir}/inventory/hosts.yml" \
+			"${scenario_args[@]}" \
 			"$pb" \
 			-u root --private-key "$ssh_key"
 }

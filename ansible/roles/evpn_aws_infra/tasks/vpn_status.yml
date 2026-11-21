@@ -1,0 +1,40 @@
+---
+- name: Validate the project name
+  ansible.builtin.include_tasks: project_name.yml
+
+- name: List the appliances
+  ansible.builtin.include_tasks: vpn_appliances.yml
+
+- name: Check AWS VPN tunnel telemetry
+  block:
+    - name: Wait for every appliance's two AWS VPN tunnels to be UP
+      amazon.aws.ec2_vpc_vpn_info:
+        region: "{{ evpn_aws_infra_aws_region }}"
+        filters:
+          "tag:Project": "{{ evpn_aws_infra_project_name }}"
+          "tag:Name": "{{ evpn_aws_infra_project_name }}-vpn-*"
+          state: available
+      register: _evpn_aws_infra_vpn_status
+      until:
+        - _evpn_aws_infra_vpn_status.vpn_connections | length == _evpn_aws_infra_vpn_appliances | length
+        - >-
+          _evpn_aws_infra_vpn_status.vpn_connections | map(attribute='vgw_telemetry') | flatten
+          | selectattr('status', 'equalto', 'UP') | list | length == 2 * _evpn_aws_infra_vpn_appliances | length
+      # AWS documents no refresh interval for tunnel telemetry.
+      retries: 30
+      delay: 10
+      # The module also returns tunnel options and customer_gateway_configuration, which contain keys.
+      no_log: true
+  rescue:
+    - name: Report unhealthy AWS VPN tunnel states
+      ansible.builtin.fail:
+        msg: >-
+          {{ 'AWS VPN lookup failed (check controller credentials and region).'
+             if _evpn_aws_infra_vpn_status.vpn_connections is not defined else '' }}
+          Every appliance's two AWS VPN tunnels must be UP. Available VPNs:
+          {{ _evpn_aws_infra_vpn_status.vpn_connections | default([]) | length }} of {{ _evpn_aws_infra_vpn_appliances | length }}.
+          {% for v in _evpn_aws_infra_vpn_status.vpn_connections | default([]) %}
+          {{ v.tags.Name }}: {% for t in v.vgw_telemetry | default([]) %}{{ t.outside_ip_address }} {{ t.status }}{{
+          ' (' ~ t.status_message ~ ')' if t.status_message | default('') else '' }}{{ ', ' if not loop.last }}{% endfor %}{{
+          ';' if not loop.last }}
+          {% endfor %}
