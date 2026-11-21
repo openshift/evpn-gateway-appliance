@@ -1,0 +1,52 @@
+groups:
+  - name: ega-path-probe
+    rules:
+      - alert: EGAEvpnPathProbeFailed
+        expr: >-
+          max by (job, instance, target) (
+            (
+              avg_over_time(
+                (
+                  ega_path_probe_success
+                  and on(job, instance)
+                  (abs(node_time_seconds - on(job, instance) node_textfile_mtime_seconds{file=~".*/ega-path-probe[.]prom"}) <= 60)
+                )[5m:30s]
+              ) < 0.75
+              and ega_path_probe_success
+            )
+          )
+        for: 3m
+        labels:
+          severity: warning
+          netobserv: "true"
+        annotations:
+          summary: 'Overlay path probe failed on {{ $labels.instance }}'
+          runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobefailed
+          netobserv_io_network_health: '{}'
+          description: >-
+            {{ $labels.job }}/{{ $labels.instance }}: for 3m, over a quarter of overlay probes in the
+            last 5m got fewer than 3 echo replies within 5s. It samples one overlay path and does not
+            identify the failed component.
+      - alert: EGAEvpnPathProbeUnavailable
+        expr: >-
+          max by (job, instance) (
+            (abs(node_time_seconds - on(job, instance) node_textfile_mtime_seconds{file=~".*/ega-path-probe[.]prom"}) > 60)
+            or (
+              (-1 * present_over_time(ega_path_probe_success[1d]) unless on(job, instance) ega_path_probe_success)
+              and on(job, instance) node_time_seconds
+              unless on(job, instance) (ega_path_probe_disabled == 1)
+            )
+          )
+        for: 5m
+        labels:
+          severity: warning
+          netobserv: "true"
+        annotations:
+          summary: 'Overlay path probe result unavailable on {{ $labels.instance }}'
+          runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobeunavailable
+          netobserv_io_network_health: '{}'
+          description: >-
+            {{ $labels.job }}/{{ $labels.instance }}: for 5m there was no fresh probe result: the
+            probe textfile was older than 60s or dated over 60s ahead (value: seconds apart), or the probe stopped
+            reporting while node-exporter runs (value -1). Check ega-path-probe.timer and
+            node-exporter's --collector.textfile.directory. Value {{ $value }}.

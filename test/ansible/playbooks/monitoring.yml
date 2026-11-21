@@ -1,0 +1,78 @@
+---
+- name: Check frr-metrics and the monitoring switch
+  hosts: onprem_appliances:cloud_infra:cloud_workload
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check disabling frr-metrics stops the service
+      block:
+        - name: Turn frr-metrics off while it runs
+          ansible.builtin.include_role:
+            name: network.evpn_gateway.evpn_monitoring
+            tasks_from: frr_metrics
+          vars:
+            monitoring:
+              frr_exporter: false
+
+        - name: Read the disabled frr-metrics unit state
+          ansible.builtin.systemd:
+            name: frr-metrics.service
+          register: _monitoring_unit
+
+        - name: Check turning frr-metrics off stopped and disabled it
+          ansible.builtin.assert:
+            that:
+              - _monitoring_unit.status.UnitFileState == 'disabled'
+              - _monitoring_unit.status.ActiveState == 'inactive'
+            quiet: true
+      always:
+        # Unset, the default: a deploy after teardown restores the unit.
+        - name: Turn frr-metrics back on with the switch unset
+          ansible.builtin.include_role:
+            name: network.evpn_gateway.evpn_monitoring
+            tasks_from: frr_metrics
+          vars:
+            monitoring: {}
+
+    - name: Read the enabled frr-metrics unit state
+      ansible.builtin.systemd:
+        name: frr-metrics.service
+      register: _monitoring_unit
+
+    - name: Check the unset switch enabled and started it again
+      ansible.builtin.assert:
+        that:
+          - _monitoring_unit.status.UnitFileState == 'enabled'
+          - _monitoring_unit.status.ActiveState == 'active'
+        quiet: true
+
+    # Crash FRR: Restart=always brings it back with a new /run/frr, and frr-metrics, which is
+    # bound to frr-container.service, must restart with it to bind the new directory.
+    - name: Kill the FRR container
+      ansible.builtin.command: podman kill frr
+      changed_when: true
+
+    # The pinned FRR image's exporter sums prefixes across families; collector status and
+    # per-family and EVPN VNI series need an image that carries metallb/frr-k8s#528.
+    - name: Wait for frr-metrics to report an Established BGP session and, on a VTEP, received prefixes
+      ansible.builtin.uri:
+        url: http://127.0.0.1:7573/metrics
+        return_content: true
+        timeout: 10
+      register: _monitoring_metrics
+      until:
+        - _monitoring_metrics.status == 200
+        - _monitoring_metrics.content is search('(?m)^frrk8s_bgp_session_up\\{[^}]*\\} 1$')
+        - >-
+          'cloud_infra' in group_names or
+          _monitoring_metrics.content is search('(?m)^frrk8s_bgp_received_prefixes_total\\{[^}]*\\} [1-9]')
+      retries: 36
+      delay: 5
+
+    - name: Check frr-metrics listens on loopback only
+      ansible.builtin.command: ss -Hltn 'sport = :7573'
+      register: _monitoring_listen
+      changed_when: false
+      failed_when: >-
+        _monitoring_listen.stdout_lines | length == 0 or
+        _monitoring_listen.stdout_lines | reject('search', ' 127[.]0[.]0[.]1:7573 ') | list | length > 0

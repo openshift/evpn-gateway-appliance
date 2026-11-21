@@ -131,10 +131,12 @@ actually handles each packet before asserting MTU or HA.
    AWS Site-to-Site VPN underlay. Reuse the [OVN regression
    cases](prior-art.md#evpn-feature-interaction-tests)
    and bind results to the selected OCP payload and support matrix.
-8. Replace `frr_exporter` with `frr-metrics` (CORENET-7499) only after deciding how
-   the 5.x binary, which exits outside Kubernetes, runs on an appliance, and close
-   the coverage gap it opens for CORENET-7504's VNI/MAC views and VTEP/DF alerts.
-   Agree the metric source and expected labels first. Candidate tests must distinguish
+8. Replace `frr_exporter` with `frr-metrics` in CORENET-7504, as
+   [chunk A](frr-metrics-plan.md#a-run-frr-metrics-instead-of-the-legacy-exporter-s) plans;
+   frr-k8s #519 lets the binary run outside Kubernetes. #528 adds the VNI/MAC series, EGA #44
+   alerts on VTEP membership, chunk D on VTEP forwarding and CORENET-7502 on DF
+   ([chunk E](frr-metrics-plan.md#e-ethernet-segment-and-df-m)). Agree the expected labels
+   first. Candidate tests must distinguish
    missing required series from intentionally empty healthy/conditional query results;
    use the native rule-test contract in [metrics](pipeline-spec.md#metrics-corenet-74997504).
 

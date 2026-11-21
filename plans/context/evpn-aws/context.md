@@ -57,7 +57,7 @@ The image described below is the prototype's; the merged `image/rhel10/Container
 | `ansible/roles/evpn_cloud_infra` | Infra-VPC relay: WireGuard server plus an FRR relay with `next-hop-unchanged` and no VXLAN |
 | `ansible/roles/evpn_cloud_workload` | Standalone cloud VTEP that validated the proof of concept; CORENET-7515 removes it from production, where OCP-native EVPN is the workload VTEP |
 | `ansible/roles/evpn_aws_infra` | AWS provisioning (infra and workload VPCs, TGW, security groups, router instances) through `aws` CLI calls |
-| `ansible/roles/evpn_monitoring`, `evpn_health_check` | `frr_exporter` and `node_exporter` podman units; the health-check suite |
+| `ansible/roles/evpn_monitoring`, `evpn_health_check` | `frr-metrics.service` control and `node_exporter`; the health-check suite |
 | `ansible/playbooks/` | `deploy`, `health-check`, `provision-aws`, `teardown`, `teardown-aws`; inventory groups `cloud_infra`, `cloud_workload`, `onprem_appliances` |
 | `ansible/inventory/group_vars/all.yml` | The de facto API: `tunnel.type` (`wireguard` works; `ipsec` and `direct-connect` are not implemented), `tunnel.mtu_mode`, `bgp` ASNs (65044 on-prem, 65100 relay, 65200 workload), `stretches` (VLAN, subnet, gateways; the VNI is 10000 + the VLAN ID) and `frr_image` |
 | `image/` | `Containerfile` (CentOS Stream 9 bootc; FRR and both exporters as systemd `podman run` units), `build-ami.sh` (BIB `--type ami`, S3 upload, VM Import, AMI registration), `setup-vmimport-role.sh` |

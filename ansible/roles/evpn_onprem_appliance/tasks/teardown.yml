@@ -7,11 +7,6 @@
     name: frr
     state: absent
 
-- name: Stop and remove frr_exporter container
-  containers.podman.podman_container:
-    name: frr_exporter
-    state: absent
-
 - name: Stop and remove node_exporter container
   containers.podman.podman_container:
     name: node_exporter

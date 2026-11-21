@@ -105,6 +105,8 @@ ee_playbook() {
 ee_playbook network.evpn_gateway_test.simulate
 ee_playbook network.evpn_gateway.deploy
 ee_playbook network.evpn_gateway_test.healthcheck
+ee_playbook network.evpn_gateway_test.path_probe
+ee_playbook network.evpn_gateway_test.monitoring
 
 echo ">> deploy + simulated-host health checks complete"
 exit 0

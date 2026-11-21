@@ -1,0 +1,453 @@
+rule_files:
+  - ../rules/path-probe-alerts.yaml
+evaluation_interval: 30s
+tests:
+  - name: Healthy probe with a fresh textfile stays silent
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x20
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/other.prom"}
+        values: 0+0x20
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1+0x20
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x20
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+  - name: Failed probe stays silent until 3m after over a quarter of probes fail, then recovers
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x30
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1+0x9 0+0x10 1+0x10
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x30
+    alert_rule_test:
+      - eval_time: 8m30s
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: &failed_a
+          - exp_labels:
+              job: node
+              instance: edge-a
+              target: 10.42.1.2
+              severity: warning
+              netobserv: 'true'
+            exp_annotations:
+              summary: Overlay path probe failed on edge-a
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobefailed
+              netobserv_io_network_health: '{}'
+              description: 'node/edge-a: for 3m, over a quarter of overlay probes in the
+                last 5m got fewer than 3 echo replies within 5s. It samples one overlay path and does not
+                identify the failed component.'
+      - eval_time: 13m30s
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: *failed_a
+      - eval_time: 14m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+      - eval_time: 10m30s
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+  - name: Stale textfile with last success 1 is unavailable, then recovers when refreshed
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x20
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1+0x20
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+0x13 420+30x6
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+      - eval_time: 6m30s
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: node
+              instance: edge-a
+              severity: warning
+              netobserv: 'true'
+            exp_annotations:
+              summary: Overlay path probe result unavailable on edge-a
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobeunavailable
+              netobserv_io_network_health: '{}'
+              description: 'node/edge-a: for 5m there was no fresh probe result: the
+                probe textfile was older than 60s or dated over 60s ahead (value: seconds apart), or the probe stopped
+                reporting while node-exporter runs (value -1). Check ega-path-probe.timer and
+                node-exporter''s --collector.textfile.directory. Value 390.'
+      - eval_time: 7m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+      - eval_time: 6m30s
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+  # A dead probe's file is dated in the future after the clock steps back; that is not fresh.
+  - name: Probe that dies before the clock steps back 2h is still unavailable
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 10000+30x10 3130+30x20
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1+0x30
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 10000+30x4 10120+0x25
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: node
+              instance: edge-a
+              severity: warning
+              netobserv: 'true'
+            exp_annotations:
+              summary: Overlay path probe result unavailable on edge-a
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobeunavailable
+              netobserv_io_network_health: '{}'
+              description: 'node/edge-a: for 5m there was no fresh probe result: the
+                probe textfile was older than 60s or dated over 60s ahead (value: seconds apart), or the probe stopped
+                reporting while node-exporter runs (value -1). Check ega-path-probe.timer and
+                node-exporter''s --collector.textfile.directory. Value 6720.'
+  - name: Live probe across a 2h clock step back stays silent
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 10000+30x10 3130+30x20
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1+0x30
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 10000+30x10 10300 3160+30x19
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+  # A stale file keeps exporting its last 0; only fresh samples count once the path recovers.
+  - name: Stale failures before recovery do not fire Failed on a healthy path
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x90
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 0+0x60 1+0x29
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x20 600+0x39 1830+30x29
+    alert_rule_test:
+      - eval_time: 33m30s
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+      - eval_time: 36m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+  # A failing probe that dies hands over from Failed to Unavailable within about 30s.
+  - name: Failing probe that dies hands Failed over to Unavailable
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x60
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 0+0x60
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x20 600+0x40
+    alert_rule_test:
+      - eval_time: 15m30s
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts:
+          - exp_labels:
+              job: node
+              instance: edge-a
+              target: 10.42.1.2
+              severity: warning
+              netobserv: 'true'
+            exp_annotations:
+              summary: Overlay path probe failed on edge-a
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobefailed
+              netobserv_io_network_health: '{}'
+              description: 'node/edge-a: for 3m, over a quarter of overlay probes in the
+                last 5m got fewer than 3 echo replies within 5s. It samples one overlay path and does not
+                identify the failed component.'
+      - eval_time: 16m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+      - eval_time: 16m30s
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: node
+              instance: edge-a
+              severity: warning
+              netobserv: 'true'
+            exp_annotations:
+              summary: Overlay path probe result unavailable on edge-a
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobeunavailable
+              netobserv_io_network_health: '{}'
+              description: 'node/edge-a: for 5m there was no fresh probe result: the
+                probe textfile was older than 60s or dated over 60s ahead (value: seconds apart), or the probe stopped
+                reporting while node-exporter runs (value -1). Check ega-path-probe.timer and
+                node-exporter''s --collector.textfile.directory. Value 390.'
+  - name: Stale failed probe is unavailable, not failed
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x20
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 0+0x20
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+0x20
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: node
+              instance: edge-a
+              severity: warning
+              netobserv: 'true'
+            exp_annotations:
+              summary: Overlay path probe result unavailable on edge-a
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobeunavailable
+              netobserv_io_network_health: '{}'
+              description: 'node/edge-a: for 5m there was no fresh probe result: the
+                probe textfile was older than 60s or dated over 60s ahead (value: seconds apart), or the probe stopped
+                reporting while node-exporter runs (value -1). Check ega-path-probe.timer and
+                node-exporter''s --collector.textfile.directory. Value 420.'
+      - eval_time: 7m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+  - name: Probe that stops reporting while node-exporter runs is unavailable; silent when node-exporter is down
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x40
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1+0x9 stale
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x9 stale
+      - series: node_time_seconds{job="node",instance="edge-b"}
+        values: 0+30x9 stale
+      - series: ega_path_probe_success{job="node",instance="edge-b",target="10.42.1.2"}
+        values: 1+0x9 stale
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-b",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x9 stale
+    alert_rule_test:
+      - eval_time: 9m30s
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts:
+          - &stopped
+            exp_labels:
+              job: node
+              instance: edge-a
+              severity: warning
+              netobserv: 'true'
+            exp_annotations:
+              summary: Overlay path probe result unavailable on edge-a
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobeunavailable
+              netobserv_io_network_health: '{}'
+              description: 'node/edge-a: for 5m there was no fresh probe result: the
+                probe textfile was older than 60s or dated over 60s ahead (value: seconds apart), or the probe stopped
+                reporting while node-exporter runs (value -1). Check ega-path-probe.timer and
+                node-exporter''s --collector.textfile.directory. Value -1.'
+      - eval_time: 10m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+  - name: Probe removed by the role with its disabled marker stays silent
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x40
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1+0x9 stale
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x9 stale
+      - series: ega_path_probe_disabled{job="node",instance="edge-a"}
+        values: _x10 1+0x30
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+  - name: A vanished probe stays unavailable within the day and goes quiet after it
+    interval: 4m
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+240x400
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1 stale
+    alert_rule_test:
+      - eval_time: 20h
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts:
+          - *stopped
+      - eval_time: 26h
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts: []
+  - name: A failing old target stops alerting when the target changes
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x30
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 0+0x19 stale
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.3"}
+        values: _x20 1+0x10
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x30
+    alert_rule_test:
+      - eval_time: 10m30s
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts: []
+
+  # Each 5m window holds 10 fresh results: 2 failures (0.8) never fire, 3 failures (0.7) do.
+  - name: Two failures in every 5m stay quiet, three fire
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x59
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x59
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1
+      - series: node_time_seconds{job="node",instance="edge-b"}
+        values: 0+30x59
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-b",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x59
+      - series: ega_path_probe_success{job="node",instance="edge-b",target="10.42.1.2"}
+        values: 0 0 0 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1
+    promql_expr_test:
+      - expr: max_over_time(ALERTS{instance="edge-a"}[20m])
+        eval_time: 29m
+        exp_samples: []
+      - expr: count by (alertname, instance) (ALERTS{alertstate="firing"})
+        eval_time: 29m
+        exp_samples:
+          - labels: '{alertname="EGAEvpnPathProbeFailed",instance="edge-b"}'
+            value: 1
+
+  - name: One instance failing or stale is not hidden by a healthy one
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x20
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x20
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1+0x20
+      - series: node_time_seconds{job="node",instance="edge-b"}
+        values: 0+30x20
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-b",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x20
+      - series: ega_path_probe_success{job="node",instance="edge-b",target="10.42.1.2"}
+        values: 0+0x20
+      - series: node_time_seconds{job="node",instance="edge-c"}
+        values: 0+30x20
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-c",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+0x20
+      - series: ega_path_probe_success{job="node",instance="edge-c",target="10.42.1.2"}
+        values: 1+0x20
+    promql_expr_test:
+      - expr: count by (alertname, instance, target) (ALERTS{alertstate="firing"})
+        eval_time: 10m
+        exp_samples:
+          - labels: '{alertname="EGAEvpnPathProbeFailed",instance="edge-b",target="10.42.1.2"}'
+            value: 1
+          - labels: '{alertname="EGAEvpnPathProbeUnavailable",instance="edge-c"}'
+            value: 1
+
+  # Missed node-exporter scrapes leave the last samples in the 5m lookback; nothing fires.
+  - name: A 2m scrape gap on a healthy probe stays silent
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x9 _x4 420+30x15
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x9 _x4 420+30x15
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1+0x9 _x4 1+0x15
+    promql_expr_test:
+      - expr: max_over_time(ALERTS[14m])
+        eval_time: 14m
+        exp_samples: []
+
+  # abs(): a textfile 60s older or 60s ahead of node time is fresh; 61s either way is not.
+  - name: Freshness is symmetric with a 60s limit
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="old60"}
+        values: 1000+30x20
+      - series: node_textfile_mtime_seconds{job="node",instance="old60",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 940+30x20
+      - series: ega_path_probe_success{job="node",instance="old60",target="10.42.1.2"}
+        values: 1+0x20
+      - series: node_time_seconds{job="node",instance="old61"}
+        values: 1000+30x20
+      - series: node_textfile_mtime_seconds{job="node",instance="old61",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 939+30x20
+      - series: ega_path_probe_success{job="node",instance="old61",target="10.42.1.2"}
+        values: 1+0x20
+      - series: node_time_seconds{job="node",instance="ahead60"}
+        values: 1000+30x20
+      - series: node_textfile_mtime_seconds{job="node",instance="ahead60",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 1060+30x20
+      - series: ega_path_probe_success{job="node",instance="ahead60",target="10.42.1.2"}
+        values: 1+0x20
+      - series: node_time_seconds{job="node",instance="ahead61"}
+        values: 1000+30x20
+      - series: node_textfile_mtime_seconds{job="node",instance="ahead61",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 1061+30x20
+      - series: ega_path_probe_success{job="node",instance="ahead61",target="10.42.1.2"}
+        values: 1+0x20
+    promql_expr_test:
+      - expr: ALERTS{alertstate="firing"}
+        eval_time: 10m
+        exp_samples:
+          - labels: 'ALERTS{alertname="EGAEvpnPathProbeUnavailable",alertstate="firing",job="node",instance="old61",severity="warning",netobserv="true"}'
+            value: 1
+          - labels: 'ALERTS{alertname="EGAEvpnPathProbeUnavailable",alertstate="firing",job="node",instance="ahead61",severity="warning",netobserv="true"}'
+            value: 1
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EGAEvpnPathProbeUnavailable
+        exp_alerts:
+          - exp_labels: {job: node, instance: old61, severity: warning, netobserv: 'true'}
+            exp_annotations:
+              summary: Overlay path probe result unavailable on old61
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobeunavailable
+              netobserv_io_network_health: '{}'
+              description: 'node/old61: for 5m there was no fresh probe result: the
+                probe textfile was older than 60s or dated over 60s ahead (value: seconds apart), or the probe stopped
+                reporting while node-exporter runs (value -1). Check ega-path-probe.timer and
+                node-exporter''s --collector.textfile.directory. Value 61.'
+          - exp_labels: {job: node, instance: ahead61, severity: warning, netobserv: 'true'}
+            exp_annotations:
+              summary: Overlay path probe result unavailable on ahead61
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobeunavailable
+              netobserv_io_network_health: '{}'
+              description: 'node/ahead61: for 5m there was no fresh probe result: the
+                probe textfile was older than 60s or dated over 60s ahead (value: seconds apart), or the probe stopped
+                reporting while node-exporter runs (value -1). Check ega-path-probe.timer and
+                node-exporter''s --collector.textfile.directory. Value 61.'

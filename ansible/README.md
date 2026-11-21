@@ -24,7 +24,7 @@ roles/
 ├── evpn_cloud_infra/               Infra VPC: WireGuard server, FRR relay
 ├── evpn_cloud_workload/            Workload VPC: standalone FRR VTEP (dev/test — see role README)
 ├── evpn_aws_infra/                 AWS provisioning (VPCs, TGW, EC2, security groups)
-├── evpn_monitoring/                frr_exporter + node_exporter
+├── evpn_monitoring/                frr-metrics + node_exporter + optional overlay path probe
 └── evpn_health_check/              Read-only validation suite
 playbooks/
 ├── deploy.yml                      Full deploy, idempotent
@@ -111,6 +111,9 @@ ones (`tunnel`, `bgp`, `stretches`) are normally set once in
   (disposable labs only). See that role's README.
 - **`evpn_aws_infra_aws_region`** — cross-check it matches the region you intend to
   provision in.
+- **`monitoring.frr_exporter`** controls the appliance image's
+  `frr-metrics.service`; unset runs it where the unit exists. Update appliance images before or
+  with the collection (see [evpn_monitoring](roles/evpn_monitoring/README.md)).
 
 ## Known limitations (tracked, not all fixed here)
 
@@ -125,7 +128,9 @@ specifically:
   fallback logic the roles depend on actually runs (`playbooks/deploy.yml`).
 - `evpn_aws_infra` no longer opens SSH/WireGuard to `0.0.0.0/0`
   unconditionally; it requires an explicit admin CIDR.
-- Pinned the `frr_exporter`/`node_exporter` image tags instead of `:latest`.
+- Replaced the legacy `frr_exporter` container with the image's
+  `frr-metrics.service` and pinned the fallback `node_exporter` image tag
+  instead of `:latest`.
 - Added a defensive EVPN `maximum-prefix` to the FRR templates.
 - Replaced hardcoded `hostvars['infra-router']`/`hostvars['workload-router']`
   lookups (and static `hostname` lines) with the explicit
@@ -164,13 +169,14 @@ ownership):
   Networking to design the actual policy
   (source-audit.md §1, "No BGP policy or limits").
 - `evpn_aws_infra` requires the AWS CLI on the control node.
-- `frr_exporter`/`node_exporter` metrics endpoints are unauthenticated on
-  every interface (`network: host`, no listen-address binding, no host
-  firewall) — how this should be locked down in production is not yet
-  decided.
-- `frr_exporter`/`node_exporter` use community container images that Red Hat
-  does not build or security-track; supportable replacements are part of the
-  runtime payload work (source-audit.md §2).
+- The image's exporters bind loopback; remote scraping needs the access path from
+  CORENET-7704. The fallback `node_exporter` container exposes unauthenticated metrics on
+  every interface (`network: host`, no listen-address binding or host firewall).
+- Hosts without the appliance image, such as `provision-aws.yml`'s CentOS cloud routers,
+  have no FRR exporter.
+- The fallback `node_exporter` uses a community container image that Red Hat does not
+  build or security-track; a supportable replacement is part of the runtime payload work
+  (source-audit.md §2).
 - Collection shape (layout) and publication channel are unresolved.
 - The router AMI is selected by a "latest CentOS Stream 10" lookup, not a
   pinned release identity; upstream builds are rolling and get deregistered,

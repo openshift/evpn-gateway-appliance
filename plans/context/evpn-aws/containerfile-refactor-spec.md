@@ -244,8 +244,9 @@ binary's architecture per platform.
 
 Merged #6 embeds FRR and node-exporter; FRR uses `frr-container.service` and the metrics
 unit is unused ([source baseline](frr-metrics-details.md#source-baseline-and-repository-boundaries)).
-The [runtime proposal](frr-metrics-details.md#runtime-shape-if-frr-metrics-is-chosen) covers
-socket sharing, serving and lifecycle qualification; decision 10 remains open.
+The [runtime proposal](frr-metrics-details.md#runtime-shape-of-frr-metrics) covers
+`frr-metrics` as a second container from the embedded FRR image and [proposed units](frr-metrics-details.md#proposed-units-ownership-and-e2e-checks)
+cover its lifecycle tests; decision 10 remains open.
 
 Keep image references in the native input that actually consumes them: Containerfile
 `FROM`/`ARG` for build payloads, BIB's wrapper for its builder/source/origin, and the

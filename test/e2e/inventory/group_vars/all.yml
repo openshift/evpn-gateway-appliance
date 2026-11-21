@@ -1,7 +1,7 @@
 ---
 # Shared fabric config for the emulated e2e, mirroring the collection's own
-# inventory/group_vars/all.yml. Monitoring is off for now to shrink the first-deploy
-# surface; enable once the base fabric converges.
+# inventory/group_vars/all.yml. All router nodes use the appliance image, including
+# the cloud groups (unlike provision-aws.yml's generic CentOS hosts).
 
 tunnel:
   type: wireguard
@@ -48,10 +48,8 @@ stretches:
     cloud_gateway: 10.42.3.2
 
 monitoring:
-  # node-exporter has a matching Quadlet in the image, so it takes the systemd path.
+  # Both exporters run from systemd units in the appliance image.
   node_exporter: true
-  # frr_exporter has no Quadlet in the image (would hit the podman fallback); its metrics
-  # validation is deferred to CORENET-7504.
-  frr_exporter: false
+  frr_exporter: true
 
 frr_image: quay.io/frrouting/frr:10.5.3

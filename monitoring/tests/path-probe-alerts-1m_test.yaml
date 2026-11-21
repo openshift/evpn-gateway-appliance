@@ -1,0 +1,58 @@
+rule_files:
+  - ../rules/path-probe-alerts.yaml
+evaluation_interval: 1m
+tests:
+  # At a 1m evaluation interval the 30s probe results must all count: half failing fires in
+  # either phase, not only when evaluations land on the failures.
+  - name: Alternating loss fires when evaluations land on successes
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x60
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x60
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts:
+          - exp_labels:
+              job: node
+              instance: edge-a
+              target: 10.42.1.2
+              severity: warning
+              netobserv: 'true'
+            exp_annotations:
+              summary: Overlay path probe failed on edge-a
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobefailed
+              netobserv_io_network_health: '{}'
+              description: 'node/edge-a: for 3m, over a quarter of overlay probes in the
+                last 5m got fewer than 3 echo replies within 5s. It samples one overlay path and does not
+                identify the failed component.'
+  - name: Alternating loss fires when evaluations land on failures
+    interval: 30s
+    input_series:
+      - series: node_time_seconds{job="node",instance="edge-a"}
+        values: 0+30x60
+      - series: node_textfile_mtime_seconds{job="node",instance="edge-a",file="/var/lib/node_exporter/textfile/ega-path-probe.prom"}
+        values: 0+30x60
+      - series: ega_path_probe_success{job="node",instance="edge-a",target="10.42.1.2"}
+        values: 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: EGAEvpnPathProbeFailed
+        exp_alerts:
+          - exp_labels:
+              job: node
+              instance: edge-a
+              target: 10.42.1.2
+              severity: warning
+              netobserv: 'true'
+            exp_annotations:
+              summary: Overlay path probe failed on edge-a
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egaevpnpathprobefailed
+              netobserv_io_network_health: '{}'
+              description: 'node/edge-a: for 3m, over a quarter of overlay probes in the
+                last 5m got fewer than 3 echo replies within 5s. It samples one overlay path and does not
+                identify the failed component.'

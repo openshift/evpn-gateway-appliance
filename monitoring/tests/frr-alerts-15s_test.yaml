@@ -1,0 +1,29 @@
+rule_files:
+  - ../rules/frr-alerts.yaml
+evaluation_interval: 15s
+tests:
+  # The 1m suite cannot tell a 30s hold from 1m; here BFD is not firing at 15s and fires at 30s.
+  - name: BFD session down fires at its 30s hold time
+    interval: 15s
+    input_series:
+      - series: frrk8s_bfd_session_up{job="frr",instance="edge-a",peer="peer-down",vrf="blue"}
+        values: 0+0x8
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: EGABfdSessionDown
+        exp_alerts: []
+      - eval_time: 30s
+        alertname: EGABfdSessionDown
+        exp_alerts:
+          - exp_labels:
+              job: frr
+              instance: edge-a
+              peer: peer-down
+              vrf: blue
+              severity: critical
+              netobserv: 'true'
+            exp_annotations:
+              summary: BFD session down on edge-a for peer-down
+              runbook_url: https://github.com/openshift/evpn-gateway-appliance/blob/main/monitoring/runbooks.md#egabfdsessiondown
+              netobserv_io_network_health: '{}'
+              description: 'frr/edge-a: peer peer-down in VRF blue reports BFD down for 30s.'

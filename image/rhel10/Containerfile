@@ -73,9 +73,10 @@ COPY payload-load.sh /usr/libexec/evpn-appliance/payload-load.sh
 COPY payload-load.service /etc/systemd/system/payload-load.service
 COPY node-exporter.service /etc/systemd/system/node-exporter.service
 COPY frr-container.service /etc/systemd/system/frr-container.service
+COPY frr-metrics.service /etc/systemd/system/frr-metrics.service
 
 RUN chmod 755 /usr/libexec/evpn-appliance/payload-load.sh \
-    && systemctl enable payload-load.service frr-container.service node-exporter.service
+    && systemctl enable payload-load.service frr-container.service frr-metrics.service node-exporter.service
 
 LABEL description="EVPN Migration Appliance"
 LABEL version="0.1.0"

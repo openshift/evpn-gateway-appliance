@@ -1,11 +1,36 @@
 [Unit]
-Description=FRR metrics
-After=frr.service
+Description=FRR metrics from the embedded FRR image
+After=payload-load.service frr-container.service
+Requires=payload-load.service
+# frr-container.service creates /run/frr as its RuntimeDirectory, so stop and restart with FRR,
+# also when FRR fails, to bind the current directory, and skip while /run/frr is absent. FRR's restarts count against this
+# unit's start limit, so turn it off; RestartSec still paces the exporter's own restarts.
+BindsTo=frr-container.service
+ConditionPathIsDirectory=/run/frr
+StartLimitIntervalSec=0
 
 [Service]
 Restart=always
 RestartSec=10
-ExecStart=/usr/bin/frr-metrics
+# podman run exits 143 when podman stop ends the exporter.
+SuccessExitStatus=143
+ExecStartPre=-/usr/bin/podman rm -f frr-metrics
+# The FRR image's /frr-metrics reads FRR through the vtysh sockets as frr. label=disable
+# because frr-container.service mounts /var/run/frr with :Z, which gives the directory a
+# new MCS label on every FRR start and would cut off a confined exporter.
+# --memory caps the exporter and the vtysh calls that pile up while an FRR daemon hangs.
+ExecStart=/usr/bin/podman run --pull=never --name frr-metrics --rm \
+    --network host \
+    --user frr \
+    --cap-drop=all \
+    --security-opt=no-new-privileges \
+    --security-opt=label=disable \
+    --read-only \
+    --memory=256m \
+    -v /etc/frr:/etc/frr:ro -v /var/run/frr:/var/run/frr:ro \
+    --entrypoint /frr-metrics frr:embedded \
+    --metrics-bind-address=127.0.0.1 --metrics-port=7573
+ExecStop=-/usr/bin/podman stop --ignore frr-metrics
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=frr-container.service

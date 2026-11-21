@@ -1,0 +1,38 @@
+---
+- name: Read monitoring.frr_exporter
+  ansible.builtin.set_fact:
+    _evpn_monitoring_frr_metrics_on: >-
+      {{ not (evpn_monitoring_frr_metrics_teardown | default(false))
+         and (monitoring.frr_exporter | default(none) is none or monitoring.frr_exporter | bool) }}
+
+- name: Remove the legacy FRR exporter container
+  containers.podman.podman_container:
+    name: frr_exporter
+    state: absent
+
+- name: Gather service facts for frr-metrics
+  ansible.builtin.service_facts:
+
+- name: Set the frr-metrics state
+  ansible.builtin.systemd:
+    name: frr-metrics.service
+    enabled: "{{ _evpn_monitoring_frr_metrics_on }}"
+    state: "{{ _evpn_monitoring_frr_metrics_on | ternary('started', 'stopped') }}"
+  when: "'frr-metrics.service' in ansible_facts.services"
+
+# A 200 without frrk8s_* series means the exporter cannot reach FRR's vtysh sockets.
+- name: Wait for frr-metrics to serve FRR series
+  ansible.builtin.uri:
+    url: http://127.0.0.1:7573/metrics
+    return_content: true
+    timeout: 10
+  register: _evpn_monitoring_frr_metrics
+  until:
+    - _evpn_monitoring_frr_metrics.status == 200
+    - _evpn_monitoring_frr_metrics.content is search('(?m)^# TYPE frrk8s_')
+  retries: 12
+  delay: 5
+  when:
+    - _evpn_monitoring_frr_metrics_on
+    - "'frr-metrics.service' in ansible_facts.services"
+    - not ansible_check_mode
