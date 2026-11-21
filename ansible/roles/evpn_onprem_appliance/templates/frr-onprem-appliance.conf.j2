@@ -1,7 +1,7 @@
 ! On-prem EVPN Appliance — VTEP endpoint
 ! Managed by Ansible — do not edit manually
 !
-! KNOWN OPEN ITEM: no route-map/prefix-list policy; maximum-prefix below is only a defensive backstop (source-audit.md §1, "No BGP policy or limits").
+! {{ 'AWS underlay IPv4 policy is limited to the VTEP network outbound and VPC networks inbound; EVPN maximum-prefix remains' if tunnel.type == 'ipsec' else 'KNOWN OPEN ITEM: no route-map/prefix-list policy; maximum-prefix below is only' }} a defensive backstop (source-audit.md §1, "No BGP policy or limits").
 ! frr version line derived from frr_image; revisit if frr_image moves to digest pinning.
 frr version {{ frr_image.split(":")[-1] }}
 frr defaults traditional
@@ -9,24 +9,53 @@ hostname {{ inventory_hostname }}
 log syslog informational
 no ipv6 forwarding
 !
+{% set evpn_peer = hostvars[infra_relay_host].private_ip if tunnel.type == 'ipsec' else tunnel.cloud_ip %}
+{% if tunnel.type == 'ipsec' %}
+ip prefix-list EGA-AWS-OUT seq 5 permit {{ tunnel.network_cidr | default('10.44.44.0/24') }}
+ip prefix-list EGA-AWS-IN seq 5 permit {{ infra_vpc_cidr | default('10.100.0.0/16') }}
+ip prefix-list EGA-AWS-IN seq 10 permit {{ workload_vpc_cidr | default('10.200.0.0/16') }}
+!
+{% endif %}
 router bgp {{ bgp.onprem_asn }}
  bgp router-id {{ tunnel.onprem_ip }}
  bgp log-neighbor-changes
  no bgp ebgp-requires-policy
  no bgp default ipv4-unicast
  !
- neighbor {{ tunnel.cloud_ip }} remote-as {{ bgp.infra_asn }}
- neighbor {{ tunnel.cloud_ip }} description infra-relay
+{% if tunnel.type == 'ipsec' %}
+{% for t in _evpn_onprem_appliance_ipsec_peers %}
+ neighbor {{ t.aws_inside_ip }} remote-as {{ t.aws_bgp_asn }}
+ neighbor {{ t.aws_inside_ip }} description aws-vpn-{{ loop.index }}
+ neighbor {{ t.aws_inside_ip }} update-source {{ t.cgw_inside_ip }}
+ neighbor {{ t.aws_inside_ip }} timers 10 30
+ neighbor {{ t.aws_inside_ip }} timers connect 10
+{% endfor %}
+{% endif %}
+ neighbor {{ evpn_peer }} remote-as {{ bgp.infra_asn }}
+ neighbor {{ evpn_peer }} description infra-relay
+{% if tunnel.type == 'ipsec' %}
+ neighbor {{ evpn_peer }} ebgp-multihop 4
+ neighbor {{ evpn_peer }} update-source {{ tunnel.onprem_ip }}
+{% endif %}
  !
  address-family ipv4 unicast
   network {{ tunnel.network_cidr | default('10.44.44.0/24') }}
-  neighbor {{ tunnel.cloud_ip }} activate
-  neighbor {{ tunnel.cloud_ip }} soft-reconfiguration inbound
+{% if tunnel.type == 'ipsec' %}
+{% for t in _evpn_onprem_appliance_ipsec_peers %}
+  neighbor {{ t.aws_inside_ip }} activate
+  neighbor {{ t.aws_inside_ip }} prefix-list EGA-AWS-OUT out
+  neighbor {{ t.aws_inside_ip }} prefix-list EGA-AWS-IN in
+  neighbor {{ t.aws_inside_ip }} soft-reconfiguration inbound
+{% endfor %}
+{% else %}
+  neighbor {{ evpn_peer }} activate
+  neighbor {{ evpn_peer }} soft-reconfiguration inbound
+{% endif %}
  exit-address-family
  !
  address-family l2vpn evpn
-  neighbor {{ tunnel.cloud_ip }} activate
-  neighbor {{ tunnel.cloud_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+  neighbor {{ evpn_peer }} activate
+  neighbor {{ evpn_peer }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
   advertise-all-vni
 {% for s in stretches %}
 {% set vni = 10000 + s.vlan %}

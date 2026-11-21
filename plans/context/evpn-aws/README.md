@@ -89,6 +89,8 @@ parallel. Record accepted decisions in the decision list.
 | [Ansible validated content](ansible-validated-content-plan.md) | Checklist gaps for the `network.evpn_gateway` validated-content candidacy and the fixes |
 | [Networking handoff](networking-spec.md) | Source gaps and interfaces to networking/QE qualification |
 | [FRR metrics and observability](frr-metrics-plan.md) | CORENET-7504 exporter options, status, implementation slices and asks; [details](frr-metrics-details.md) hold the source investigation, metric semantics and runtime proposals |
+| [Site-to-Site VPN](site-to-site-vpn-plan.md) | CORENET-7500 transport proposal, owner questions and implementation sequence |
+| [Direct Connect and preflight](direct-connect-plan.md) | CORENET-7501 transport preflight and the DX mode (CORENET-7708): reconstructed criteria, proposed answers and sequence |
 
 [Prior art](prior-art.md) identifies reusable code and its limits;
 [source evidence](source-evidence.md) records checked revisions and the reasons

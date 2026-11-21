@@ -40,17 +40,27 @@
     p=d['ipv4Unicast']['peers']['{{ tunnel.onprem_ip }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
-  when: "'cloud_infra' in group_names"
+  when:
+    - "'cloud_infra' in group_names"
+    - tunnel.type != 'ipsec'
 
 - name: "HEALTH [infra]: EVPN prefixes relayed from on-prem"
   ansible.builtin.shell: >
     set -o pipefail;
     podman exec frr vtysh -c "show bgp l2vpn evpn summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
-    p=d['peers']['{{ tunnel.onprem_ip }}'];
+    p=d['peers']['{{ item }}'];
     assert int(p['pfxRcd'])>0, f'pfxRcd={p[\"pfxRcd\"]}'"
   changed_when: false
+  register: _evpn_health_check_onprem_prefixes
+  until: _evpn_health_check_onprem_prefixes.rc == 0
+  retries: 12
+  delay: 5
   when: "'cloud_infra' in group_names"
+  # IPsec peers the relay with every appliance's VTEP.
+  loop: >-
+    {{ groups['onprem_appliances'] | map('extract', hostvars) | map(attribute='tunnel') | map(attribute='onprem_ip') | list
+       if tunnel.type == 'ipsec' else [tunnel.onprem_ip] }}
 
 - name: "HEALTH [infra]: EVPN prefixes relayed from workload"
   ansible.builtin.shell: >
@@ -125,7 +135,15 @@
     p=d['ipv4Unicast']['peers']['{{ tunnel.cloud_ip }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
-  when: "'onprem_appliances' in group_names"
+  when:
+    - "'onprem_appliances' in group_names"
+    - tunnel.type != 'ipsec'
+
+- name: Check on-prem IPsec health
+  ansible.builtin.include_tasks: ipsec.yml
+  when:
+    - "'onprem_appliances' in group_names"
+    - tunnel.type == 'ipsec'
 
 - name: "HEALTH [onprem]: remote VTEP present per VNI"
   ansible.builtin.shell: >
@@ -147,3 +165,38 @@
   loop_control:
     label: "→ {{ item.cloud_gateway }}"
   when: "'onprem_appliances' in group_names"
+
+# Baseline for the VXLAN path (CORENET-7501): loss and average RTT from the VTEP address to the
+# workload VTEP.
+- name: "HEALTH [onprem]: Measure loss and RTT to the workload VTEP"
+  ansible.builtin.command: ping -q -c 20 -i 0.2 -W 2 -I {{ tunnel.onprem_ip }} {{ hostvars[workload_vtep_host].private_ip }}
+  register: _evpn_health_check_baseline
+  # The loss and RTT are parsed from ping's English summary.
+  environment:
+    LC_ALL: C
+  changed_when: false
+  failed_when: false
+  when: "'onprem_appliances' in group_names"
+
+- name: "HEALTH [onprem]: Loss and RTT to the workload VTEP are within limits"
+  ansible.builtin.assert:
+    that:
+      # A dead path always fails; partial loss fails only above a set limit.
+      - _evpn_health_check_loss | float < 100
+      - evpn_health_check_max_loss_percent | default(none) is none or _evpn_health_check_loss | float <= evpn_health_check_max_loss_percent | float
+      - evpn_health_check_max_rtt_ms | default(none) is none or _evpn_health_check_rtt | float <= evpn_health_check_max_rtt_ms | float
+    fail_msg: >-
+      Ping from {{ tunnel.onprem_ip }} to the workload VTEP {{ hostvars[workload_vtep_host].private_ip }}: loss
+      {{ _evpn_health_check_loss }}%, average RTT {{ _evpn_health_check_rtt }} ms; limits: loss
+      {{ evpn_health_check_max_loss_percent | default('none') }}, RTT {{ evpn_health_check_max_rtt_ms | default('none') }}
+      (total loss always fails). {{ _evpn_health_check_baseline.stderr | default('') | trim }}
+    success_msg: "Baseline: loss {{ _evpn_health_check_loss }}%, average RTT {{ _evpn_health_check_rtt }} ms"
+  vars:
+    _evpn_health_check_loss: >-
+      {{ _evpn_health_check_baseline.stdout | regex_search('([0-9.]+)% packet loss', '\1') | default(['100'], true) | first }}
+    _evpn_health_check_rtt: >-
+      {{ _evpn_health_check_baseline.stdout | regex_search('= [0-9.]+/([0-9.]+)/', '\1') | default(['inf'], true) | first }}
+  # --check skips the ping, as it does every health command.
+  when:
+    - "'onprem_appliances' in group_names"
+    - not ansible_check_mode

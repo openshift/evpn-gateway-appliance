@@ -19,6 +19,11 @@
           - ansible_connection | default('local') in ['local', 'ansible.builtin.local', 'ansible.legacy.local']
           - ansible_become | default(false) is ansible.builtin.falsy(convert_bool=true)
         fail_msg: Provisioning requires local execution without privilege escalation to use controller credentials.
+    # The read-only transport checks that need no appliance, before any billed resource exists.
+    - name: Run the transport preflight
+      ansible.builtin.include_role:
+        name: evpn_health_check
+        tasks_from: preflight
   roles:
     - role: evpn_aws_infra
       environment:

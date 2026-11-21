@@ -7,3 +7,21 @@
   become: true
   roles:
     - network.evpn_gateway_test.evpn_onprem_appliance_sim
+  post_tasks:
+    # add_host lasts only for this playbook invocation: the TGW must not enter
+    # the product deploy/health plays, which target the unchanged base inventory.
+    - name: Add the emulated AWS VPN endpoint for the IPsec scenario
+      ansible.builtin.add_host:
+        name: tgw
+        groups: evpn_aws_vpn_endpoints
+        ansible_host: "{{ evpn_aws_vpn_sim_management_ip }}"
+      run_once: true
+      when: tunnel.type == 'ipsec'
+
+- name: Simulate the AWS VPN endpoint on the TGW
+  hosts: evpn_aws_vpn_endpoints
+  become: true
+  roles:
+    # One emulated VPN connection per appliance handoff.
+    - role: network.evpn_gateway_test.evpn_aws_vpn_sim
+      evpn_aws_vpn_sim_vpns: "{{ groups['onprem_appliances'] | map('extract', hostvars, 'evpn_onprem_appliance_ipsec') | list }}"

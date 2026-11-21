@@ -1,9 +1,15 @@
 # evpn_cloud_infra
 
-Configures the cloud-side EVPN relay: terminates the transport from the
+Configures the cloud-side EVPN relay: terminates WireGuard from the
 on-prem appliance and configures FRR as a route relay (not a VTEP) between
 the on-prem appliance and the workload-VPC VTEP, preserving VTEP IPs
 end-to-end via `next-hop-unchanged`.
+
+For `tunnel.type: ipsec`, AWS terminates the VPN. The relay peers with
+`tunnel.onprem_ip` using `ebgp-multihop 4` and activates that neighbor only
+in `l2vpn evpn`; AWS/TGW provides the underlay route to the appliance.
+VXLAN travels directly between the appliance and workload VTEP through the
+VPN/TGW, outside the relay. WireGuard keeps its existing IPv4/EVPN peering.
 
 This role also owns `tasks/wireguard_keys.yml`, shared with
 `evpn_onprem_appliance` via `include_role` (not a hardcoded path — see that

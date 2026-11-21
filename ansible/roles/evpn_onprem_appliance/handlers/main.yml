@@ -32,3 +32,62 @@
       - /var/run/frr:/var/run/frr:Z
   when: not (ansible_facts.services is defined and 'frr-container.service' in ansible_facts.services)
   listen: Restart FRR
+
+# Connection or key changes replace the two appliance tunnels one at a time, so unrelated Libreswan
+# connections stay up. Listed after the FRR handlers so FRR already peers with any new inside addresses or ASN.
+- name: Replace AWS IPsec connections
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      # Invalidate the record first: from here pluto may hold keys or connections no file matches.
+      rm -f /etc/ipsec.d/ega-aws.applied
+      ipsec rereadsecrets
+      # Ready: tunnel N has a Child SA with its own AWS endpoint (not one left from before a renumbering) and FRR
+      # has its AWS BGP session Established.
+      ready() {
+        if [ "$1" = 1 ]; then peer={{ _evpn_onprem_appliance_ipsec_peers[0].aws_inside_ip }}; aws={{ _evpn_onprem_appliance_ipsec_peers[0].outside_ip }}
+        else peer={{ _evpn_onprem_appliance_ipsec_peers[1].aws_inside_ip }}; aws={{ _evpn_onprem_appliance_ipsec_peers[1].outside_ip }}; fi
+        grep -qE "\"ega-aws-$1\".*id='$aws'" <<< "$(ipsec trafficstatus)" || return 1
+        case "$(podman exec frr vtysh -c "show bgp neighbors $peer" 2>/dev/null)" in *"BGP state = Established"*) ;; *) return 1 ;; esac
+      }
+      # A tunnel that is already down goes first, and each must be back within 90 s before the next, so a bad
+      # connection change or an AWS endpoint outage never takes down both tunnels. An FRR restart just before this
+      # handler drops both BGP sessions, so while any tunnel has a Child SA, wait up to 45 s (AWS's 30 s hold time
+      # plus FRR's 10 s connect retry) for one to be ready before choosing. A bad key, loaded for both above, still
+      # reaches the other tunnel at its next re-authentication.
+      case "$(ipsec trafficstatus)" in *'"ega-aws-'*) i=0 ;; *) i=9 ;; esac
+      while ! ready 1 && ! ready 2 && [ "$i" -lt 9 ]; do i=$((i + 1)); sleep 5; done
+      if ! ready 1 && ! ready 2; then
+        # Nothing is up to protect (first deploy, or both down): load both, so one AWS endpoint being down cannot
+        # keep the other tunnel from loading, then wait for either. Libreswan keeps retrying the other (auto=start).
+        for n in 1 2; do ipsec replace "ega-aws-$n"; ipsec up --asynchronous "ega-aws-$n"; done
+        i=0
+        until ready 1 || ready 2; do
+          i=$((i + 1))
+          if [ "$i" -gt 18 ]; then
+            echo "Neither ega-aws-1 nor ega-aws-2 came up with its BGP session within 90 s. Rerun deploy to retry." >&2
+            exit 1
+          fi
+          sleep 5
+        done
+        order=""
+      elif ready 1 && ! ready 2; then order="2 1"; else order="1 2"; fi
+      for n in $order; do
+        ipsec replace "ega-aws-$n"
+        ipsec up --asynchronous "ega-aws-$n"
+        i=0
+        until ready "$n"; do
+          i=$((i + 1))
+          if [ "$i" -gt 18 ]; then
+            if grep -qE "\"ega-aws-$n\".*id='$aws'" <<< "$(ipsec trafficstatus)"; then what="its BGP session with $peer"
+            else what="its Child SA with $aws"; fi
+            echo "ega-aws-$n: $what did not come up within 90 s; stopped before any further tunnel. Rerun deploy to retry." >&2
+            exit 1
+          fi
+          sleep 5
+        done
+      done
+      # Record what is applied; deploy replaces the tunnels again until this matches (see tasks/ipsec.yml).
+      (umask 077; sha256sum /etc/ipsec.d/ega-aws.conf /etc/ipsec.d/ega-aws.secrets > /etc/ipsec.d/ega-aws.applied)
+    executable: /bin/bash
+  changed_when: true
