@@ -1,0 +1,9 @@
+---
+# Direct Connect: the topology's routed link stands in for the customer's circuit, so there is
+# no handoff and no AWS; safe mode requires the path to carry 1550-byte packets unfragmented.
+tunnel:
+  type: direct-connect
+  mtu_mode: safe
+  onprem_ip: 10.44.44.1
+  network_cidr: 10.44.44.0/24
+  next_hop: 10.99.0.1

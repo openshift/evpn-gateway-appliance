@@ -17,6 +17,20 @@
 # profile and persists it. This handles swapping the trunk (detach the old one) and teardown (no desired
 # trunk, so detach all). _evpn_onprem_appliance_absent lists ega-* interfaces no longer desired, marked absent.
 interfaces:
+{# Outside teardown, ipsec and direct-connect add the VTEP dummy holding tunnel.onprem_ip. #}
+{% if (tunnel | default({})).type | default('wireguard') != 'wireguard' and not (_evpn_onprem_appliance_teardown | default(false)) %}
+  - name: ega-vtep
+    type: dummy
+    state: up
+    profile-name: ega-dummy-vtep
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ tunnel.onprem_ip }}
+          prefix-length: 32
+    ipv6: {enabled: false}
+{% endif %}
 {% if stretches | length > 0 %}
   - name: trunk-br
     type: linux-bridge
@@ -74,3 +88,27 @@ interfaces:
   - name: {{ iface }}
     state: absent
 {% endfor %}
+{% if (tunnel | default({})).type | default('wireguard') != 'wireguard' and not (_evpn_onprem_appliance_teardown | default(false)) %}
+{# While no transport path provides a route to a VPC, drop its traffic instead of sending it by the default route
+   or any shorter covering route; the transport routes (AWS's over IPsec, FRR's statics over Direct Connect) match
+   the VPC CIDRs exactly. Kernel policy rules, not FRR routes, so BGP next-hop tracking and FRR restarts are unaffected.
+   nmstate stores rules on an interface with a desired route in their table, so a route to ega-vtep's own address
+   keeps them on its profile: on a bridge's, removing that stretch would delete them and fail the apply. Teardown
+   and other transports remove ega-vtep and its rules; a VPC CIDR or onprem_ip change already requires teardown. #}
+routes:
+  config:
+    - destination: {{ tunnel.onprem_ip }}/32
+      next-hop-interface: ega-vtep
+      table-id: 254
+route-rules:
+  config:
+{% for cidr in [infra_vpc_cidr | default('10.100.0.0/16'), workload_vpc_cidr | default('10.200.0.0/16')] %}
+    - ip-to: {{ cidr }}
+      priority: {{ 3000 + 2 * loop.index0 }}
+      route-table: 254
+      suppress-prefix-length: {{ (cidr | ansible.utils.ipaddr('prefix')) - 1 }}
+    - ip-to: {{ cidr }}
+      priority: {{ 3001 + 2 * loop.index0 }}
+      action: blackhole
+{% endfor %}
+{% endif %}

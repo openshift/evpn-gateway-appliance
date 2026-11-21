@@ -1,0 +1,130 @@
+---
+# Read-only transport preflight (CORENET-7501).
+
+# Internet-mode transports leave a smaller inner MTU, and no MTU/MSS controls exist yet (CORENET-7709).
+- name: "PREFLIGHT: Require acknowledgment of internet-mode limits"
+  ansible.builtin.assert:
+    that: evpn_health_check_accept_internet_mode_limits | bool
+    fail_msg: >-
+      tunnel.type {{ tunnel.type }} crosses the internet: workload packets above
+      {{ _evpn_health_check_workload_mtu_budget[tunnel.type] }} bytes are not supported (dropped or fragmented, untested;
+      no MSS clamping until CORENET-7709), and latency and loss follow the internet path.
+      {{ 'WireGuard is for development and test only. ' if tunnel.type == 'wireguard' else '' }}Set
+      evpn_health_check_accept_internet_mode_limits to true to accept these limits.
+  when: tunnel.type in ['wireguard', 'ipsec']
+
+- name: "PREFLIGHT: Require the workload MTU to fit the transport"
+  ansible.builtin.assert:
+    that: evpn_health_check_workload_mtu | int <= _evpn_health_check_workload_mtu_budget[tunnel.type]
+    fail_msg: >-
+      evpn_health_check_workload_mtu {{ evpn_health_check_workload_mtu }} exceeds the {{ tunnel.type }} budget of
+      {{ _evpn_health_check_workload_mtu_budget[tunnel.type] }} bytes (the transport's inner MTU minus 50 bytes of VXLAN).
+  when: evpn_health_check_workload_mtu | int > 0
+
+# Reduced-MTU controls (MSS clamping, DF handling) are CORENET-7709; until then Direct Connect
+# must carry 1550-byte packets.
+# The AWS routes and security groups cover tunnel.network_cidr, so the VTEP must be inside it and
+# the customer router outside it. AWS refuses a VPC route more specific than the VPC's local route,
+# and a network_cidr holding a VPC CIDR lets the VTEP sit inside the VPC.
+- name: "PREFLIGHT: Require safe MTU mode, the VTEP inside tunnel.network_cidr and tunnel.next_hop outside it"
+  ansible.builtin.assert:
+    that:
+      - tunnel.mtu_mode | default('safe') == 'safe'
+      - tunnel.onprem_ip | ansible.utils.ipv4('address') == tunnel.onprem_ip
+      - _evpn_health_check_dx_cidr | ansible.utils.ipv4('network/prefix') == _evpn_health_check_dx_cidr
+      - tunnel.onprem_ip | ansible.utils.ipv4(_evpn_health_check_dx_cidr) == tunnel.onprem_ip
+      - tunnel.next_hop | ansible.utils.ipv4('address') == tunnel.next_hop
+      - not (_evpn_health_check_dx_cidr | ansible.utils.network_in_network(tunnel.next_hop))
+      - not (_evpn_health_check_dx_infra | ansible.utils.network_in_network(_evpn_health_check_dx_cidr))
+      - not (_evpn_health_check_dx_workload | ansible.utils.network_in_network(_evpn_health_check_dx_cidr))
+      - not (_evpn_health_check_dx_cidr | ansible.utils.network_in_network(_evpn_health_check_dx_infra))
+      - not (_evpn_health_check_dx_cidr | ansible.utils.network_in_network(_evpn_health_check_dx_workload))
+    fail_msg: >-
+      tunnel.type direct-connect requires tunnel.mtu_mode safe (8500-byte transit VIFs) until CORENET-7709;
+      tunnel.onprem_ip to be a plain IPv4 address inside tunnel.network_cidr (an IPv4 network outside the VPC CIDRs); and tunnel.next_hop
+      to be the customer router's IPv4 address on the appliance's uplink, outside tunnel.network_cidr. Found mtu_mode
+      {{ tunnel.mtu_mode | default('safe') }}, onprem_ip {{ tunnel.onprem_ip }}, network_cidr
+      {{ _evpn_health_check_dx_cidr }}, next_hop {{ tunnel.next_hop }}.
+  vars:
+    _evpn_health_check_dx_cidr: "{{ tunnel.network_cidr | default('10.44.44.0/24') }}"
+    _evpn_health_check_dx_infra: "{{ infra_vpc_cidr | default('10.100.0.0/16') }}"
+    _evpn_health_check_dx_workload: "{{ workload_vpc_cidr | default('10.200.0.0/16') }}"
+  when: tunnel.type == 'direct-connect'
+
+# Direct Connect: FRR owns the routes to the VPCs (see the evpn_onprem_appliance README).
+- name: Check the Direct Connect underlay before deployment
+  when:
+    - "'onprem_appliances' in group_names"
+    - tunnel.type == 'direct-connect'
+  vars:
+    # The most specific route to tunnel.next_hop must be the uplink's connected route: a host,
+    # default or gateway route there would leave FRR's static routes resolving over a kernel route.
+    _evpn_health_check_dx_link: >-
+      {%- set best = {'len': -1, 'route': {}} -%}
+      {%- for r in _evpn_health_check_dx_nh_routes.stdout | default('[]', true) | from_json -%}
+      {%- set len = 0 if r.dst == 'default' else (r.dst.split('/')[1] | int if '/' in r.dst else 32) -%}
+      {%- if len > best.len -%}{%- set _ = best.update({'len': len, 'route': r}) -%}{%- endif -%}
+      {%- endfor -%}
+      {{ best.route }}
+  block:
+    - name: "PREFLIGHT [onprem]: Find the routes to tunnel.next_hop"
+      ansible.builtin.command: ip -j route show match {{ tunnel.next_hop }}
+      register: _evpn_health_check_dx_nh_routes
+      changed_when: false
+      check_mode: false
+
+    - name: "PREFLIGHT [onprem]: Look up tunnel.next_hop"
+      ansible.builtin.command: ip -j route get {{ tunnel.next_hop }}
+      register: _evpn_health_check_dx_nh_get
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: "PREFLIGHT [onprem]: Read the uplink MTU"
+      ansible.builtin.command: cat /sys/class/net/{{ _evpn_health_check_dx_link.dev }}/mtu
+      register: _evpn_health_check_dx_mtu
+      changed_when: false
+      check_mode: false
+      when: _evpn_health_check_dx_link.dev is defined
+
+    # More specific routes count too, and every protocol zebra did not install (-N: numeric).
+    - name: "PREFLIGHT [onprem]: Find routes within the VPC CIDRs"
+      ansible.builtin.command: ip -N -j route show root {{ item }}
+      register: _evpn_health_check_dx_vpc_routes
+      changed_when: false
+      check_mode: false
+      loop:
+        - "{{ infra_vpc_cidr | default('10.100.0.0/16') }}"
+        - "{{ workload_vpc_cidr | default('10.200.0.0/16') }}"
+
+    # 1550 bytes carry VXLAN with a 1500-byte workload IP MTU (50 bytes of IPv4 VXLAN).
+    - name: "PREFLIGHT [onprem]: Require a directly connected 1550-byte uplink and only FRR routes to the VPCs"
+      ansible.builtin.assert:
+        that:
+          - _evpn_health_check_dx_link.protocol | default('') == 'kernel'
+          - _evpn_health_check_dx_link.scope | default('') == 'link'
+          # A unicast host: not one of the appliance's own addresses or the subnet's broadcast address.
+          - _evpn_health_check_dx_get.type | default('unicast') == 'unicast'
+          # Deploy names the device of the kernel's full lookup, which policy rules can send elsewhere.
+          - _evpn_health_check_dx_get.dev | default('') == _evpn_health_check_dx_link.dev | default('')
+          - _evpn_health_check_dx_get.gateway is not defined
+          # nmstate enslaves the trunk to trunk-br, which would drop the uplink's address.
+          - _evpn_health_check_dx_link.dev | default('') not in [trunk_interface | default(''), 'trunk-br']
+          - _evpn_health_check_dx_mtu.stdout | default(0) | int >= 1550
+          - _evpn_health_check_dx_foreign_routes | length == 0
+        fail_msg: >-
+          Direct Connect needs tunnel.next_hop {{ tunnel.next_hop }} to be another host on a directly connected uplink
+          (not the trunk), reached over it without a gateway, with an MTU of at least 1550 (most specific route: {{ _evpn_health_check_dx_link }};
+          route get: {{ _evpn_health_check_dx_get }}; MTU
+          {{ _evpn_health_check_dx_mtu.stdout | default('unknown') }}), and no routes within the VPC CIDRs except FRR's
+          (found: {{ _evpn_health_check_dx_foreign_routes }}).
+      vars:
+        _evpn_health_check_dx_get: "{{ (_evpn_health_check_dx_nh_get.stdout | default('[{}]', true) | from_json)[0] }}"
+        # FRR's static and BGP routes are protocols 196 and 186; ip omits the protocol for boot.
+        _evpn_health_check_dx_foreign_routes: >-
+          {%- set found = [] -%}
+          {%- for r in _evpn_health_check_dx_vpc_routes.results | map(attribute='stdout') | map('from_json') | flatten
+                if r.protocol | default('boot') | string not in ['196', '186'] -%}
+          {%- set _ = found.append(r.dst ~ ' proto ' ~ r.protocol | default('boot')) -%}
+          {%- endfor -%}
+          {{ found }}

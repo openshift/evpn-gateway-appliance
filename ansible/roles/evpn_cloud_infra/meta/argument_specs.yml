@@ -45,6 +45,9 @@ argument_specs:
             type: str
             default: 10.44.44.0/24
             description: CIDR covering the tunnel addresses (onprem_ip and cloud_ip). Its prefix length sets the WireGuard interface address.
+          next_hop:
+            type: str
+            description: Direct Connect only; the customer router's address on the appliance's uplink. Not used by this role.
           mtu_mode:
             type: str
             choices: [safe, unsafe]

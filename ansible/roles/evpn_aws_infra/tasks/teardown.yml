@@ -2,6 +2,21 @@
 # Tear down all AWS infrastructure created by this role.
 # Usage: ansible-playbook playbooks/teardown-aws.yml
 
+- name: Validate the project name
+  ansible.builtin.include_tasks: project_name.yml
+
+# Runs for every transport so an association with a customer's DX gateway cannot block TGW
+# deletion. It runs first, so a missing EC2 describe permission for its lookups fails before
+# anything is deleted.
+- name: Tear down Direct Connect gateway associations
+  ansible.builtin.include_tasks: teardown_dx.yml
+
+# Runs for every transport so a VPN left by an earlier ipsec run cannot leak
+# or block TGW deletion; it is a no-op when none exists. It runs before any instance or
+# network is deleted, so a missing VPN describe permission fails early.
+- name: Tear down AWS Site-to-Site VPN
+  ansible.builtin.include_tasks: teardown_vpn.yml
+
 - name: Find EC2 instances
   amazon.aws.ec2_instance_info:
     region: "{{ evpn_aws_infra_aws_region }}"

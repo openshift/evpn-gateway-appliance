@@ -15,6 +15,15 @@
   hosts: cloud_workload
   become: true
   tasks:
+    # On the bootc image systemd runs FRR with Restart=always; stop it first, or it relaunches the container removed next.
+    - name: Stop and disable the FRR service (bootc image)
+      ansible.builtin.systemd:
+        name: frr-container.service
+        state: stopped
+        enabled: false
+      register: _frr_unit_stop
+      failed_when: _frr_unit_stop.failed and 'Could not find' not in (_frr_unit_stop.msg | default(''))
+
     - name: Stop and remove FRR container
       containers.podman.podman_container:
         name: frr
@@ -38,6 +47,15 @@
   hosts: cloud_infra
   become: true
   tasks:
+    # On the bootc image systemd runs FRR with Restart=always; stop it first, or it relaunches the container removed next.
+    - name: Stop and disable the FRR service (bootc image)
+      ansible.builtin.systemd:
+        name: frr-container.service
+        state: stopped
+        enabled: false
+      register: _frr_unit_stop
+      failed_when: _frr_unit_stop.failed and 'Could not find' not in (_frr_unit_stop.msg | default(''))
+
     - name: Stop and remove FRR container
       containers.podman.podman_container:
         name: frr

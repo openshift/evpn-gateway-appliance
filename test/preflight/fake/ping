@@ -1,0 +1,3 @@
+#!/bin/sh
+# iputils ping for baseline.yml: prints the canned output in $PING_OUT.
+printf "%s\n" "$PING_OUT"

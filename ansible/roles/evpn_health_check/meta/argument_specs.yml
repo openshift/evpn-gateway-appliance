@@ -42,13 +42,36 @@ argument_specs:
             type: str
             required: true
             description: Gateway IP on the cloud workload side for this stretch. Pinged to verify cloud gateway reachability.
-      tunnel:
+      evpn_health_check_max_loss_percent:
+        type: float
+        description: >-
+          Highest packet loss, over 20 pings from the VTEP address to the workload VTEP, that health checks accept;
+          unset records partial loss without a limit. Total loss always fails.
+      evpn_health_check_max_rtt_ms:
+        type: float
+        description: >-
+          Highest average round-trip time, in milliseconds, from the VTEP address to the workload VTEP that health
+          checks accept; unset records the RTT without a limit.
+      evpn_health_check_dx_telemetry:
+        type: bool
+        default: false
+        description: >-
+          Run the controller-side Direct Connect checks (dx_status) for direct-connect; see the evpn_aws_infra README
+          for what they check and the credentials they need.
+      evpn_health_check_vpn_telemetry:
+        type: bool
+        default: false
+        description: Enable controller-side AWS VPN telemetry checks for ipsec; requires ec2:DescribeVpnConnections credentials.
+      tunnel: &tunnel
         type: dict
         required: true
+        required_if:
+          - [type, wireguard, [cloud_ip]]
+          - [type, direct-connect, [next_hop]]
         description: >-
           Transport configuration parameters for the tunnel between on-prem and
-          cloud; type, cloud_ip and onprem_ip are used to check the BGP/EVPN
-          peers.
+          cloud; WireGuard uses cloud_ip/onprem_ip, IPsec checks the two IPv4
+          underlay peers, and the direct-connect preflight checks next_hop.
         options:
           type:
             type: str
@@ -57,8 +80,7 @@ argument_specs:
             description: Transport type. Determines which transport-specific checks run.
           cloud_ip:
             type: str
-            required: true
-            description: Tunnel address of the infra relay. Checked as the on-prem appliance's BGP peer.
+            description: WireGuard tunnel address of the infra relay. Checked as the on-prem appliance's BGP peer for wireguard.
           onprem_ip:
             type: str
             required: true
@@ -68,8 +90,42 @@ argument_specs:
             description: WireGuard listen port. Part of the shared playbook configuration model; not used by this role.
           network_cidr:
             type: str
-            description: CIDR covering the tunnel addresses (onprem_ip and cloud_ip). Part of the shared playbook configuration model; not used by this role.
+            description: >-
+              CIDR covering the tunnel addresses (onprem_ip and cloud_ip). The direct-connect preflight requires
+              onprem_ip inside it and it outside the VPC CIDRs.
+          next_hop:
+            type: str
+            description: >-
+              Direct Connect only; the customer router's address on the appliance's uplink: another host on a
+              directly connected subnet, outside network_cidr, as the preflight requires.
           mtu_mode:
             type: str
             choices: [safe, unsafe]
-            description: Intended underlay MTU regime. Part of the shared playbook configuration model; not used by this role.
+            description: Intended underlay MTU regime. The preflight requires safe for direct-connect until CORENET-7709.
+  preflight:
+    short_description: Read-only transport checks that block provisioning and deployment.
+    description:
+      - Run by provision-aws.yml before it creates anything, and by playbooks/preflight.yml, which deploy.yml imports first.
+    options:
+      tunnel: *tunnel
+      infra_vpc_cidr:
+        type: str
+        default: 10.100.0.0/16
+        description: CIDR of the infra VPC; for direct-connect, only FRR may route within it on the appliance.
+      workload_vpc_cidr:
+        type: str
+        default: 10.200.0.0/16
+        description: CIDR of the workload VPC; for direct-connect, only FRR may route within it on the appliance.
+      evpn_health_check_accept_internet_mode_limits:
+        type: bool
+        default: false
+        description: >-
+          Accept the limits of the internet-mode transports (wireguard, ipsec): a smaller workload MTU with no MSS
+          clamping yet, internet latency and loss, and WireGuard for development and test only. The transport
+          preflight fails for those transports unless this is true.
+      evpn_health_check_workload_mtu:
+        type: int
+        default: 0
+        description: >-
+          The workload (CUDN and on-premises VLAN) IP MTU. When set, the transport preflight requires it to fit the
+          transport's budget (vars/main.yml); 0 skips the check.

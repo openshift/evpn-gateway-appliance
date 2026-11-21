@@ -1,0 +1,48 @@
+---
+# Runs for every transport, before the TGW is deleted. It removes only associations
+# between a project TGW and a DX gateway; the customer's gateway, VIFs and connection stay.
+# Finding them uses EC2 permissions, so directconnect permissions are needed only when one exists.
+- name: Find project TGW Direct Connect attachments
+  ansible.builtin.command:
+    argv:
+      - aws
+      - ec2
+      - describe-transit-gateway-attachments
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --filters
+      - Name=resource-type,Values=direct-connect-gateway
+      - --query
+      - "TransitGatewayAttachments[?!contains(['deleted', 'failed', 'rejected'], State)].{tgw: TransitGatewayId, dxgw: ResourceId}"
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_teardown_attachments
+  changed_when: false
+  check_mode: false
+
+- name: Find project Transit Gateways for Direct Connect teardown
+  ansible.builtin.command:
+    argv:
+      - aws
+      - ec2
+      - describe-transit-gateways
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --filters
+      - Name=tag:Project,Values={{ evpn_aws_infra_project_name }}
+      - --query
+      - TransitGateways[].TransitGatewayId
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_teardown_tgws
+  changed_when: false
+  check_mode: false
+
+- name: Delete project DX gateway associations
+  ansible.builtin.include_tasks: teardown_dx_association.yml
+  loop: >-
+    {{ _evpn_aws_infra_dx_teardown_attachments.stdout | from_json |
+       selectattr('tgw', 'in', _evpn_aws_infra_dx_teardown_tgws.stdout | from_json) | list }}
+  loop_control:
+    loop_var: _evpn_aws_infra_dx_attachment
+    label: "{{ _evpn_aws_infra_dx_attachment.dxgw }} - {{ _evpn_aws_infra_dx_attachment.tgw }}"

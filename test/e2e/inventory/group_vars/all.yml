@@ -55,3 +55,6 @@ monitoring:
   frr_exporter: false
 
 frr_image: quay.io/frrouting/frr:10.5.3
+
+# The emulated lane runs WireGuard and IPsec on purpose.
+evpn_health_check_accept_internet_mode_limits: true

@@ -1,0 +1,9 @@
+---
+# Largest workload IP MTU each transport carries: its inner MTU minus 50 bytes of IPv4 VXLAN.
+# WireGuard: wg-quick's 1420-byte interface on a 1500-byte uplink. IPsec: AWS VPN with NAT-T and
+# AES-GCM, 1438.
+_evpn_health_check_workload_mtu_budget:
+  wireguard: 1370
+  ipsec: 1388
+  # The safe-mode contract: the path carries 1550 bytes (the on-premises MTU is the customer's).
+  direct-connect: 1500
