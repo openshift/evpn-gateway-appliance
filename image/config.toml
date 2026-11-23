@@ -1,0 +1,16 @@
+# BIB filesystem customization for EVPN Gateway Appliance disk images.
+# Passed as CONFIG_TOML_FILE to the build-vm-image task.
+# Shared by qcow2 and raw derivatives.
+# See plans/context/evpn-aws/bib-configuration-spec.md.
+#
+# The field is "minsize", not "size". No user, key or password customization
+# belongs in shipped disks; provision credentials at deployment time.
+#
+# TODO(minsize): Measure the actual bootc image size and set minsize to
+#   accommodate two deployments plus retained payload. Upgrades stage a second
+#   image, so budget: 2 * (image size) + headroom for /var and runtime data.
+#   Build a canary disk to validate the selected value.
+
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "20 GiB"
