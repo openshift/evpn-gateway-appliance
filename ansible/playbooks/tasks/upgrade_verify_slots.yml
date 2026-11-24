@@ -1,0 +1,14 @@
+---
+- name: Inspect the booted and rollback deployments
+  ansible.builtin.import_tasks: upgrade_status.yml
+
+- name: Require the expected images with no pending boot
+  ansible.builtin.assert:
+    that:
+      - _evpn_upgrade_status.booted.image.imageDigest == _evpn_expected_booted.imageDigest
+      - _evpn_upgrade_status.booted.image.image.image == _evpn_expected_booted.image.image
+      - _evpn_upgrade_status.rollback.image.imageDigest == _evpn_expected_rollback.imageDigest
+      - _evpn_upgrade_status.rollback.image.image.image == _evpn_expected_rollback.image.image
+      - _evpn_upgrade_status.staged is none
+      - _evpn_upgrade_status.rollbackQueued is false
+    fail_msg: "{{ _evpn_slot_error }}"

@@ -1,0 +1,97 @@
+---
+- name: Stage and check the next boot before rebooting
+  block:
+    - name: Stage the verified image on this peer
+      ansible.builtin.command:
+        argv: "{{ ['bootc', 'switch'] + _evpn_upgrade_signature_args + ['--transport', _evpn_upgrade_transport, _evpn_upgrade_ref] }}"
+      vars:
+        _evpn_upgrade_signature_args: >-
+          {{ ['--enforce-container-sigpolicy'] if _evpn_upgrade_previous.image.image.signature | default('') == 'containerPolicy' else [] }}
+      changed_when: true
+
+    - name: Inspect the staged deployment
+      ansible.builtin.import_tasks: upgrade_status.yml
+
+    - name: Require the requested deployment before rebooting
+      ansible.builtin.assert:
+        that:
+          - _evpn_upgrade_status.booted.image.imageDigest == _evpn_upgrade_previous.image.imageDigest
+          - _evpn_upgrade_status.booted.image.image.image == _evpn_upgrade_previous.image.image.image
+          - _evpn_upgrade_status.staged.image.image.image == _evpn_upgrade_ref
+          - _evpn_upgrade_status.staged.image.image.transport == _evpn_upgrade_transport
+          - _evpn_upgrade_transport == 'registry' or _evpn_upgrade_status.staged.image.imageDigest == _evpn_upgrade_digest
+          - _evpn_upgrade_status.staged.image.imageDigest is match('^sha256:[0-9a-f]{64}\Z')
+          - _evpn_upgrade_status.rollbackQueued is false
+        fail_msg: Staged deployment does not match the request. Inspect bootc status before rebooting.
+
+  rescue:
+    - name: Handle a rejected stage
+      ansible.builtin.include_tasks: upgrade_cancel.yml
+
+- name: Record the resolved platform image for this peer
+  ansible.builtin.set_fact:
+    _evpn_upgrade_candidate: "{{ _evpn_upgrade_status.staged.image }}"
+
+- name: Reboot into the staged image and wait for the appliance
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+
+- name: Verify the requested image booted and the original deployment remains available
+  ansible.builtin.import_tasks: upgrade_verify_slots.yml
+  vars:
+    _evpn_expected_booted: "{{ _evpn_upgrade_candidate }}"
+    _evpn_expected_rollback: "{{ _evpn_upgrade_previous.image }}"
+    _evpn_slot_error: Unexpected deployment after reboot. Inspect bootc status before recovery.
+
+- name: Validate fabric convergence or restore the original deployment
+  vars:
+    evpn_health_check_retries: 12
+  block:
+    - name: Wait for fabric health on the new deployment
+      ansible.builtin.import_role:
+        name: evpn_health_check
+
+  rescue:
+    - name: Refuse to roll back an unrelated boot or discard staged work
+      ansible.builtin.import_tasks: upgrade_verify_slots.yml
+      vars:
+        _evpn_expected_booted: "{{ _evpn_upgrade_candidate }}"
+        _evpn_expected_rollback: "{{ _evpn_upgrade_previous.image }}"
+        _evpn_slot_error: Cannot safely roll back this peer. Inspect its bootc deployment slots. No further peers will be upgraded.
+
+    - name: Queue the original deployment
+      ansible.builtin.command: bootc rollback
+      changed_when: true
+
+    - name: Inspect the queued rollback
+      ansible.builtin.import_tasks: upgrade_status.yml
+
+    - name: Verify that the original deployment is selected for the next boot
+      ansible.builtin.assert:
+        that:
+          - _evpn_upgrade_status.rollbackQueued is true
+          - _evpn_upgrade_status.rollback.image.imageDigest == _evpn_upgrade_previous.image.imageDigest
+          - _evpn_upgrade_status.rollback.image.image.image == _evpn_upgrade_previous.image.image.image
+          - _evpn_upgrade_status.staged is none
+
+    - name: Reboot into the original deployment and wait for the appliance
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+
+    - name: Verify that the original image is running again
+      ansible.builtin.import_tasks: upgrade_verify_slots.yml
+      vars:
+        _evpn_expected_booted: "{{ _evpn_upgrade_previous.image }}"
+        _evpn_expected_rollback: "{{ _evpn_upgrade_candidate }}"
+        _evpn_slot_error: Rollback did not restore the original image. Recover this appliance before proceeding.
+
+    - name: Wait for fabric health on the restored deployment
+      ansible.builtin.import_role:
+        name: evpn_health_check
+
+    - name: Stop the rollout after verified recovery
+      ansible.builtin.fail:
+        msg: >-
+          Post-upgrade health check failed on {{ inventory_hostname }}.
+          Rollback verified on {{ inventory_hostname }}: {{ _evpn_upgrade_previous.image.imageDigest }}.
+          No further peers will be upgraded.

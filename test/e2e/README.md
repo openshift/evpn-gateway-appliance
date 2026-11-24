@@ -132,6 +132,11 @@ sudo make nested-ci-appliance-image CONTAINER_AUTH_FILE="$HOME/.docker/config.js
 sudo test/e2e/run.sh
 ```
 
+## Bootc upgrade lane
+
+Run the [live appliance upgrade scenarios](upgrade/README.md) on two disposable bootc peers.
+The container topology above cannot exercise bootc deployment or host reboot.
+
 The images above use the default tags, so no image env is needed; override any of
 `EGA_E2E_IMAGE` / `EGA_NODE_IMAGE` / `EGA_EE_IMAGE` to point elsewhere.
 

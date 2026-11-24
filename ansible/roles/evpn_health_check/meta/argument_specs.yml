@@ -8,6 +8,10 @@ argument_specs:
         membership (cloud_infra, cloud_workload, onprem_appliances), so it is
         safe to run against all hosts.
     options:
+      evpn_health_check_retries:
+        type: int
+        default: 0
+        description: Retry each failed health check this many times at five-second intervals while the fabric converges.
       infra_relay_host:
         type: str
         required: true

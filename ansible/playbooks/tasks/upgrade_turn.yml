@@ -1,0 +1,27 @@
+---
+- name: Recheck fabric health on the peers that will keep serving
+  ansible.builtin.include_role:
+    name: evpn_health_check
+  when:
+    - inventory_hostname != _evpn_turn
+    - hostvars[_evpn_turn]._evpn_upgrade_needed
+
+- name: Activate only the peer whose turn it is
+  when: inventory_hostname == _evpn_turn
+  block:
+    - name: Recheck bootc immediately before this peer's turn
+      ansible.builtin.import_tasks: upgrade_status.yml
+
+    - name: Stop if another deployment changed the preflight state
+      ansible.builtin.assert:
+        that:
+          - _evpn_upgrade_status.booted.image == _evpn_upgrade_previous.image
+          - _evpn_upgrade_status.booted.ostree | default(none) == _evpn_upgrade_previous.ostree | default(none)
+          - _evpn_upgrade_status.booted.composefs | default(none) == _evpn_upgrade_previous.composefs | default(none)
+          - _evpn_upgrade_status.staged is none
+          - _evpn_upgrade_status.rollbackQueued is false
+        fail_msg: Boot state changed since preflight. Inspect this appliance before continuing.
+
+    - name: Activate and validate this peer
+      ansible.builtin.include_tasks: upgrade_peer.yml
+      when: _evpn_upgrade_needed

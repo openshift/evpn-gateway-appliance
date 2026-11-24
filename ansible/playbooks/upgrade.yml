@@ -1,0 +1,103 @@
+---
+- name: Check every HA peer before changing an appliance
+  hosts: all:localhost
+  strategy: linear
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require the complete HA group and a live run
+      ansible.builtin.assert:
+        that:
+          - groups.get('evpn_upgrade_peers', []) | length >= 2
+          - groups['evpn_upgrade_peers'] | difference(ansible_play_hosts_all) | length == 0
+          - not ansible_check_mode
+        fail_msg: Upgrade requires all members of evpn_upgrade_peers (at least two) and does not support check mode.
+
+    - name: Check the target, boot state and fabric health on each appliance
+      become: true
+      when: inventory_hostname in groups['evpn_upgrade_peers']
+      block:
+        - name: Require a shared registry image pinned by digest
+          ansible.builtin.assert:
+            that:
+              - evpn_upgrade_image is defined and evpn_upgrade_image is string
+              - evpn_upgrade_image is match(_evpn_upgrade_registry ~ _evpn_upgrade_repository)
+              - evpn_upgrade_image == hostvars[groups['evpn_upgrade_peers'] | first].evpn_upgrade_image
+              - evpn_upgrade_source | default('local') in ['local', 'registry']
+              - evpn_upgrade_source | default('local') == hostvars[groups['evpn_upgrade_peers'] | first].evpn_upgrade_source | default('local')
+              - group_names | intersect(['onprem_appliances', 'cloud_infra', 'cloud_workload']) | length > 0
+              - ansible_connection | default('ssh') != 'local'
+            fail_msg: >-
+              Each remote HA peer needs an existing fabric inventory group and the same
+              evpn_upgrade_image in registry/repository@sha256:<64 lowercase hex digits> form.
+          vars:
+            _evpn_upgrade_registry: '^(?=[^/]*[.:]|localhost/)[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?'
+            _evpn_upgrade_repository: '(?:/[a-z0-9]+(?:(?:[.]|_{1,2}|-+)[a-z0-9]+)*)+@sha256:[a-f0-9]{64}\Z'
+
+        - name: Require the same controller OCI directory on every peer for local distribution
+          ansible.builtin.assert:
+            that:
+              - evpn_upgrade_oci_dir is defined and evpn_upgrade_oci_dir is string
+              - evpn_upgrade_oci_dir.startswith('/')
+              - evpn_upgrade_oci_dir == hostvars[groups['evpn_upgrade_peers'] | first].evpn_upgrade_oci_dir
+            fail_msg: Set evpn_upgrade_oci_dir to the absolute controller path of the release OCI layout, or explicitly select the registry source.
+          when: evpn_upgrade_source | default('local') == 'local'
+
+        - name: Inspect the current bootc deployments
+          ansible.builtin.import_tasks: tasks/upgrade_status.yml
+
+        - name: Require a compatible booted image with no pending boot
+          ansible.builtin.assert:
+            that:
+              - _evpn_upgrade_status.booted.image.imageDigest is match('^sha256:[0-9a-f]{64}\Z')
+              - _evpn_upgrade_status.booted.incompatible is false
+              - _evpn_upgrade_status.booted.image.image.signature | default(none) in [none, 'insecure', 'containerPolicy']
+              - _evpn_upgrade_status.staged is none
+              - _evpn_upgrade_status.rollbackQueued is false
+            fail_msg: Upgrade requires a compatible bootc image, a supported signature policy and no staged update or queued rollback.
+
+        - name: Record this peer's original deployment
+          ansible.builtin.set_fact:
+            _evpn_upgrade_previous: "{{ _evpn_upgrade_status.booted }}"
+            _evpn_upgrade_digest: "{{ evpn_upgrade_image.split('@') | last }}"
+            _evpn_upgrade_layout: "/var/lib/evpn-gateway-appliance/images/{{ evpn_upgrade_image.split('@sha256:') | last }}"
+
+        - name: Record the requested boot source
+          ansible.builtin.set_fact:
+            _evpn_upgrade_transport: "{{ 'oci' if evpn_upgrade_source | default('local') == 'local' else 'registry' }}"
+            _evpn_upgrade_ref: "{{ _evpn_upgrade_layout if evpn_upgrade_source | default('local') == 'local' else evpn_upgrade_image }}"
+
+        - name: Determine whether this peer needs a switch
+          ansible.builtin.set_fact:
+            _evpn_upgrade_needed: >-
+              {{ _evpn_upgrade_previous.image.image.transport != _evpn_upgrade_transport
+                 or _evpn_upgrade_previous.image.image.image != _evpn_upgrade_ref
+                 or (_evpn_upgrade_transport == 'oci' and _evpn_upgrade_previous.image.imageDigest != _evpn_upgrade_digest) }}
+
+        - name: Validate current fabric health
+          ansible.builtin.import_role:
+            name: evpn_health_check
+
+- name: Distribute the release to all peers before changing any boot selection
+  hosts: evpn_upgrade_peers
+  strategy: linear
+  any_errors_fatal: true
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Copy and verify the disconnected release
+      ansible.builtin.include_tasks: tasks/upgrade_distribute.yml
+      when: evpn_upgrade_source | default('local') == 'local'
+
+- name: Upgrade one HA peer at a time
+  hosts: evpn_upgrade_peers
+  strategy: linear
+  any_errors_fatal: true
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Complete each peer's turn before starting the next
+      ansible.builtin.include_tasks: tasks/upgrade_turn.yml
+      loop: "{{ groups['evpn_upgrade_peers'] | sort }}"
+      loop_control:
+        loop_var: _evpn_turn

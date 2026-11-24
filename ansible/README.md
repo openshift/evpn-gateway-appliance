@@ -29,6 +29,7 @@ roles/
 playbooks/
 ├── deploy.yml                      Full deploy, idempotent
 ├── health-check.yml                Validation only
+├── upgrade.yml                     Upgrade bootc HA peers one at a time
 ├── provision-aws.yml               Provision AWS infra, update inventory
 ├── teardown.yml                    Remove appliance/relay/VTEP configuration
 └── teardown-aws.yml                Destroy AWS infrastructure (irreversible)
@@ -98,6 +99,94 @@ ansible-playbook playbooks/provision-aws.yml
 ansible-playbook playbooks/deploy.yml
 ansible-playbook playbooks/health-check.yml
 ```
+
+## Upgrade a bootc HA pair
+
+Use the upgrade playbook during a maintenance window with both peers online.
+Each peer must have a management connection that survives loss of the EVPN path.
+The controller needs SSH and privilege escalation after each reboot.
+Keep console access available if an image fails to boot or breaks management access.
+
+1. Add both existing host names to the `evpn_upgrade_peers` group in your
+   inventory. Keep their existing health-check group membership and fabric
+   variables. For example, add this group beside `onprem_appliances` under
+   `all.children`:
+
+   ```yaml
+   evpn_upgrade_peers:
+     hosts:
+       appliance-a: {}
+       appliance-b: {}
+   ```
+
+2. On a connected preparation host, obtain the approved release reference with
+   its **platform manifest digest**. Both peers must use that architecture.
+   Export it once into an empty OCI directory, preserving the approved digest.
+   Use the site's release verification policy when importing the image:
+
+   ```bash
+   skopeo copy --preserve-digests "docker://${UPGRADE_IMAGE:?set the pinned release reference}" oci:./appliance.oci
+   ```
+
+3. Bring the whole directory into the disconnected site. The Ansible controller
+   (or execution environment) needs read access to it and `skopeo` on its path.
+   Put these variables in a local `release.yml`, replacing the placeholder
+   with the trusted digest from step 2:
+
+   ```yaml
+   evpn_upgrade_image: registry.example.com/network/appliance@sha256:<platform-manifest-digest>
+   evpn_upgrade_oci_dir: /srv/releases/appliance.oci
+   ```
+
+   Run from the collection source directory:
+
+   ```bash
+   ansible-playbook -i /path/to/inventory.yml playbooks/upgrade.yml -e @release.yml
+   ```
+
+   By default the reference identifies the release. Neither peer pulls it.
+   Ansible copies the OCI files over SSH and verifies the digest of every
+   referenced blob on every peer before it changes any boot selection.
+   A transfer failure may leave cached files, but no peer is queued to reboot.
+   Moving from a registry to the local source requires a switch and reboot even
+   if the image digest is unchanged. Rerunning the same local release skips the reboot.
+
+4. Check the play result. Every peer in the group must pass preflight. In inventory
+   name order, the playbook checks the other peers' fabric health before staging
+   the next peer. A failed check stops the rollout before that peer's boot
+   selection changes. The check cannot prevent a later loss of forwarding.
+   The playbook reboots the selected peer, verifies the booted platform digest,
+   and runs the fabric health checks before proceeding. If a
+   health check fails, the playbook attempts to boot the previous image and
+   verifies its digest and health. A verified rollback still ends the rollout
+   with a failure. Rolling back the boot image does not revert data in `/var`.
+
+Do not run another image update or change the boot order during the rollout.
+If staging fails before reboot, the playbook rereads the boot slots. On OSTree it
+uses `rpm-ostree cleanup --pending` only for an unpinned pending deployment it
+can identify as the requested release in the original stateroot. It verifies
+that the original image is still selected and stops the rollout. If the slots
+are unexpected, the backend cannot cancel the stage, or the peer becomes
+unreachable, **do not reboot** until the next boot selection is checked at the console.
+If SSH does not return, inspect the appliance console and select the previous
+deployment. Check `bootc status --json` and run the health playbook before
+starting another rollout.
+
+The local copy stays under `/var/lib/evpn-gateway-appliance/images/`, in a
+directory named for the release digest. Allow space for both the OCI copy and
+the bootc deployment. Keep directories referenced by booted, staged, or
+rollback deployments. The playbook does not prune older releases.
+Bootc retains container signature policy enforcement when the current
+deployment requires it. That policy must allow the local OCI source.
+
+If you operate a site registry and want each peer to pull from it, explicitly
+set `evpn_upgrade_source: registry` and supply a digest-pinned reference in
+`evpn_upgrade_image`. Registry mode also accepts a multi-architecture index.
+Selecting a different registry reference or switching from OCI to registry
+requires a switch even if the platform image bytes match. Rerunning the same
+pinned registry reference skips activation even when the pin identifies an
+index and the booted digest identifies its platform image.
+Local distribution never falls back to a registry when the layout is missing.
 
 ## Required variables
 

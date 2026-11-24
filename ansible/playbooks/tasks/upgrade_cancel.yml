@@ -1,0 +1,56 @@
+---
+- name: Inspect and cancel only this rollout's pending OSTree deployment
+  block:
+    - name: Read the current boot selection after the staging failure
+      ansible.builtin.import_tasks: upgrade_status.yml
+
+    - name: Require the original boot and a known next boot order
+      ansible.builtin.assert:
+        that:
+          - _evpn_upgrade_status.booted.image == _evpn_upgrade_previous.image
+          - _evpn_upgrade_status.rollbackQueued is false
+
+    - name: Remove the pending deployment if it belongs to this turn
+      when: _evpn_upgrade_status.staged is not none
+      block:
+        - name: Identify the pending image and its OSTree stateroot
+          ansible.builtin.assert:
+            that:
+              - _evpn_upgrade_previous.ostree is mapping
+              - _evpn_upgrade_status.booted.ostree == _evpn_upgrade_previous.ostree
+              - _evpn_upgrade_status.staged.ostree.stateroot == _evpn_upgrade_previous.ostree.stateroot
+              - _evpn_upgrade_status.staged.pinned is false
+              - _evpn_upgrade_status.staged.image.image.transport == _evpn_upgrade_transport
+              - _evpn_upgrade_status.staged.image.image.image == _evpn_upgrade_ref
+              - _evpn_upgrade_status.staged.image.imageDigest is match('^sha256:[0-9a-f]{64}\Z')
+              - _evpn_upgrade_transport == 'registry' or _evpn_upgrade_status.staged.image.imageDigest == _evpn_upgrade_digest
+
+        - name: Cancel only the pending OSTree deployment
+          ansible.builtin.command: rpm-ostree cleanup --pending
+          changed_when: true
+
+    - name: Check the actual boot selection after cancellation
+      ansible.builtin.import_tasks: upgrade_status.yml
+
+    - name: Verify the original image is selected without a pending boot
+      ansible.builtin.assert:
+        that:
+          - _evpn_upgrade_status.booted.image == _evpn_upgrade_previous.image
+          - _evpn_upgrade_status.booted.ostree | default(none) == _evpn_upgrade_previous.ostree | default(none)
+          - _evpn_upgrade_status.booted.composefs | default(none) == _evpn_upgrade_previous.composefs | default(none)
+          - _evpn_upgrade_status.staged is none
+          - _evpn_upgrade_status.rollbackQueued is false
+
+  rescue:
+    - name: Report the observed slots when the next boot cannot be verified
+      ansible.builtin.fail:
+        msg: >-
+          Do not reboot {{ inventory_hostname }}. Cannot verify safe cancellation after staging failed.
+          Inspect bootc status at the console before continuing.
+          Last bootc status: {{ _evpn_upgrade_bootc.stdout | default('unavailable', true) }}.
+
+- name: Stop after confirming the original image is still selected
+  ansible.builtin.fail:
+    msg: >-
+      Staging failed on {{ inventory_hostname }}. The original image {{ _evpn_upgrade_previous.image.imageDigest }}
+      remains selected, with no pending boot. No further peers will be upgraded.
