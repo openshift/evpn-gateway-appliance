@@ -1,0 +1,26 @@
+# One namespace per stretch. The ega-stretch label is what each CUDN selects;
+# k8s.ovn.org/primary-user-defined-network makes the CUDN the namespace's
+# primary network, so pods get their address from the stretched subnet.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    ega-stretch: production
+    k8s.ovn.org/primary-user-defined-network: ""
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    ega-stretch: staging
+    k8s.ovn.org/primary-user-defined-network: ""
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: management
+  labels:
+    ega-stretch: management
+    k8s.ovn.org/primary-user-defined-network: ""

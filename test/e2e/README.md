@@ -22,6 +22,9 @@ Entry points, by how they are meant to be run:
 All are runner-agnostic — the same scripts work under a Prow test step or a GitHub Actions
 VM; the runner only provides env and collects artifacts.
 
+`deploy` and `destroy` require exactly one explicitly selected scenario; discovery and
+multi-scenario runs must use the default `full` lifecycle.
+
 The e2e entrypoint discovers all `scenarios/*.env` definitions by default, in filename
 order. Set `EGA_SCENARIOS` to comma-separated names to select scenarios and their order
 (a single name selects just that scenario):
@@ -33,10 +36,26 @@ sudo EGA_SCENARIOS=emulated test/e2e/run.sh
 Each scenario defines its topology, inventory and ordered playbook sequence. Scenarios
 run sequentially with separate work/artifact subdirectories and containerlab names
 (`ega-<scenario>`). A failed scenario is cleaned up in `full` mode; later scenarios still
-run, and the lane fails if any scenario fails. Both runners forward `EGA_SCENARIOS` and
-`EGA_STAGE`; scenario iteration and topology selection stay inside the entrypoint.
-`deploy` and `destroy` require exactly one explicitly selected scenario; discovery and
-multi-scenario runs must use the default `full` lifecycle.
+run, and the lane fails if any scenario fails.
+
+## Kind scenarios
+
+A scenario may also own a directory under `test/e2e/scenarios/<name>/` with a
+`checks.sh`: the runner runs it after the scenario's playbooks, on the same lab. The
+scenario — not the collection's `evpn_health_check` — is where lane-specific proof
+lives: on the kind lane the health check's per-VNI remote-VTEP and workload-side
+assertions are skipped (its `cloud_workload` peers are discovered frr-k8s pods, not
+standalone VTEPs), so `checks.sh` polls the relay, the appliance and the frr-k8s pods
+itself. Deploy keeps only the fabric-level invariants (BGP sessions, WireGuard, no
+VXLAN on the relay).
+
+`checks.sh` applies its own `manifests/` itself (e.g. it must first retire objects the
+kind bring-up left behind, in a specific order) and may call the exported `ee_playbook`
+(from `test/e2e/lib/ee-playbook.sh`) to run collection playbooks with its own extra
+vars — `multi-vni` passes its own stretch list to
+`network.evpn_gateway_test.simulate` and `network.evpn_gateway.deploy` this way, before
+proving per-VNI route targets, remote VTEPs, same-VLAN reachability, cross-VLAN
+isolation and the day-2 add/delete/recreate lifecycle of an EVPN CUDN.
 
 ## Layout
 

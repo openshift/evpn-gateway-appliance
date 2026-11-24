@@ -1,0 +1,25 @@
+# The three sample stretches plus the day-2 VLAN 400 overlay. EVPN cannot be
+# enabled on a CUDN that already exists, so the day-2 stretch is modeled as a
+# new EVPN CUDN (CORENET-7513). Used only for the second simulate/deploy pass,
+# after day2/ has been applied to the cluster.
+stretches:
+  - vlan: 100
+    name: production
+    subnet: 10.42.1.0/24
+    onprem_gateway: 10.42.1.1
+    cloud_gateway: 10.42.1.2
+  - vlan: 200
+    name: staging
+    subnet: 10.42.2.0/24
+    onprem_gateway: 10.42.2.1
+    cloud_gateway: 10.42.2.2
+  - vlan: 300
+    name: management
+    subnet: 10.42.3.0/24
+    onprem_gateway: 10.42.3.1
+    cloud_gateway: 10.42.3.2
+  - vlan: 400
+    name: database
+    subnet: 10.42.4.0/24
+    onprem_gateway: 10.42.4.1
+    cloud_gateway: 10.42.4.2

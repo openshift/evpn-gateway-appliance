@@ -1,0 +1,23 @@
+# Advertise every EVPN CUDN (label evpn: enabled) through the frr-k8s
+# FRRConfiguration the bring-up labeled use-for-advertisements: evpn. The
+# day-2 CUDN carries the same label, so this one RA covers all four; no second
+# RA is created for it. Replaces the bring-up's ega-evpn-ra, which checks.sh
+# deletes first (two RAs selecting the same networks would overlap).
+apiVersion: k8s.ovn.org/v1
+kind: RouteAdvertisements
+metadata:
+  name: ega-multi-vni-ra
+spec:
+  targetVRF: auto
+  advertisements:
+    - PodNetwork
+  nodeSelector: {}
+  frrConfigurationSelector:
+    matchLabels:
+      use-for-advertisements: evpn
+  networkSelectors:
+    - networkSelectionType: ClusterUserDefinedNetworks
+      clusterUserDefinedNetworkSelector:
+        networkSelector:
+          matchLabels:
+            evpn: enabled

@@ -31,22 +31,11 @@ esac
 export DOCKER_HOST="unix://${EGA_RUNTIME_SOCK}"
 export CONTAINERLAB_RUNTIME="podman"
 
-# Run a collection playbook from the execution environment, the same artifact AAP runs.
-# Launch it as a sibling on the host runtime through the mounted socket. run.sh mounts
-# the work dir at the same path here and on the host so the EE can bind the staged files.
-ee_playbook() {
-	local pb="$1"
-	echo ">> ansible-playbook ${pb} (via execution environment: $EGA_EE_IMAGE)"
-	podman-remote --url "unix://${EGA_RUNTIME_SOCK}" run --rm --net=host --user 0 \
-		-v "${EGA_WORK_DIR}:${EGA_WORK_DIR}:Z" \
-		-e ANSIBLE_HOST_KEY_CHECKING=False \
-		-e "KUBECONFIG=${EGA_WORK_DIR}/kubeconfig" \
-		-w "${lab_dir}" \
-		"$EGA_EE_IMAGE" \
-		ansible-playbook -i "${lab_dir}/inventory/hosts.yml" \
-			"$pb" \
-			-u root --private-key "$ssh_key"
-}
+# Shared EE playbook runner (ee_playbook/ee_runtime), exported so a scenario's
+# checks.sh (a child process) can run collection playbooks with its own extra
+# vars against the same lab.
+# shellcheck source=/dev/null
+source "${self_dir}/lib/ee-playbook.sh"
 
 # A subshell keeps scenario defaults, exports, cwd and the EXIT trap from leaking into
 # the next scenario. Enable errexit here even though the caller collects each exit status.
@@ -120,10 +109,17 @@ run_scenario() (
 	[ -f "$ssh_key" ] || ssh-keygen -t ed25519 -N '' -C ega-e2e -f "$ssh_key" >/dev/null
 	chmod 644 "${ssh_key}.pub"
 	export EGA_SSH_PUBKEY="${ssh_key}.pub"
+	# checks.sh and the sourced ee_playbook consume these; a scenario may hand
+	# its own stretch list to the collection playbooks through them.
+	export EGA_LAB="$lab_name"
+	export EGA_LAB_DIR="$lab_dir"
+	export EGA_SSH_KEY="$ssh_key"
 
 	if [ "$needs_kind" = "true" ]; then
-		# Fully configured kind cluster; its kubeconfig feeds the peer discovery.
+		# Fully configured kind cluster; its kubeconfig feeds the peer discovery
+		# and any scenario checks. ee_playbook forwards it into the EE.
 		"${self_dir}/kind/setup-cluster.sh" setup "${EGA_WORK_DIR}"
+		export KUBECONFIG="${EGA_WORK_DIR}/kubeconfig"
 	fi
 
 	echo ">> containerlab deploy: $topo"
@@ -156,6 +152,14 @@ run_scenario() (
 	for playbook in "${playbooks[@]}"; do
 		ee_playbook "$playbook"
 	done
+
+	# A scenario may own deeper assertions than its playbooks: run its checks.sh
+	# on the same lab. It applies its own manifests itself (it may have to retire
+	# objects the kind bring-up left behind first) and may call the exported
+	# ee_playbook with scenario-specific extra vars.
+	if [ -x "${self_dir}/scenarios/${scenario}/checks.sh" ]; then
+		"${self_dir}/scenarios/${scenario}/checks.sh"
+	fi
 	echo ">> scenario ${scenario} complete"
 )
 

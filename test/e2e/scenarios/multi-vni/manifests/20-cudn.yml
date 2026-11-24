@@ -1,0 +1,99 @@
+# One primary L2 EVPN CUDN per stretched VLAN. VNI = 10000 + VLAN.
+#
+# routeTarget is deliberately NOT set: the CUDN API takes a single symmetric
+# import/export target, which cannot copy the appliance pair (import both ASNs,
+# export the on-prem ASN). Left unset, ovn-kubernetes emits no per-VNI
+# route-target stanza and FRR auto-derives "<router-ASN>:<VNI>" — the frr-k8s
+# router ASN, i.e. the workload ASN from the deployed bgp block (65200:101x0
+# for the sample inventory). That is the community the appliance already
+# imports, and no ASN literal is baked into the manifest. checks.sh asserts the
+# derived targets from the deployed ASNs.
+#
+# Per-subnet layout: .1 is the appliance SVI (reserved), .10 the simulated
+# on-prem workload (reserved), .240/28 OVN infrastructure, .254 the OVN gateway.
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: production
+  labels:
+    evpn: enabled
+spec:
+  namespaceSelector:
+    matchLabels:
+      ega-stretch: production
+  network:
+    topology: Layer2
+    layer2:
+      role: Primary
+      subnets:
+        - 10.42.1.0/24
+      reservedSubnets:
+        - 10.42.1.1/32
+        - 10.42.1.10/32
+      infrastructureSubnets:
+        - 10.42.1.240/28
+      defaultGatewayIPs:
+        - 10.42.1.254
+    transport: EVPN
+    evpn:
+      vtep: ega-vtep
+      macVRF:
+        vni: 10100
+---
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: staging
+  labels:
+    evpn: enabled
+spec:
+  namespaceSelector:
+    matchLabels:
+      ega-stretch: staging
+  network:
+    topology: Layer2
+    layer2:
+      role: Primary
+      subnets:
+        - 10.42.2.0/24
+      reservedSubnets:
+        - 10.42.2.1/32
+        - 10.42.2.10/32
+      infrastructureSubnets:
+        - 10.42.2.240/28
+      defaultGatewayIPs:
+        - 10.42.2.254
+    transport: EVPN
+    evpn:
+      vtep: ega-vtep
+      macVRF:
+        vni: 10200
+---
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: management
+  labels:
+    evpn: enabled
+spec:
+  namespaceSelector:
+    matchLabels:
+      ega-stretch: management
+  network:
+    topology: Layer2
+    layer2:
+      role: Primary
+      subnets:
+        - 10.42.3.0/24
+      reservedSubnets:
+        - 10.42.3.1/32
+        - 10.42.3.10/32
+      infrastructureSubnets:
+        - 10.42.3.240/28
+      defaultGatewayIPs:
+        - 10.42.3.254
+    transport: EVPN
+    evpn:
+      vtep: ega-vtep
+      macVRF:
+        vni: 10300
