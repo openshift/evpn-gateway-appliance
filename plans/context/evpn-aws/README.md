@@ -88,6 +88,7 @@ parallel. Record accepted decisions in the decision list.
 | [Source findings](source-audit.md) | Public-import blockers and open defects at the inspected prototype revision |
 | [Ansible validated content](ansible-validated-content-plan.md) | Checklist gaps for the `network.evpn_gateway` validated-content candidacy and the fixes |
 | [Networking handoff](networking-spec.md) | Source gaps and interfaces to networking/QE qualification |
+| [Stretched L2 routing](stretched-l2-routing.md) | Proposed gateway ownership, cloud-border and on-prem WAN packet paths, and qualification |
 | [FRR metrics and observability](frr-metrics-plan.md) | CORENET-7504 exporter choice, status, implementation chunks and asks; [details](frr-metrics-details.md) hold the evidence behind it |
 | [Site-to-Site VPN](site-to-site-vpn-plan.md) | CORENET-7500 transport plan, owner questions and implementation sequence |
 

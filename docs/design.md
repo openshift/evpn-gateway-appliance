@@ -310,6 +310,13 @@ The `nolearning` flag on VXLAN interfaces means all MAC learning is
 driven by BGP EVPN Type-2 routes, not data-plane flooding. This is
 the same control-plane-driven model used by production EVPN fabrics.
 
+### Routed egress from a stretch
+
+The bridge addresses above describe the baseline appliance wiring, not ownership
+of the workload default gateway. The [stretched L2 routing proposal](../plans/context/evpn-aws/stretched-l2-routing.md)
+shows how an OpenShift pod-facing gateway can use a cloud EVPN border for Internet
+and optional routed WAN egress while leaving the physical DC SVI unchanged.
+
 ## 4. Tunnel Underlay
 
 The `tunnel.type` variable gates all tunnel-specific tasks:
