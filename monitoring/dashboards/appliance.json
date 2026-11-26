@@ -448,6 +448,38 @@
           "hideZeros": true
         }
       }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Overlay path RTT",
+      "description": "Average RTT to the overlay probe target; gaps mean a failed or stale probe.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ega_path_probe_rtt_seconds{job=~\"$job\", instance=~\"$instance\"} and on(job, instance) (abs(node_time_seconds{job=~\"$job\", instance=~\"$instance\"} - on(job, instance) node_textfile_mtime_seconds{job=~\"$job\", instance=~\"$instance\", file=~\".*/ega-path-probe[.]prom\"}) <= 60)",
+          "legendFormat": "{{job}}/{{instance}} {{target}}"
+        }
+      ]
     }
   ]
 }

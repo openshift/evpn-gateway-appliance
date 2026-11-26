@@ -457,7 +457,7 @@ graph TB
         watchfrr --> bgpd["bgpd"]
         watchfrr --> bfdd["bfdd"]
         watchfrr --> staticd["staticd"]
-        podman --> exporter["frr_exporter :9342"]
+        podman --> exporter["frr-metrics 127.0.0.1:7573"]
         podman --> node["node_exporter :9100"]
     end
 ```
@@ -495,14 +495,14 @@ while bgpd restarts and re-establishes BGP sessions (~5-10 seconds).
 
 ### Monitoring
 
-**frr_exporter** scrapes FRR state via vtysh and exposes Prometheus
-metrics on `:9342`. The FRR container shares `/var/run/frr` to the host
-so the exporter can access vtysh sockets.
+**frr-metrics**, the FRR image's own exporter, reads FRR state via vtysh and
+serves Prometheus metrics on `127.0.0.1:7573`. The FRR container shares
+`/var/run/frr` to the host so the exporter can access vtysh sockets.
 
 **node_exporter** provides system metrics on `:9100`.
 
-Both run as podman containers. On bootc images, they're baked in as
-systemd services. On non-bootc, Ansible deploys them.
+Both run as podman containers, baked into bootc images as systemd services.
+On non-bootc, Ansible deploys node_exporter only.
 
 We ship metric endpoints and reference alert rules. Where the customer
 runs Prometheus + Grafana is their choice.
@@ -530,7 +530,7 @@ ansible/
     ├── evpn_cloud_infra/      ← WireGuard + FRR relay
     ├── evpn_cloud_workload/   ← VXLAN bridges + FRR VTEP
     ├── evpn_onprem_appliance/ ← VLANs + VXLAN + FRR VTEP
-    ├── evpn_monitoring/       ← frr_exporter + node_exporter
+    ├── evpn_monitoring/       ← frr-metrics + node_exporter
     └── evpn_health_check/     ← 16 automated checks
 ```
 
@@ -646,7 +646,7 @@ The `evpn_health_check` role runs 16 automated checks across all 3 hosts:
 - Multi-VLAN stretch (3 VLANs proven)
 - WireGuard dev/test tunnel (gated on `tunnel.type`)
 - Automated health checks (16 checks)
-- Monitoring endpoints (frr_exporter + node_exporter)
+- Monitoring endpoints (frr-metrics + node_exporter)
 
 ### Phase 2 — HA + DX Partner
 

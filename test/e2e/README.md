@@ -239,8 +239,10 @@ set `EGA_STAGE` to its nested path, for example `EGA_STAGE=evpn_onprem_appliance
 ## Status
 
 Deploy + the collection's health check pass end to end: three-AS eBGP, Type-2/3 exchange,
-and bidirectional L2 reachability across the fabric. Still to add: explicit pytest
-assertions (Type-2/3, BUM, isolation) and the Prow/CI job wiring (cross-repo).
+and bidirectional L2 reachability across the fabric. `path_probe` checks that the overlay
+probe fails under VXLAN loss and recovers, and that clearing the target removes it. Still
+to add: explicit pytest assertions (Type-2/3, BUM, isolation) and the Prow/CI job wiring
+(cross-repo).
 
 ## Testing plan (not yet built)
 
@@ -275,6 +277,3 @@ as new assertions land; pytest fixtures and per-scenario JUnit evidence remain f
   lane provides the internet-mode (WireGuard) topology hook.
 - VNI isolation: the appliance currently routes between tenant subnets; the isolation
   test will be authored as `xfail` pending an isolation-model decision.
-- `frr_exporter` + metrics: the image ships no `frr-exporter` Quadlet (would hit the podman
-  fallback), so it's off here and its metrics validation is deferred to CORENET-7504.
-  `node_exporter` is enabled (it has a matching Quadlet).

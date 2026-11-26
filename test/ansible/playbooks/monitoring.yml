@@ -1,0 +1,121 @@
+---
+- name: Check frr-metrics and the monitoring switch
+  hosts: onprem_appliances:cloud_infra:cloud_workload
+  become: true
+  gather_facts: false
+  tasks:
+    # Deploys so far were fresh; a stand-in shows the role removes the legacy exporter on upgrade.
+    - name: Start a stand-in legacy frr_exporter container
+      ansible.builtin.command: podman run -d --pull=never --replace --network none --name frr_exporter frr:embedded sleep infinity
+      changed_when: true
+
+    - name: Check disabling frr-metrics stops the service
+      block:
+        - name: Turn frr-metrics off while it runs
+          ansible.builtin.include_role:
+            name: network.evpn_gateway.evpn_monitoring
+            tasks_from: frr_metrics
+          vars:
+            monitoring:
+              frr_exporter: false
+
+        - name: Read the disabled frr-metrics unit state
+          ansible.builtin.systemd:
+            name: frr-metrics.service
+          register: _monitoring_unit
+
+        - name: Read whether the legacy container exists
+          ansible.builtin.command: podman container exists frr_exporter
+          register: _monitoring_legacy
+          changed_when: false
+          failed_when: _monitoring_legacy.rc not in [0, 1]
+
+        - name: Check turning frr-metrics off stopped and disabled it
+          ansible.builtin.assert:
+            that:
+              - _monitoring_unit.status.UnitFileState | default('missing') == 'disabled'
+              - _monitoring_unit.status.ActiveState | default('missing') == 'inactive'
+              - _monitoring_legacy.rc == 1
+            # An image without the unit returns no unit state; report it rather than fail to render.
+            fail_msg: >-
+              frr-metrics is {{ _monitoring_unit.status.UnitFileState | default('missing') }} and
+              {{ _monitoring_unit.status.ActiveState | default('missing') }}/{{ _monitoring_unit.status.SubState | default('missing') }},
+              result {{ _monitoring_unit.status.Result | default('missing') }}, exit {{ _monitoring_unit.status.ExecMainStatus | default('missing') }};
+              legacy container {{ (_monitoring_legacy.rc == 0) | ternary('present', 'gone') }}
+            quiet: true
+      always:
+        # Unset, the default: a deploy after teardown restores the unit.
+        - name: Turn frr-metrics back on with the switch unset
+          ansible.builtin.include_role:
+            name: network.evpn_gateway.evpn_monitoring
+            tasks_from: frr_metrics
+          vars:
+            monitoring: {}
+
+    # FRR comes back with a new /run/frr; frr-metrics returns only through its enabled
+    # WantedBy link, so this also checks the unset switch re-enabled it.
+    - name: Kill the FRR container
+      ansible.builtin.command: podman kill frr
+      changed_when: true
+
+    - name: Wait for frr-metrics to report an Established BGP session and, on a VTEP, received prefixes
+      ansible.builtin.uri:
+        url: http://127.0.0.1:7573/metrics
+        return_content: true
+        timeout: 10
+      register: _monitoring_metrics
+      until:
+        - _monitoring_metrics.status == 200
+        - _monitoring_metrics.content is search('(?m)^frrk8s_bgp_session_up\\{[^}]*peer="[^"]+"[^}]*vrf="[^"]+"[^}]*\\} 1$')
+        - >-
+          'cloud_infra' in group_names or
+          _monitoring_metrics.content is search('(?m)^frrk8s_bgp_received_prefixes_total\\{[^}]*\\} [1-9]')
+      retries: 36
+      delay: 5
+
+    # frr-metrics stays confined (not label=disable) and reaches FRR's :Z-labeled sockets
+    # through their shared MCS level.
+    - name: Read the SELinux mode
+      ansible.builtin.command: getenforce
+      register: _monitoring_selinux
+      changed_when: false
+
+    - name: Read the FRR and frr-metrics containers
+      ansible.builtin.command: podman inspect frr frr-metrics
+      register: _monitoring_containers
+      changed_when: false
+
+    - name: Check frr-metrics runs confined at FRR's SELinux label
+      vars:
+        _monitoring_labels: "{{ _monitoring_containers.stdout | from_json | map(attribute='ProcessLabel') | list }}"
+      ansible.builtin.assert:
+        that:
+          - _monitoring_labels | unique | length == 1
+          - >-
+            _monitoring_labels[0] is search(':container_t:s0:c700,c701,c702$') or
+            (_monitoring_selinux.stdout == 'Disabled' and _monitoring_labels[0] == '')
+        fail_msg: "SELinux {{ _monitoring_selinux.stdout }}; FRR and frr-metrics labels: {{ _monitoring_labels }}"
+        success_msg: "SELinux {{ _monitoring_selinux.stdout }}; FRR and frr-metrics labels: {{ _monitoring_labels }}"
+
+    # Only this direction: the topology does not produce every listed series. EVPN series become
+    # required once the pinned image carries metallb/frr-k8s#528 (frr-metrics-plan.md, chunk A).
+    - name: Check every frrk8s_ family frr-metrics serves is in monitoring/frrk8s-metrics.txt
+      vars:
+        _monitoring_listed: >-
+          {{ lookup('ansible.builtin.file', inventory_dir ~ '/frrk8s-metrics.txt').splitlines()
+             | map('trim') | reject('match', '#') | select | list }}
+        _monitoring_unlisted: >-
+          {{ _monitoring_metrics.content | regex_findall('(?m)^# TYPE (frrk8s_\w+) ')
+             | unique | difference(_monitoring_listed) }}
+      ansible.builtin.assert:
+        that: _monitoring_unlisted | length == 0
+        fail_msg: "frr-metrics serves families missing from monitoring/frrk8s-metrics.txt: {{ _monitoring_unlisted }}"
+        quiet: true
+
+    - name: Check frr-metrics listens on loopback only
+      ansible.builtin.command: ss -Hltn 'sport = :7573'
+      register: _monitoring_listen
+      changed_when: false
+      failed_when: >-
+        _monitoring_listen.stdout_lines | length == 0 or
+        _monitoring_listen.stdout_lines | reject('search', ' 127[.]0[.]0[.]1:7573 ') | list | length > 0

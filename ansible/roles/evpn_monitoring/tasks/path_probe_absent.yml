@@ -1,0 +1,55 @@
+---
+# Remove the overlay path probe and leave a marker that it was removed on purpose. Safe when it
+# was never installed; teardown.yml runs it too.
+- name: Stop overlay path probe timer and any running probe
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: "{{ false if item.endswith('.timer') else omit }}"
+  loop: [ega-path-probe.timer, ega-path-probe.service]
+  register: _evpn_monitoring_path_probe_stop
+  failed_when:
+    - _evpn_monitoring_path_probe_stop.failed
+    - "'Could not find' not in (_evpn_monitoring_path_probe_stop.msg | default(''))"
+
+- name: Remove overlay path probe files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/ega-path-probe.timer
+    - /etc/systemd/system/ega-path-probe.service
+    - /etc/ega/ega-path-probe.py
+    - /var/lib/node_exporter/textfile/ega-path-probe.prom
+
+- name: Remove the overlay path probe directory if it is empty
+  ansible.builtin.command: rmdir --ignore-fail-on-non-empty /etc/ega
+  args:
+    removes: /etc/ega
+  changed_when: false
+
+# Tell EGAEvpnPathProbeUnavailable the probe was removed on purpose.
+- name: Check for the node-exporter textfile directory
+  ansible.builtin.stat:
+    path: /var/lib/node_exporter/textfile
+  register: _evpn_monitoring_textfile_dir
+
+- name: Mark the overlay path probe as disabled
+  ansible.builtin.copy:
+    dest: /var/lib/node_exporter/textfile/ega-path-probe-disabled.prom
+    content: |
+      # HELP ega_path_probe_disabled 1 when the overlay path probe was removed on purpose.
+      # TYPE ega_path_probe_disabled gauge
+      ega_path_probe_disabled 1
+    mode: "0644"
+    setype: container_file_t  # new files otherwise get var_lib_t, which node-exporter cannot read
+  when: _evpn_monitoring_textfile_dir.stat.isdir | default(false)
+
+- name: Reload systemd after removing overlay path probe units
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Clear a failed state left by stopping an in-flight probe
+  ansible.builtin.command: systemctl reset-failed ega-path-probe.service
+  changed_when: false
+  failed_when: false

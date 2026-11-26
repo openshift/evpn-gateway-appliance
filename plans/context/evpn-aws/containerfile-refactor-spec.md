@@ -244,7 +244,7 @@ for AVC denials from FRR, the metrics binary and any container-run payload. Veri
 binary's architecture per platform.
 
 Merged #6 embeds FRR and node-exporter; FRR uses `frr-container.service` and the metrics
-unit is unused ([source baseline](frr-metrics-details.md#source-baseline-and-repository-boundaries)).
+unit is unused, which #53 changes ([source baseline](frr-metrics-details.md#source-baseline-and-repository-boundaries)).
 The [runtime proposal](frr-metrics-details.md#runtime-shape-of-frr-metrics) covers
 `frr-metrics` as a second container from the embedded FRR image and [proposed units](frr-metrics-details.md#proposed-units-ownership-and-e2e-checks)
 cover its e2e checks; decision 10 remains open.

@@ -7,22 +7,28 @@ Requires=payload-load.service
 Type=simple
 Restart=always
 RestartSec=10
+StateDirectory=node_exporter/textfile
 ExecStartPre=-/usr/bin/podman rm -f node_exporter
 ExecStart=/usr/bin/podman run \
     --pull=never \
     --name node_exporter \
     --network host \
     --rm \
+    --init \
     -v /proc:/host/proc:ro \
     -v /sys:/host/sys:ro \
     -v /:/rootfs:ro \
+    -v /var/lib/node_exporter/textfile:/var/lib/node_exporter/textfile:ro,z \
     node-exporter:embedded \
     --path.procfs=/host/proc \
     --path.sysfs=/host/sys \
     --path.rootfs=/rootfs \
+    --collector.textfile.directory=/var/lib/node_exporter/textfile \
     --web.listen-address=127.0.0.1:9100 \
     --no-collector.accelerator
 ExecStop=/usr/bin/podman stop node_exporter
+# --init keeps node_exporter off PID 1, where it exits 2 on SIGTERM; podman run then exits 143.
+SuccessExitStatus=143
 
 [Install]
 WantedBy=multi-user.target

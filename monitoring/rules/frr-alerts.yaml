@@ -86,7 +86,7 @@ groups:
             {{ $labels.job }}/{{ $labels.instance }}: Established peer {{ $labels.peer }} in VRF {{ $labels.vrf }}
             has been sent zero l2vpn/evpn prefixes for 5m, so it learns none of this host's VNIs or MACs.
       - alert: EGABgpPeerFlapping
-        expr: increase(frrk8s_bgp_opens_sent[10m]) > 3
+        expr: increase(frrk8s_bgp_opens_sent[10m]) >= 3
         for: 5m
         labels:
           severity: warning
@@ -125,7 +125,7 @@ groups:
             {{ $labels.job }}/{{ $labels.instance }}: peer {{ $labels.peer }} in VRF {{ $labels.vrf }}
             reports BFD down for 30s.
       - alert: EGABfdPeerFlapping
-        expr: increase(frrk8s_bfd_session_down_events[10m]) > 3
+        expr: increase(frrk8s_bfd_session_down_events[10m]) >= 3
         for: 5m
         labels:
           severity: warning

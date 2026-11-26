@@ -2,10 +2,58 @@
 # Remove all EVPN appliance components. Does NOT destroy cloud infrastructure.
 # Usage: ansible-playbook playbooks/teardown.yml
 
+- name: Remove monitoring
+  hosts: onprem_appliances:cloud_infra:cloud_workload
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Stop and disable frr-metrics (bootc image)
+      ansible.builtin.systemd:
+        name: frr-metrics.service
+        state: stopped
+        enabled: false
+      register: _teardown_frr_metrics_stop
+      failed_when: >-
+        _teardown_frr_metrics_stop.failed and
+        'Could not find' not in (_teardown_frr_metrics_stop.msg | default(''))
+
+    - name: Remove the legacy FRR exporter container
+      containers.podman.podman_container:
+        name: frr_exporter
+        state: absent
+
+    # On the bootc image systemd runs node_exporter with Restart=always; stop it first, or it relaunches the container removed next.
+    - name: Stop and disable the node-exporter service (bootc image)
+      ansible.builtin.systemd:
+        name: node-exporter.service
+        state: stopped
+        enabled: false
+      register: _teardown_node_exporter_unit_stop
+      failed_when: >-
+        _teardown_node_exporter_unit_stop.failed and
+        'Could not find' not in (_teardown_node_exporter_unit_stop.msg | default(''))
+
+    - name: Stop and remove node_exporter container
+      containers.podman.podman_container:
+        name: node_exporter
+        state: absent
+
 - name: Teardown on-prem appliance
   hosts: onprem_appliances
   become: true
   tasks:
+    - name: Remove the overlay path probe
+      ansible.builtin.include_role:
+        name: evpn_monitoring
+        tasks_from: path_probe_absent
+
+    # Teardown also removes node-exporter, so nothing would read the disabled marker; a later
+    # deploy without a probe target writes it again.
+    - name: Remove the overlay path probe disabled marker
+      ansible.builtin.file:
+        path: /var/lib/node_exporter/textfile/ega-path-probe-disabled.prom
+        state: absent
+
     - name: Tear down the on-prem appliance
       ansible.builtin.include_role:
         name: evpn_onprem_appliance

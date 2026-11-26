@@ -24,7 +24,12 @@ REPORTS = (
     BinaryReport("node_exporter", "node_exporter", ("--version",)),
     BinaryReport("frr", "/frr-metrics", ()),
 )
-UNITS = ("payload-load.service", "frr-container.service", "node-exporter.service")
+UNITS = (
+    "payload-load.service",
+    "frr-container.service",
+    "frr-metrics.service",
+    "node-exporter.service",
+)
 
 FRR_CONF = """hostname ega-smoke
 frr defaults traditional
@@ -54,6 +59,11 @@ fi
 METRICS_PY = (
     'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:9100/metrics",'
     ' timeout=5).read().decode())'
+)
+# urlopen raises on an HTTP error status. The smoke config has no BGP peers, so no
+# particular frrk8s_ series is required.
+FRR_METRICS_PY = (
+    'import urllib.request; urllib.request.urlopen("http://127.0.0.1:7573/metrics", timeout=5)'
 )
 
 
@@ -131,7 +141,7 @@ def ready(container_id: str) -> int:
         line.startswith("node_exporter_build_info{") for line in body.splitlines()
     ):
         return 1
-    return 0
+    return exec_in(container_id, ["python3", "-c", FRR_METRICS_PY])
 
 
 def wait_ready(container_id: str) -> int:
@@ -141,12 +151,12 @@ def wait_ready(container_id: str) -> int:
             return 0
         if rc == 2:
             print(
-                "container exited before FRR and node-exporter were ready",
+                "container exited before FRR, frr-metrics and node-exporter were ready",
                 file=sys.stderr,
             )
             return 1
         time.sleep(1)
-    print("FRR and node-exporter did not become ready", file=sys.stderr)
+    print("FRR, frr-metrics and node-exporter did not become ready", file=sys.stderr)
     return 1
 
 
@@ -199,6 +209,8 @@ def cleanup(
                     "payload-load.service",
                     "-u",
                     "frr-container.service",
+                    "-u",
+                    "frr-metrics.service",
                     "-u",
                     "node-exporter.service",
                 ],
@@ -310,19 +322,31 @@ def main() -> None:
             if rc != 0:
                 status = rc
                 raise SystemExit(status)
-        restart = subprocess.run(
-            [
-                "podman",
-                "exec",
-                container_id,
-                "systemctl",
-                "restart",
-                "frr-container.service",
-                "node-exporter.service",
-            ],
+        # Stop and start rather than restart: a restart hides a unit that an unclean
+        # stop leaves failed.
+        container_units = [unit for unit in UNITS if unit != "payload-load.service"]
+        stop = subprocess.run(
+            ["podman", "exec", container_id, "systemctl", "stop", *container_units],
         )
-        if restart.returncode != 0:
-            status = restart.returncode
+        if stop.returncode != 0:
+            status = stop.returncode
+            raise SystemExit(status)
+        for unit in container_units:
+            state: list[str] = []
+            rc = exec_in(
+                container_id,
+                ["systemctl", "show", "-p", "ActiveState", "--value", unit],
+                stdout_capture=state,
+            )
+            if rc != 0 or state[0].strip() != "inactive":
+                print(f"{unit} did not stop cleanly", file=sys.stderr)
+                status = 1
+                raise SystemExit(status)
+        start = subprocess.run(
+            ["podman", "exec", container_id, "systemctl", "start", *container_units],
+        )
+        if start.returncode != 0:
+            status = start.returncode
             raise SystemExit(status)
         if wait_ready(container_id) != 0:
             status = 1

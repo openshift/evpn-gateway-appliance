@@ -118,6 +118,8 @@ run_scenario() (
 	# silently reuse stale files when the work dir persists across runs.
 	rm -rf "${lab_dir}/inventory"
 	cp -r "$inventory_src" "${lab_dir}/inventory"
+	# The monitoring test checks the exporter's series against the list the rules are checked against.
+	cp "${self_dir}/../../monitoring/frrk8s-metrics.txt" "${lab_dir}/inventory/"
 
 	# Each scenario owns its ordered setup, deploy and validation playbooks.
 	read -r -a playbooks <<< "$EGA_PLAYBOOKS"

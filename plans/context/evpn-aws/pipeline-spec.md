@@ -182,7 +182,7 @@ appliance as they stand. The 2026-10-01 review directs `frr-metrics` to be fixed
 no cluster. Decision 16 selects that source; upstream merged the fix as
 `--disable-metrics-auth` ([#519](https://github.com/metallb/frr-k8s/pull/519)), which skips the
 Kubernetes authentication but still serves HTTPS, self-signed unless given a certificate. EGA #53
-proposes running the pinned 4.22 image's exporter; moving to a build with #528's series needs openshift/frr
+runs the pinned 4.22 image's exporter; moving to a build with #528's series needs openshift/frr
 to carry #519 and #528.
 Configure the selected build's bind options and the deployment's TLS/authentication path
 explicitly; available flags and defaults differ by release.
@@ -568,7 +568,7 @@ pytest, testinfra, skopeo) is pinned in `Dockerfile.ci`; the test EE is built by
 | --- | --- |
 | Source/API | 7499, 7501, 7667: packaging, idempotent deploy/teardown, every shipped role, validation before mutation; real trunk/VMware qualification where supported |
 | Appliance | 7505, 7506, 7511: boot of each approved on-prem format and raw/AMI, reboot persistence, approved payload/egress behavior, security scanning of embedded and runtime-fetched dependencies, launch access, FIPS build/runtime and payload checks on supported architectures, supported BGP authentication, automated SSH key rotation, access restricted to required peers and endpoints, and a bridge exposure review |
-| Simulated EVPN | 7508: appliance + relay + emulated workload on a containerlab fabric, three-AS eBGP Established, Type-2/3 routes, bidirectional L2 (shipped — configured by the collection's `deploy.yml` in a test EE, validated by its health check). Deferred: VNI isolation (authored as xfail pending an isolation-model decision), internet-mode MTU/MSS to 7514, frr_exporter/metrics to 7504. Still to add: explicit pytest/testinfra assertions and the openshift/release job wiring |
+| Simulated EVPN | 7508: appliance + relay + emulated workload on a containerlab fabric, three-AS eBGP Established, Type-2/3 routes, bidirectional L2 (shipped — configured by the collection's `deploy.yml` in a test EE, validated by its health check). Deferred: VNI isolation (authored as xfail pending an isolation-model decision), internet-mode MTU/MSS to 7514. Still to add: explicit pytest/testinfra assertions and the openshift/release job wiring |
 | DX and VPN | 7500, 7501, 7514, 7520: actual VIF/gateway/route path, inner MTU/DF/MSS, oversized UDP drop without fragmentation, IKE/IPsec, failover and dynamic-BGP/TGW ECMP when claimed; VPN relay outside data path; preflight for UDP reachability, workload MTU, latency/loss baselines and acknowledged internet-mode limits; the WireGuard relay bottleneck measured |
 | HA and lifecycle | 7502, 7503, 7510: on-prem LACP/shared ES, dual-appliance inventory, Type-1/4 and DF/BFD behavior, no duplicate BUM, MAC re-advertisement, FRR-crash, power-loss and cable-pull recovery, relay ECMP, tunnel survival and BGP recovery when a relay returns; pre/post checks, serial peer upgrades, automatic rollback on failed validation, configuration compatibility |
 | OCP interoperability | 7512, 7513, 7515: pinned OCP release, native primary-CUDN/VTEP/FRRConfiguration/RouteAdvertisements APIs, correct prerequisites and peer advertisements, multiple VNIs/RTs and day-2 addition of a new EVPN CUDN; supported policies/services and ARP suppression per the [networking handoff](networking-spec.md#required-handoff-to-ciqe); OCP updates with the fabric connected; no production standalone VTEP |

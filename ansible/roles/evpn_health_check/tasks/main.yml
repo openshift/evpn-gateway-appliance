@@ -5,10 +5,10 @@
 # Common checks (all hosts)
 # ═══════════════════════════════════════════════════════════════
 - name: "HEALTH: FRR container is running"
-  ansible.builtin.command: podman ps --format '{{ '{{' }}.Names{{ '}}' }}' --filter name=frr
+  ansible.builtin.command: podman ps --format '{{ '{{' }}.Names{{ '}}' }}' --filter name=^frr$
   register: _evpn_health_check_frr_ps
   changed_when: false
-  failed_when: "'frr' not in _evpn_health_check_frr_ps.stdout"
+  failed_when: "'frr' not in _evpn_health_check_frr_ps.stdout_lines"
 
 # ═══════════════════════════════════════════════════════════════
 # Infra relay checks

@@ -1,10 +1,12 @@
 ---
 argument_specs:
   main:
-    short_description: Deploy frr_exporter and node_exporter for Prometheus scraping.
+    short_description: Configure frr-metrics, node_exporter and an optional overlay path probe for Prometheus scraping.
     description:
-      - Starts the bootc image's baked-in systemd units if present, falling
-        back to running the exporters directly via Podman otherwise.
+      - Controls the appliance image's frr-metrics.service.
+      - Starts node-exporter via systemd when present, otherwise via Podman.
+      - Optionally installs ega-path-probe.timer, which writes ega_path_probe_* metrics to
+        node_exporter's textfile directory (see evpn_monitoring_path_probe_target).
     options:
       monitoring:
         type: dict
@@ -13,17 +15,20 @@ argument_specs:
         options:
           frr_exporter:
             type: bool
-            default: false
-            description: Deploy the FRR exporter.
+            description: >-
+              Unset or true enables and starts frr-metrics.service where the unit exists;
+              false stops and disables it.
           node_exporter:
             type: bool
             default: false
             description: Deploy the node exporter.
-      evpn_monitoring_frr_exporter_image:
-        type: str
-        default: docker.io/tynany/frr_exporter:v1.12.0
-        description: Container image for the FRR exporter. Pin by tag or digest.
       evpn_monitoring_node_exporter_image:
         type: str
         default: quay.io/prometheus/node-exporter:v1.9.1
         description: Container image for the node exporter. Pin by tag or digest.
+      evpn_monitoring_path_probe_target:
+        type: str
+        default: ""
+        description: >-
+          A stretch's cloud_gateway to ping every 30s through the overlay, on onprem_appliances hosts
+          with monitoring.node_exporter; empty removes the probe. See monitoring/README.md.

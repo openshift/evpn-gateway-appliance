@@ -10,7 +10,9 @@ RuntimeDirectory=frr
 RuntimeDirectoryMode=0777
 ExecStartPre=-/usr/bin/podman rm -f frr
 # FRR installs its own capability set at startup and exits if that fails, so grant
-# its daemons' set plus what watchfrr needs to own the vty sockets.
+# its daemons' set plus what watchfrr needs to own the vty sockets. frr-metrics.service runs at
+# the same fixed MCS level, so that confined exporter can reach the :Z-labeled sockets. Ordinary
+# confined containers get podman's random two-category levels, which can never cover these three.
 ExecStart=/usr/bin/podman run --pull=never --name frr --rm \
     --network host \
     --cap-drop=all \
@@ -18,8 +20,11 @@ ExecStart=/usr/bin/podman run --pull=never --name frr --rm \
     --cap-add=NET_BIND_SERVICE --cap-add=SETUID --cap-add=SETGID --cap-add=KILL \
     --cap-add=DAC_OVERRIDE --cap-add=CHOWN \
     --security-opt=no-new-privileges \
+    --security-opt=label=level:s0:c700,c701,c702 \
     -v /etc/frr:/etc/frr:Z -v /var/run/frr:/var/run/frr:Z frr:embedded
 ExecStop=/usr/bin/podman stop frr
+# podman run exits 143 when podman stop ends the container's init.
+SuccessExitStatus=143
 
 [Install]
 WantedBy=multi-user.target
