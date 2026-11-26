@@ -4,9 +4,12 @@ Deploys `frr_exporter` and `node_exporter` for Prometheus scraping: uses the
 bootc image's baked-in systemd units when present, otherwise runs them
 directly via Podman.
 
+Optionally installs an overlay path probe (`evpn_monitoring_path_probe_target`); see
+[`monitoring/README.md`](../../../monitoring/README.md#overlay-path-probe).
+
 See [`meta/argument_specs.yml`](meta/argument_specs.yml) for the full input
-schema (`monitoring.frr_exporter`, `monitoring.node_exporter`, and the
-pinned image variables).
+schema (`monitoring.frr_exporter`, `monitoring.node_exporter`, the pinned image
+variables and the probe target).
 
 ## Known limitations (tracked, not fixed by this role)
 

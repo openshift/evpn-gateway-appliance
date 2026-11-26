@@ -6,6 +6,18 @@
   hosts: onprem_appliances
   become: true
   tasks:
+    - name: Remove the overlay path probe
+      ansible.builtin.include_role:
+        name: evpn_monitoring
+        tasks_from: path_probe_absent
+
+    # Teardown also removes node-exporter, so nothing would read the disabled marker; a later
+    # deploy without a probe target writes it again.
+    - name: Remove the overlay path probe disabled marker
+      ansible.builtin.file:
+        path: /var/lib/node_exporter/textfile/ega-path-probe-disabled.prom
+        state: absent
+
     - name: Tear down the on-prem appliance
       ansible.builtin.include_role:
         name: evpn_onprem_appliance

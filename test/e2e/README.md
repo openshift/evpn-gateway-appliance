@@ -239,8 +239,10 @@ set `EGA_STAGE` to its nested path, for example `EGA_STAGE=evpn_onprem_appliance
 ## Status
 
 Deploy + the collection's health check pass end to end: three-AS eBGP, Type-2/3 exchange,
-and bidirectional L2 reachability across the fabric. Still to add: explicit pytest
-assertions (Type-2/3, BUM, isolation) and the Prow/CI job wiring (cross-repo).
+and bidirectional L2 reachability across the fabric. `path_probe` checks that the overlay
+probe fails under VXLAN loss and recovers, and that clearing the target removes it. Still
+to add: explicit pytest assertions (Type-2/3, BUM, isolation) and the Prow/CI job wiring
+(cross-repo).
 
 ## Testing plan (not yet built)
 

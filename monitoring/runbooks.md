@@ -12,6 +12,7 @@ Where to run the commands:
   `frr-metrics.service` once it replaces the legacy exporter (see the
   [metrics plan](../plans/context/evpn-aws/frr-metrics-plan.md)); read its log with
   `journalctl -u frr-metrics.service`.
+- **Probe and node checks**: on the appliance as root.
 - **AWS**: the `aws` CLI with `--region` set to the alert rule's region. An AWS alert clears at
   the first evaluation after a whole healthy 5-minute period, about 5 to 15 minutes after
   recovery plus CloudWatch's publishing delay.
@@ -166,7 +167,7 @@ traffic and learns no remote MACs.
   VTEP or network that is not ready advertises no type-3 route. In the emulated lab, check that
   the cloud workload's VXLAN device and bridge for the VNI exist and are up.
 
-A known VTEP does not prove that VXLAN traffic reaches it.
+A known VTEP does not prove reachability; see EGAEvpnPathProbeFailed for forwarding.
 
 ## EGABfdSessionDown
 
@@ -191,6 +192,52 @@ clears once there has been no down event for about 10m (the rule's window).
 - `show bfd vrf VRF peers counters` for the down events and packet counts.
 - Check loss and jitter on the path to the peer, as for EGABfdSessionDown, and compare the BFD
   timers on both ends; intervals too short for the path cause repeated drops.
+
+## EGAEvpnPathProbeFailed
+
+For 3m, over a quarter of overlay probes in the last 5m got fewer than 3 echo replies within 5s,
+while BGP and EVPN may still look healthy; intermittent loss counts. The path runs from the appliance to
+the stretch's `cloud_gateway` on the cloud VTEP's bridge, not the on-prem trunk or tenant
+workloads.
+
+- If EGAFrrMetricsDown or EGABgpSessionDown also fires for the host, follow its runbook first: a hung or
+  stopped bgpd fails the probe once its sessions time out.
+- Check the target itself: it must be up and answer ICMP echo. Ping it from a host on the same
+  cloud-side network; if it does not answer there either, fix or change the target, not the path.
+- `systemctl status ega-path-probe.service` and
+  `cat /var/lib/node_exporter/textfile/ega-path-probe.prom` for the target and result.
+- Find the stretch whose `br-vniN` SVI routes to the target (`ip route get TARGET`) and
+  check its devices: `ip -d link show vxlanN` and `bridge fdb show dev vxlanN`.
+- Watch encapsulated traffic on the interface that reaches the remote VTEP (`ip route get
+  VTEP_IP`, with `VTEP_IP` the fdb entry's `dst`; `wg0` with WireGuard):
+  `tcpdump -ni IFACE udp port 4789` while pinging the target.
+  Outgoing VXLAN without replies does not locate the loss: capture at the remote VTEP too, and
+  check forwarding and filtering for UDP 4789 in both directions.
+
+Repair the failing hop; the alert clears once three quarters of the probes in 5m succeed.
+
+## EGAEvpnPathProbeUnavailable
+
+No fresh probe result for 5m. A value above 60 is how far the probe file's time is from now in
+seconds, older or, after the clock stepped back, newer; -1 means the probe's series stopped
+while node-exporter still runs. A vanished series is remembered for one day, so after a day
+without it this alert clears even though nothing recovered; a stale file keeps it firing.
+
+- `systemctl status ega-path-probe.timer ega-path-probe.service` and
+  `journalctl -u ega-path-probe.service -n 20`.
+- `ls -lZ /var/lib/node_exporter/textfile/`: the file must exist and node-exporter must be
+  able to read it.
+- Check node-exporter runs with `--collector.textfile.directory=/var/lib/node_exporter/textfile`
+  and that the directory is mounted, for example after an image rollback.
+- A journal error such as `Network is unreachable`, `No route to host` or `Invalid argument` (an
+  unreachable or blackhole route) means the overlay route to the target is gone; follow
+  [EGAEvpnPathProbeFailed](#egaevpnpathprobefailed). `No space left on device` means the probe
+  cannot write its result: check `df -h /var/lib/node_exporter/textfile`.
+
+Fix the cause, or boot an image whose node-exporter reads the directory, and rerun `deploy.yml`.
+A bootc rollback to a deployment booted before the probe was installed also drops its units;
+rerunning `deploy.yml` restores them. To remove the probe instead, rerun `deploy.yml` with
+`evpn_monitoring_path_probe_target: ""`.
 
 ## EGADxConnectionDown
 

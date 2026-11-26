@@ -89,7 +89,7 @@ check-dockerfiles:
 
 # Monitoring rules and their promtool tests (promtool pinned in Dockerfile.ci), dashboard
 # PromQL compilation, the frr-k8s series-name contract, Grafana alert rules, alert runbook
-# links, and the checker's unit tests.
+# links, and unit tests for the checker and the overlay probe script.
 PROMTOOL ?= promtool
 .PHONY: check-monitoring
 check-monitoring:

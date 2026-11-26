@@ -334,7 +334,7 @@ tests:
               description: 'frr/edge-a: 3 or more BFD down events for peer-flap in VRF default in 10m, held for 5m.'
 
   # increase() extrapolates to the window edges, so on a counter with earlier samples exactly
-  # 3 events read as about 3.3 at 1m scrapes and pass `> 3`, and 2 read as about 2.2.
+  # 3 events read as about 3.3 at 1m scrapes and 2 read as about 2.2.
   - name: 'Flapping alerts: 3 events on an existing counter fire, 2 do not'
     input_series:
       - series: frrk8s_bgp_opens_sent{job="frr",instance="edge-a",peer="peer-three",vrf="default"}
@@ -597,3 +597,20 @@ tests:
       - expr: ALERTS{alertname="EGABfdPeerFlapping",instance="df"}
         eval_time: 25m
         exp_samples: []
+
+  # A counter that starts at 0, as after an FRR restart, stops extrapolation at zero, so exactly
+  # 3 events read as 3: `>= 3` fires where `> 3` would not.
+  - name: 'Flapping alerts: 3 events on a counter that starts at 0 fire'
+    input_series:
+      - series: frrk8s_bgp_opens_sent{job="frr",instance="edge-a",peer="peer-new",vrf="default"}
+        values: 0+0x2 1 2 3+0x15
+      - series: frrk8s_bfd_session_down_events{job="frr",instance="edge-a",peer="peer-new",vrf="default"}
+        values: 0+0x2 1 2 3+0x15
+    promql_expr_test:
+      - expr: count by (alertname) (ALERTS{alertstate="firing",peer="peer-new"})
+        eval_time: 11m
+        exp_samples:
+          - labels: '{alertname="EGABgpPeerFlapping"}'
+            value: 1
+          - labels: '{alertname="EGABfdPeerFlapping"}'
+            value: 1
