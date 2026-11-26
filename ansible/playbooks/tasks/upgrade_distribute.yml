@@ -1,0 +1,85 @@
+---
+- name: Read the pinned platform manifest from the controller
+  delegate_to: localhost
+  become: false
+  run_once: true
+  block:
+    - name: Inspect the local release without contacting a registry
+      ansible.builtin.command:
+        argv: [skopeo, inspect, --no-tags, "oci:{{ evpn_upgrade_oci_dir }}"]
+      register: _evpn_upgrade_local_image
+      changed_when: false
+
+    - name: Require the approved Linux platform manifest
+      ansible.builtin.assert:
+        that:
+          - (_evpn_upgrade_local_image.stdout | from_json).Digest == _evpn_upgrade_digest
+          - (_evpn_upgrade_local_image.stdout | from_json).Os == 'linux'
+        fail_msg: The controller OCI image does not match the approved Linux platform digest.
+
+    - name: Read the manifest descriptors
+      ansible.builtin.slurp:
+        src: "{{ evpn_upgrade_oci_dir }}/blobs/sha256/{{ _evpn_upgrade_digest[7:] }}"
+      register: _evpn_upgrade_manifest_file
+
+    - name: Select only the blobs referenced by this release
+      ansible.builtin.set_fact:
+        _evpn_upgrade_blobs: "{{ ([_evpn_upgrade_digest, _manifest.config.digest] + (_manifest.layers | map(attribute='digest') | list)) | unique }}"
+      vars:
+        _manifest: "{{ _evpn_upgrade_manifest_file.content | b64decode | from_json }}"
+
+    - name: Require SHA256 blob names before using them as file paths
+      ansible.builtin.assert:
+        that:
+          - _evpn_upgrade_blobs | reject('match', '^sha256:[0-9a-f]{64}\Z') | length == 0
+
+    - name: Reject corrupt release files before copying to any peer
+      ansible.builtin.import_tasks: upgrade_verify_blobs.yml
+      vars:
+        _evpn_upgrade_verify_dir: "{{ evpn_upgrade_oci_dir }}"
+
+- name: Read the peer's machine architecture
+  ansible.builtin.command: uname -m
+  register: _evpn_upgrade_arch
+  changed_when: false
+
+- name: Require the release architecture to match the peer
+  ansible.builtin.assert:
+    that:
+      - _oci_arch.get(_evpn_upgrade_arch.stdout, _evpn_upgrade_arch.stdout) == (_evpn_upgrade_local_image.stdout | from_json).Architecture
+  vars:
+    _oci_arch: {x86_64: amd64, aarch64: arm64}
+
+- name: Create the release directory on the peer
+  ansible.builtin.file:
+    path: "{{ _evpn_upgrade_layout }}/blobs/sha256"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Copy the OCI metadata and release blobs over the management connection
+  ansible.builtin.copy:
+    src: "{{ evpn_upgrade_oci_dir }}/{{ item }}"
+    dest: "{{ _evpn_upgrade_layout }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ ['index.json', 'oci-layout'] + (_evpn_upgrade_blobs | map('replace', 'sha256:', 'blobs/sha256/') | list) }}"
+
+- name: Verify the bytes of every referenced blob on the peer
+  ansible.builtin.import_tasks: upgrade_verify_blobs.yml
+  vars:
+    _evpn_upgrade_verify_dir: "{{ _evpn_upgrade_layout }}"
+
+- name: Read the image selected by the peer's local OCI index
+  ansible.builtin.command:
+    argv: [skopeo, inspect, --no-tags, "oci:{{ _evpn_upgrade_layout }}"]
+  register: _evpn_upgrade_copied_image
+  changed_when: false
+
+- name: Require the copied release before any peer may stage an upgrade
+  ansible.builtin.assert:
+    that:
+      - (_evpn_upgrade_copied_image.stdout | from_json).Digest == _evpn_upgrade_digest
+    fail_msg: The copied OCI image does not select the requested digest. No boot selection has been changed.

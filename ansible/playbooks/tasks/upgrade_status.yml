@@ -1,0 +1,16 @@
+---
+- name: Read bootc deployment slots
+  ansible.builtin.command: bootc status --format=json
+  register: _evpn_upgrade_bootc
+  changed_when: false
+
+- name: Read the structured deployment status
+  ansible.builtin.set_fact:
+    _evpn_upgrade_status: "{{ (_evpn_upgrade_bootc.stdout | from_json).status }}"
+
+- name: Require consistent boot order and rollback status
+  ansible.builtin.assert:
+    that:
+      - _evpn_upgrade_status.rollbackQueued is boolean
+      - (_evpn_upgrade_bootc.stdout | from_json).spec.bootOrder == ('rollback' if _evpn_upgrade_status.rollbackQueued else 'default')
+    fail_msg: Cannot determine the next boot from bootc status. Inspect this appliance before continuing.

@@ -1,0 +1,11 @@
+---
+- name: Verify manifest, configuration and layer contents against their SHA256 digests
+  ansible.builtin.command:
+    argv: [sha256sum, --check, --strict, --status]
+    chdir: "{{ _evpn_upgrade_verify_dir }}/blobs/sha256"
+    stdin: |
+      {% for digest in _evpn_upgrade_blobs %}
+      {{ digest[7:] }}  {{ digest[7:] }}
+      {% endfor %}
+    stdin_add_newline: false
+  changed_when: false

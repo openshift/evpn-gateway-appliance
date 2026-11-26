@@ -1,0 +1,3 @@
+ARG GOOD_IMAGE
+FROM ${GOOD_IMAGE}
+COPY frr-container.conf /usr/lib/systemd/system/frr-container.service.d/90-upgrade-e2e.conf
