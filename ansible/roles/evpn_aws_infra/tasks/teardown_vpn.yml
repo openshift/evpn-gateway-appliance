@@ -1,0 +1,75 @@
+---
+- name: Delete project VPN connections
+  block:
+    - name: Find project VPN connections
+      amazon.aws.ec2_vpc_vpn_info:
+        region: "{{ evpn_aws_infra_aws_region }}"
+        filters:
+          "tag:Project": "{{ evpn_aws_infra_project_name }}"
+          "tag:Name": "{{ evpn_aws_infra_project_name }}-vpn-*"
+      register: _evpn_aws_infra_vpn_teardown_lookup
+      # The module returns PSKs even though teardown only needs IDs and states.
+      no_log: true
+
+    # ec2_vpc_vpn always waits for deletion; it has no wait argument.
+    - name: Delete project VPN connections
+      amazon.aws.ec2_vpc_vpn:
+        region: "{{ evpn_aws_infra_aws_region }}"
+        vpn_connection_id: "{{ item }}"
+        state: absent
+      loop: >-
+        {{ _evpn_aws_infra_vpn_teardown_lookup.vpn_connections | rejectattr('state', 'in', ['deleting', 'deleted']) |
+           map(attribute='vpn_connection_id') | list }}
+      no_log: true
+  rescue:
+    - name: Report the hidden VPN teardown failure
+      ansible.builtin.fail:
+        msg: >-
+          {{ ansible_failed_task.name }} failed in {{ evpn_aws_infra_aws_region }}
+          ({{ (ansible_failed_result.results | default([ansible_failed_result]) | selectattr('failed', 'defined')
+          | selectattr('failed') | map(attribute='msg') | first | default('')) }}); the rest of its output is hidden
+          because it carries keys. Check the controller credentials, the region and
+          ec2:DescribeVpnConnections/DeleteVpnConnection, then rerun teardown-aws.yml.
+
+# AWS refuses to delete a TGW with attachments, and a deleted VPN's TGW attachment can lag behind it. This also
+# waits out VPNs that were already deleting when teardown started.
+- name: Wait for the project VPN connections' TGW attachments to be deleted
+  ansible.builtin.command: >
+    aws ec2 describe-transit-gateway-attachments --region {{ evpn_aws_infra_aws_region }}
+    --filters Name=resource-type,Values=vpn
+    "Name=resource-id,Values={{ _evpn_aws_infra_vpn_teardown_lookup.vpn_connections | map(attribute='vpn_connection_id') | join(',') }}"
+    --query "TransitGatewayAttachments[?State!='deleted'].TransitGatewayAttachmentId" --output json
+  register: _evpn_aws_infra_vpn_attach_state
+  until: _evpn_aws_infra_vpn_attach_state.rc == 0 and _evpn_aws_infra_vpn_attach_state.stdout | from_json | length == 0
+  retries: 60
+  delay: 10
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - _evpn_aws_infra_vpn_teardown_lookup.vpn_connections | length > 0
+
+# ec2_customer_gateway is only in community.aws; use the CLI rather than add that dependency.
+- name: Find project VPN customer gateways
+  ansible.builtin.command: >
+    aws ec2 describe-customer-gateways --region {{ evpn_aws_infra_aws_region }}
+    --filters "Name=tag:Project,Values={{ evpn_aws_infra_project_name }}"
+    "Name=tag:Name,Values={{ evpn_aws_infra_project_name }}-cgw-*"
+    --query "CustomerGateways[?State=='available' || State=='pending'].CustomerGatewayId" --output json
+  register: _evpn_aws_infra_vpn_cgw_teardown_lookup
+  changed_when: false
+  check_mode: false
+
+- name: Delete project VPN customer gateways
+  ansible.builtin.command: >
+    aws ec2 delete-customer-gateway --region {{ evpn_aws_infra_aws_region }}
+    --customer-gateway-id {{ item }}
+  register: _evpn_aws_infra_vpn_cgw_teardown
+  # Retry only while the deleted VPN still holds the gateway (or AWS throttles); fail at once on other errors.
+  until: >-
+    _evpn_aws_infra_vpn_cgw_teardown.rc == 0 or
+    ('IncorrectState' not in _evpn_aws_infra_vpn_cgw_teardown.stderr and
+     'RequestLimitExceeded' not in _evpn_aws_infra_vpn_cgw_teardown.stderr)
+  retries: 30
+  delay: 10
+  changed_when: true
+  loop: "{{ _evpn_aws_infra_vpn_cgw_teardown_lookup.stdout | from_json }}"

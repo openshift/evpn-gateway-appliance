@@ -42,13 +42,20 @@ argument_specs:
             type: str
             required: true
             description: Gateway IP on the cloud workload side for this stretch. Pinged to verify cloud gateway reachability.
+      evpn_health_check_vpn_telemetry:
+        type: bool
+        description: >-
+          Run controller-side AWS VPN telemetry checks; requires ec2:DescribeVpnConnections credentials.
+          Defaults to true when tunnel.type is ipsec.
       tunnel:
         type: dict
         required: true
+        required_if:
+          - [type, wireguard, [cloud_ip]]
         description: >-
           Transport configuration parameters for the tunnel between on-prem and
-          cloud; type, cloud_ip and onprem_ip are used to check the BGP/EVPN
-          peers.
+          cloud; onprem_ip is each appliance's EVPN peer at the relay, and
+          cloud_ip is unused with ipsec.
         options:
           type:
             type: str
@@ -57,8 +64,7 @@ argument_specs:
             description: Transport type. Determines which transport-specific checks run.
           cloud_ip:
             type: str
-            required: true
-            description: Tunnel address of the infra relay. Checked as the on-prem appliance's BGP peer.
+            description: WireGuard tunnel address of the infra relay. Checked as the on-prem appliance's BGP peer for wireguard.
           onprem_ip:
             type: str
             required: true

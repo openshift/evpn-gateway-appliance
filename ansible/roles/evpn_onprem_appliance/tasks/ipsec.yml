@@ -1,0 +1,124 @@
+---
+# Non-secret checks run without no_log so configuration errors stay visible.
+- name: Validate the IPsec handoff, VTEP and relay addresses
+  ansible.builtin.assert:
+    that:
+      - evpn_onprem_appliance_ipsec is defined
+      - evpn_onprem_appliance_ipsec is mapping
+      - tunnel.onprem_ip | ansible.utils.ipv4('address') == tunnel.onprem_ip
+      - >-
+        tunnel.network_cidr | default('10.44.44.0/24') | ansible.utils.ipv4('network/prefix') ==
+        tunnel.network_cidr | default('10.44.44.0/24')
+      - tunnel.onprem_ip | ansible.utils.ipv4(tunnel.network_cidr | default('10.44.44.0/24')) == tunnel.onprem_ip
+      - hostvars[infra_relay_host].private_ip | ansible.utils.ipv4('address') == hostvars[infra_relay_host].private_ip
+      # Traffic to an address outside the VPC prefixes would bypass the tunnels.
+      - >-
+        hostvars[infra_relay_host].private_ip | ansible.utils.ipv4(infra_vpc_cidr | default('10.100.0.0/16')) ==
+        hostvars[infra_relay_host].private_ip
+      - >-
+        groups.get('cloud_workload', []) | map('extract', hostvars) | selectattr('private_ip', 'defined')
+        | map(attribute='private_ip') | reject('ansible.utils.in_network', workload_vpc_cidr | default('10.200.0.0/16'))
+        | list | length == 0
+    fail_msg: >-
+      Set evpn_onprem_appliance_ipsec to this appliance's secret two-tunnel AWS VPN handoff, with tunnel.onprem_ip
+      inside tunnel.network_cidr, the relay's private IPv4 address inside infra_vpc_cidr and each cloud_workload
+      host's inside workload_vpc_cidr.
+
+- name: Validate the IPsec customer gateway and tunnel count
+  ansible.builtin.assert:
+    that:
+      - evpn_onprem_appliance_ipsec.customer_gateway_ip is defined
+      - evpn_onprem_appliance_ipsec.customer_gateway_ip is string
+      - >-
+        evpn_onprem_appliance_ipsec.customer_gateway_ip | ansible.utils.ipv4('address') ==
+        evpn_onprem_appliance_ipsec.customer_gateway_ip
+      - evpn_onprem_appliance_ipsec.tunnels is defined
+      - evpn_onprem_appliance_ipsec.tunnels is sequence
+      - evpn_onprem_appliance_ipsec.tunnels is not string
+      - evpn_onprem_appliance_ipsec.tunnels is not mapping
+      - evpn_onprem_appliance_ipsec.tunnels | length == 2
+    fail_msg: The IPsec handoff requires a customer gateway IPv4 address and exactly two tunnels.
+  no_log: true
+
+- name: Validate each IPsec tunnel
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      # Check types before filters: Ansible's enhanced error reporting can print raw type errors even with no_log.
+      - item.outside_ip is defined and item.outside_ip is string
+      - item.inside_cidr is defined and item.inside_cidr is string
+      - item.aws_bgp_asn is defined and item.aws_bgp_asn is integer
+      - item.cgw_bgp_asn is defined and item.cgw_bgp_asn is integer
+      - item.secret_preshared_key is defined and item.secret_preshared_key is string
+      - item.outside_ip | ansible.utils.ipv4('address') == item.outside_ip
+      - item.cgw_bgp_asn | int == bgp.onprem_asn | int
+      - item.secret_preshared_key is match('^[A-Za-z1-9._][A-Za-z0-9._]{15,63}\Z')
+    fail_msg: >-
+      The VPN handoff must contain valid tunnel addresses, ASNs matching bgp.onprem_asn and AWS-compatible
+      PSKs of at least 16 characters (Libreswan's FIPS minimum for the SHA2-256 PRF).
+  loop: "{{ evpn_onprem_appliance_ipsec.tunnels }}"
+  no_log: true
+
+# Expressions only, no loop item, so a failure shows its message without the keys.
+- name: Validate IPsec inside networks and ASNs
+  ansible.builtin.assert:
+    that:
+      - _cidrs | map('ansible.utils.ipv4', 'network/prefix') | list == _cidrs
+      - _cidrs | map('ansible.utils.ipv4', 'prefix') | unique == [30]
+      - _cidrs | map('ansible.utils.ipv4', '169.254.0.0/16') | list == _cidrs
+      - bgp.onprem_asn | int not in evpn_onprem_appliance_ipsec.tunnels | map(attribute='aws_bgp_asn') | map('int') | list
+      - _cidrs | unique | length == 2
+      - evpn_onprem_appliance_ipsec.tunnels | map(attribute='outside_ip') | unique | length == 2
+    fail_msg: IPsec tunnels require distinct outside addresses, distinct canonical link-local /30 inside networks and distinct eBGP ASNs.
+  vars:
+    _cidrs: "{{ evpn_onprem_appliance_ipsec.tunnels | map(attribute='inside_cidr') | list }}"
+
+# AWS uses host 1 of each inside /30 and the customer gateway host 2.
+- name: Build non-secret IPsec peers for FRR
+  ansible.builtin.set_fact:
+    _evpn_onprem_appliance_ipsec_peers: >-
+      {%- set peers = [] -%}
+      {%- for t in evpn_onprem_appliance_ipsec.tunnels | sort(attribute='inside_cidr') -%}
+      {%- set _ = peers.append({'aws_inside_ip': t.inside_cidr | ansible.utils.ipmath(1), 'outside_ip': t.outside_ip,
+                               'cgw_inside_ip': t.inside_cidr | ansible.utils.ipmath(2), 'aws_bgp_asn': t.aws_bgp_asn}) -%}
+      {%- endfor -%}
+      {{ peers }}
+  no_log: true
+
+# Start before the connections exist, so the first deploy negotiates each tunnel once, in the handler.
+- name: Enable and start IPsec
+  ansible.builtin.systemd:
+    name: ipsec
+    state: started
+    enabled: true
+
+- name: Deploy AWS IPsec connections
+  ansible.builtin.template:
+    src: ega-aws.conf.j2
+    dest: /etc/ipsec.d/ega-aws.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: ipsec addconn --checkconfig --config %s
+  notify: Replace AWS IPsec connections
+
+- name: Deploy AWS IPsec preshared keys
+  diff: false
+  ansible.builtin.template:
+    src: ega-aws.secrets.j2
+    dest: /etc/ipsec.d/ega-aws.secrets
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Replace AWS IPsec connections
+  no_log: true
+
+# Replace the tunnels in the final handler flush unless the current files are the ones last applied, so a
+# failed or interrupted deploy is retried; a reboot meanwhile loads the new files.
+- name: Check that the AWS IPsec connections are applied
+  ansible.builtin.command: sha256sum --check --status /etc/ipsec.d/ega-aws.applied
+  register: _evpn_onprem_appliance_ipsec_applied
+  changed_when: _evpn_onprem_appliance_ipsec_applied.rc != 0
+  failed_when: false
+  check_mode: false
+  notify: Replace AWS IPsec connections

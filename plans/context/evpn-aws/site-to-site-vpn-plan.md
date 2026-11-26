@@ -23,7 +23,7 @@ The posted [CORENET-7500](https://redhat.atlassian.net/browse/CORENET-7500) acce
 3. Who takes 7501 and records its corrected [virtual-interface (VIF) criterion](source-audit.md#3-configuration--structure-mismatches) before acceptance?
 4. Who owns BGP Cloud Connector (BCC) coordination for FRR, RouteAdvertisements and primary-ENI SourceDestCheck?
 5. Name a coordinator for transport, security, and CI budgets, gates and cleanup.
-6. Networking and CI owners: approve enabling the IPsec scenario in the shared e2e job. Architecture: agree transport MTUs. The IPsec [cipher profile](#test-obligations) is decided ([decision 20](kickoff-decisions.md#decisions-at-a-glance)); PSK authentication is #52's choice, pending the 7708 owner. 7708 and CI/QE owners: agree transport limits and emulation fidelity.
+6. Networking and CI owners: #52 adds the IPsec scenario to the shared e2e job and asks this repository's approvers, who own its job configuration, to agree to that in its review (AC6); the decision is recorded with their agreement. Architecture: agree transport MTUs. The IPsec [cipher profile](#test-obligations) is decided ([decision 20](kickoff-decisions.md#decisions-at-a-glance)); PSK authentication is #52's choice, pending the 7708 owner. 7708 and CI/QE owners: agree transport limits and emulation fidelity.
 7. Decided ([decision 21](kickoff-decisions.md#decisions-at-a-glance)): keep the WireGuard code path; it carries the credential-free per-PR e2e lane (7508).
 8. Decision 11 owners: supply the funded AWS account, IAM user, cluster-secrets bundle and IPI Route53 base domain.
 9. Test Platform: approve VPN readback in a dedicated account/Region without unrelated VPNs; readback cannot be restricted by tag and exposes [pre-shared keys](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_TunnelOption.html) under Standard PSK storage; consider [Secrets Manager storage](https://docs.aws.amazon.com/vpn/latest/s2svpn/enhanced-security.html) instead, gated by `secretsmanager:GetSecretValue`.
@@ -42,7 +42,7 @@ The posted [CORENET-7500](https://redhat.atlassian.net/browse/CORENET-7500) acce
 [#52](https://github.com/openshift/evpn-gateway-appliance/pull/52) implements AC1–AC5, AC7 and AC6's emulated scenario on the TGW; the AWS canary, outside 7500, follows Test Platform approval and, with the [spikes](#ranked-evidence-spikes), checks it.
 Provisioning runs the VPN tasks once (AC1), so adding or removing an appliance needs `teardown-aws.yml` and a new provisioning run; converging against an existing VPN would need an adopt-on-rerun path outside 7500 (unassigned).
 
-Before CI owners enable the IPsec scenario in the shared job (AC6), qualify kernel IPsec on a root-privileged runner.
+Prow's root-privileged e2e runner runs the scenario's kernel IPsec ([e2e on 9bdb92e](https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/openshift_evpn-gateway-appliance/52/pull-ci-openshift-evpn-gateway-appliance-main-e2e/2125628476990951424)).
 Beyond 7500: compare the IPsec scenario with WireGuard (kept, question 7) for L2, BGP, MTU, MSS, failover and CI duration.
 OpenShift qualification (IPI lanes and a second cluster) belongs to 7708/7515 ([OCP qualification lanes](pipeline-spec.md#ocp-qualification-lanes)).
 
@@ -50,7 +50,7 @@ OpenShift qualification (IPI lanes and a second cluster) belongs to 7708/7515 ([
 
 | Lane | Fixture | Coverage and limits |
 | --- | --- | --- |
-| Local IPsec scenario in the existing e2e lane (AC6) | The 7508 e2e stack, proposed in #52: opt-in via `EGA_SCENARIO=ipsec` with `evpn-ipsec.clab.yml`, with IPsec in place of WireGuard for that run: the TGW node terminates both tunnels (Libreswan and FRR as the AWS endpoint), the relay carries only EVPN BGP, and VXLAN goes directly to the workload VTEP; credential-free, no OpenShift; enable in the shared job once CI owners agree | No managed VPN, TGW routing, AWS ECMP or route limits; no production FIPS qualification. |
+| Local IPsec scenario in the existing e2e lane (AC6) | The 7508 e2e stack, added by #52: the `ipsec` scenario (`test/e2e/scenarios/ipsec.env`), with IPsec in place of WireGuard for that run: the TGW node terminates both tunnels (Libreswan and FRR as the AWS endpoint), the relay carries only EVPN BGP, and VXLAN goes directly to the workload VTEP; credential-free, no OpenShift; runs in the shared e2e job (the entrypoint runs every scenario), pending the CI owners' agreement (question 6) | No managed VPN, TGW routing, AWS ECMP or route limits; no production FIPS qualification. |
 
 The AWS canary (outside 7500, decision 20) plans its own fixtures, cost, Test Platform approvals and cancellation.
 
@@ -65,7 +65,7 @@ The [prototype](https://gitlab.cee.redhat.com/datucker/evpn-on-cloud/-/blob/1c8e
 A customer gateway is identified by its outside IP address and ASN, and each appliance has its own on-premises public IP, so each appliance gets its own customer gateway, VPN connection (two tunnels), underlay BGP and key handoff; teardown removes every appliance's VPN and customer gateway.
 All appliances share `tunnel.type` and `bgp.onprem_asn` (the workload imports EVPN routes for that ASN only); each has its own `onprem_ip` and `network_cidr` within the shared `tunnel.network_cidr`.
 With multihoming (CORENET-7502), the appliances keep distinct VTEP addresses and a shared ESI, and each advertises its own VTEP network, so the TGW has a distinct route per appliance rather than same-prefix ECMP.
-7500 builds and tests the per-appliance VPNs without multihoming; `deploy.yml` gates IPsec with multihoming until active-active forwarding and designated-forwarder failover over IPsec are qualified, which #52's gate assigns to CORENET-7502.
+7500 builds and tests the per-appliance VPNs without multihoming; `deploy.yml` gates IPsec with multihoming until active-active forwarding and designated-forwarder failover over IPsec are qualified, which #52's gate assigns to CORENET-7502. Lifting the gate also means reconciling #52's one shared appliance ASN with the per-appliance ASNs multihoming uses (route targets, AS-path loop prevention), also 7502's.
 
 ### VTEPs and gateway
 

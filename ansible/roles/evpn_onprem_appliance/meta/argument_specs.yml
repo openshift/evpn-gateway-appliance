@@ -11,12 +11,52 @@ argument_specs:
       infra_relay_host:
         type: str
         required: true
-        description: Inventory hostname of the infra-VPC relay; its ansible_host is used as the transport endpoint.
+        description: Inventory hostname of the infra-VPC relay; WireGuard uses its ansible_host, IPsec EVPN uses its private_ip.
+      evpn_onprem_appliance_ipsec:
+        # The automatic role validation action prints type errors without censoring no_log values.
+        # Document the schema here, but check it with secret-safe assertions under no_log in tasks/ipsec.yml.
+        type: raw
+        no_log: true
+        description: >-
+          Secret AWS VPN handoff, required for tunnel.type ipsec. Supply this appliance's entry of the
+          evpn_aws_infra_vpn fact or an equivalent dict through Ansible Vault; never log or cache it.
+        options:
+          customer_gateway_ip:
+            type: str
+            required: true
+            description: Customer gateway static public IPv4 address, used as the Libreswan leftid (also behind NAT).
+          tunnels:
+            type: list
+            elements: dict
+            required: true
+            description: Exactly two distinct AWS tunnels with /30 inside networks in 169.254.0.0/16.
+            options:
+              outside_ip:
+                type: str
+                required: true
+                description: AWS public IPv4 endpoint, used as right and rightid.
+              inside_cidr:
+                type: str
+                required: true
+                description: Canonical tunnel /30; tunnels are numbered ega-aws-1/2 and ipsec1/2 by this field, sorted as strings.
+              aws_bgp_asn:
+                type: int
+                required: true
+                description: AWS gateway BGP ASN, distinct from bgp.onprem_asn.
+              cgw_bgp_asn:
+                type: int
+                required: true
+                description: Customer gateway BGP ASN; must equal bgp.onprem_asn.
+              secret_preshared_key:
+                type: str
+                required: true
+                no_log: true
+                description: Secret PSK from AWS (32 characters); 16-64 of [A-Za-z0-9._] (AWS allows 8, Libreswan in FIPS mode needs 16), not starting with 0.
       tunnel:
         type: dict
         required: true
         required_if:
-          - [type, wireguard, [port]]
+          - [type, wireguard, [port, cloud_ip]]
         description: >-
           Transport configuration parameters for the tunnel between on-prem and
           cloud; type, onprem_ip, cloud_ip, port and network_cidr are used to
@@ -30,11 +70,10 @@ argument_specs:
           onprem_ip:
             type: str
             required: true
-            description: Tunnel address of the on-prem appliance. Used as the VTEP and BGP router-id.
+            description: Address of the on-prem appliance's VTEP (with WireGuard, also its tunnel address); also the BGP router-id.
           cloud_ip:
             type: str
-            required: true
-            description: Tunnel address of the infra relay. Used as the FRR BGP neighbor.
+            description: WireGuard tunnel address of the infra relay. IPsec uses the relay private_ip instead.
           port:
             type: int
             description: WireGuard listen port. Used as the endpoint port to the infra relay.
@@ -44,7 +83,8 @@ argument_specs:
             description: >-
               CIDR covering the tunnel addresses (onprem_ip and cloud_ip). Sets
               the WireGuard interface address prefix and the FRR BGP network
-              statement and blackhole route.
+              statement and blackhole route; with ipsec, the only prefix
+              advertised to AWS.
           mtu_mode:
             type: str
             choices: [safe, unsafe]
@@ -62,7 +102,7 @@ argument_specs:
         default: 10.128.0.0/16
         description: >-
           CIDR of the OCP pod network in the workload VPC; routed to the cloud
-          over the tunnel. Override to match your cluster (OpenShift default is
+          over the WireGuard tunnel (unused with IPsec). Override to match your cluster (OpenShift default is
           10.128.0.0/14).
       stretches:
         type: list

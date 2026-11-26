@@ -65,6 +65,7 @@ check-markdown:
 .PHONY: check-python
 check-python:
 	git ls-files -z -c -o --exclude-standard -- '*.py' | sed -z 's|^|./|' | xargs -0 -r env -u RUFF_OUTPUT_FILE ruff check --no-cache --config .ruff.toml --
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s test/unit -p 'test_*.py'
 
 # Repo-wide shell lint with ShellCheck (installed in Dockerfile.ci). --norc ignores every
 # .shellcheckrc and `env -u` drops options inherited through SHELLCHECK_OPTS, so exceptions

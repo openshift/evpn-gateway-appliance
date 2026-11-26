@@ -1,0 +1,28 @@
+# Managed by Ansible — do not edit manually
+{% for t in evpn_onprem_appliance_ipsec.tunnels | sort(attribute='inside_cidr') %}
+conn ega-aws-{{ loop.index }}
+    keyexchange=ikev2
+    authby=secret
+    ike=aes_gcm256-sha2_256;modp2048
+    esp=aes_gcm256;modp2048
+    pfs=yes
+    ikelifetime=28800s
+    salifetime=3600s
+    rekeymargin=270s
+    rekeyfuzz=100%
+    dpddelay=10s
+    retransmit-timeout=40s
+    auto=start
+    left=%defaultroute
+    leftid={{ evpn_onprem_appliance_ipsec.customer_gateway_ip }}
+    right={{ t.outside_ip }}
+    rightid={{ t.outside_ip }}
+    leftsubnet=0.0.0.0/0
+    rightsubnet=0.0.0.0/0
+    # Libreswan 5.4 spd_owner() otherwise treats the two 0/0 policies as conflicting despite their different XFRM IDs.
+    overlapip=yes
+    ipsec-interface={{ loop.index }}
+    leftinterface-ip={{ t.inside_cidr | ansible.utils.ipmath(2) }}/30
+    # Pluto manages XFRM interfaces/addresses; FRR manages routes (ipsec.conf(5), leftupdown).
+    leftupdown=""
+{% endfor %}

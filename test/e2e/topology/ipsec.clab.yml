@@ -1,0 +1,61 @@
+---
+# IPsec variant: the TGW runs Libreswan + FRR as the AWS VPN endpoint.
+# simulate.yml configures it before product deploy; VXLAN crosses the VPN/TGW.
+# See test/e2e/README.md, "Transport scenarios", for selection and emulation limits.
+name: ega-ipsec
+
+mgmt:
+  network: clab
+  ipv4-subnet: 172.20.20.0/24
+
+topology:
+  defaults:
+    kind: linux
+    image: ${EGA_NODE_IMAGE}
+    cgroupns-mode: host
+    tmpfs:
+      /run: rw,nosuid,nodev
+      /run/lock: rw,nosuid,nodev,noexec
+      /tmp: rw,nosuid,nodev
+    binds:
+      - ${EGA_SSH_PUBKEY}:/root/.ssh/authorized_keys:ro
+  nodes:
+    appliance:
+      mgmt-ipv4: 172.20.20.11
+    relay:
+      mgmt-ipv4: 172.20.20.12
+      # infra-VPC side toward the TGW; reach the workload VPC through it.
+      exec:
+        # Retry until NetworkManager reports each link unmanaged (here and below): a single early attempt can lose
+        # the race with NetworkManager start-up, which then takes the link and flushes the addresses set below.
+        - bash -c 'for d in eth1; do for i in $(seq 1 60); do nmcli dev set "$d" managed no 2>/dev/null &&
+            nmcli -g GENERAL.STATE dev show "$d" 2>/dev/null | grep -q unmanaged && break; sleep 1; done; done'
+        - ip addr add 10.100.0.1/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace 10.200.0.0/16 via 10.100.0.2
+        - ip route replace 10.44.44.0/24 via 10.100.0.2
+    tgw:
+      mgmt-ipv4: 172.20.20.13
+      # AWS VPN endpoint and TGW router, configured by the test-only sim role.
+      exec:
+        - bash -c 'for d in eth1 eth2; do for i in $(seq 1 60); do nmcli dev set "$d" managed no 2>/dev/null &&
+            nmcli -g GENERAL.STATE dev show "$d" 2>/dev/null | grep -q unmanaged && break; sleep 1; done; done'
+        - ip addr add 172.20.20.21/24 dev eth0
+        - ip addr add 172.20.20.22/24 dev eth0
+        - ip addr add 10.100.0.2/24 dev eth1
+        - ip link set eth1 up
+        - ip addr add 10.200.0.2/24 dev eth2
+        - ip link set eth2 up
+    workload:
+      mgmt-ipv4: 172.20.20.14
+      # workload-VPC side toward the TGW; reach the onprem VTEP + infra VPC through it.
+      exec:
+        - bash -c 'for d in eth1; do for i in $(seq 1 60); do nmcli dev set "$d" managed no 2>/dev/null &&
+            nmcli -g GENERAL.STATE dev show "$d" 2>/dev/null | grep -q unmanaged && break; sleep 1; done; done'
+        - ip addr add 10.200.0.1/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace 10.44.44.0/24 via 10.200.0.2
+        - ip route replace 10.100.0.0/16 via 10.200.0.2
+  links:
+    - endpoints: ["tgw:eth1", "relay:eth1"]
+    - endpoints: ["tgw:eth2", "workload:eth1"]

@@ -1,0 +1,15 @@
+---
+# One customer gateway and VPN connection per on-premises appliance, named by its customer gateway IP.
+# Host variables override the role values; without an onprem_appliances group, the role values describe one appliance.
+- name: List the appliances that each get a VPN connection
+  ansible.builtin.set_fact:
+    _evpn_aws_infra_vpn_appliances: >-
+      {%- set out = [] -%}
+      {%- for hv in groups['onprem_appliances'] | default([]) | map('extract', hostvars) | list or [{}] -%}
+      {%- set _ = out.append({
+            'customer_gateway_ip': hv.evpn_aws_infra_vpn_customer_gateway_ip | default(evpn_aws_infra_vpn_customer_gateway_ip, true) | default('', true),
+            'customer_gateway_asn': hv.evpn_aws_infra_vpn_customer_gateway_asn | default(evpn_aws_infra_vpn_customer_gateway_asn, true) | int,
+            'onprem_asn': (hv.bgp | default(bgp | default({}))).onprem_asn | default(none),
+            'tunnel_inside_cidrs': hv.evpn_aws_infra_vpn_tunnel_inside_cidrs | default(evpn_aws_infra_vpn_tunnel_inside_cidrs, true)}) -%}
+      {%- endfor -%}
+      {{ out }}

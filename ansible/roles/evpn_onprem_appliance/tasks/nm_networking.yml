@@ -28,6 +28,12 @@
     _evpn_onprem_appliance_desired_conns:
       - ega-bridge-trunk
 
+- name: Add the IPsec VTEP profile name
+  # Keep the profile name different from the interface name: nmstate omits profile-name when they match.
+  ansible.builtin.set_fact:
+    _evpn_onprem_appliance_desired_conns: "{{ _evpn_onprem_appliance_desired_conns + ['ega-dummy-vtep'] }}"
+  when: tunnel.type | default('wireguard') == 'ipsec'
+
 - name: Add the per-stretch profile names
   ansible.builtin.set_fact:
     _evpn_onprem_appliance_desired_conns: >-

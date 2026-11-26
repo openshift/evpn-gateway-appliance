@@ -1,0 +1,3 @@
+---
+# AWS tunnel telemetry needs AWS credentials on the controller; emulated labs set it false.
+evpn_health_check_vpn_telemetry: "{{ tunnel.type == 'ipsec' }}"

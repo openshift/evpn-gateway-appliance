@@ -44,7 +44,7 @@ ee_playbook() {
 		"$EGA_EE_IMAGE" \
 		ansible-playbook -i "${lab_dir}/inventory/hosts.yml" \
 			"$pb" \
-			-u root --private-key "$ssh_key"
+			-u root --private-key "$ssh_key" 2>&1 | tee -a "${lab_dir}/ansible.log"
 }
 
 # A subshell keeps scenario defaults, exports, cwd and the EXIT trap from leaking into
@@ -94,8 +94,21 @@ run_scenario() (
 		exit 0
 	fi
 	# Best-effort cleanup preserves the scenario's status, including partial-deploy failures.
-	# The trap finishes before this subshell returns and the next scenario starts.
-	trap 'cleanup || true' EXIT
+	# The trap finishes before this subshell returns and the next scenario starts. On every
+	# exit, including a failed task, a test pre-shared key (inventory/ipsec) in the playbook
+	# output fails the scenario (CORENET-7500 AC2).
+	: >"${lab_dir}/ansible.log"
+	# shellcheck disable=SC2329 # invoked through the EXIT trap below
+	on_exit() {
+		local rc=$?
+		if grep -q TEST_ONLY_EGA_IPSEC "${lab_dir}/ansible.log"; then
+			echo "error: an IPsec pre-shared key appeared in the playbook output" >&2
+			rc=1
+		fi
+		cleanup || true
+		exit "$rc"
+	}
+	trap on_exit EXIT
 
 	# ansible reaches nodes over SSH; bind an ephemeral public key into each node.
 	ssh_key="${lab_dir}/ssh/id_ega"
@@ -115,13 +128,19 @@ run_scenario() (
 		-m ansible.builtin.wait_for_connection -a 'timeout=120'
 
 	# Remove the old copy first: cp -r into an existing inventory would nest it and
-	# silently reuse stale files when the work dir persists across runs.
+	# silently reuse stale files when the work dir persists across runs. -L copies the
+	# files that a scenario inventory symlinks from another one.
 	rm -rf "${lab_dir}/inventory"
-	cp -r "$inventory_src" "${lab_dir}/inventory"
+	cp -rL "$inventory_src" "${lab_dir}/inventory"
 
 	# Each scenario owns its ordered setup, deploy and validation playbooks.
 	read -r -a playbooks <<< "$EGA_PLAYBOOKS"
 	for playbook in "${playbooks[@]}"; do
+		# deploy leaves the lab up for inspection, so it skips the product teardown and its checks.
+		if [ "$stage" = deploy ] && [[ "$playbook" == *.teardown || "$playbook" == *.teardown_check ]]; then
+			echo ">> stage=deploy; skipping ${playbook}"
+			continue
+		fi
 		ee_playbook "$playbook"
 	done
 	echo ">> scenario ${scenario} complete"

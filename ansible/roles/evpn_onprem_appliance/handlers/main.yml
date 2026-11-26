@@ -3,3 +3,17 @@
   ansible.builtin.systemd:
     name: wg-quick@wg0
     state: restarted
+
+# Connection or key changes replace the appliance tunnels one at a time, keeping unrelated connections up.
+# Handlers flush after FRR is reconciled, so FRR already peers with any new inside addresses or ASN.
+- name: Replace AWS IPsec connections
+  ansible.builtin.script:
+    cmd: >-
+      ega_aws_tunnels.py
+      --tunnel 1 {{ _evpn_onprem_appliance_ipsec_peers[0].aws_inside_ip | quote }} {{ _evpn_onprem_appliance_ipsec_peers[0].outside_ip | quote }}
+      --tunnel 2 {{ _evpn_onprem_appliance_ipsec_peers[1].aws_inside_ip | quote }} {{ _evpn_onprem_appliance_ipsec_peers[1].outside_ip | quote }}
+    executable: /usr/bin/python3
+  changed_when: true
+  # Worst case: 300 s mutations + (45 + 3*90) s wait deadlines + 80 s final polls
+  # + 65 s status/order polls + 10 s failure diagnostic = 770 s, including timeout cleanup.
+  timeout: 900

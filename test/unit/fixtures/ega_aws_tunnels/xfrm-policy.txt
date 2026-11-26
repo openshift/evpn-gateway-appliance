@@ -1,0 +1,71 @@
+src 0.0.0.0/0 dst 0.0.0.0/0
+	dir out action allow index 9 priority 1769729 ptype main
+	tmpl src 192.0.2.11 dst 192.0.2.21
+		proto esp reqid 16389 mode tunnel
+	if_id 0x1
+src 0.0.0.0/0 dst 0.0.0.0/0
+	dir fwd action allow index 18 priority 1769729 ptype main
+	tmpl src 192.0.2.21 dst 192.0.2.11
+		proto esp reqid 16389 mode tunnel
+	if_id 0x1
+src 0.0.0.0/0 dst 0.0.0.0/0
+	dir in action allow index 24 priority 1769729 ptype main
+	tmpl src 192.0.2.21 dst 192.0.2.11
+		proto esp reqid 16389 mode tunnel
+	if_id 0x1
+src 0.0.0.0/0 dst 0.0.0.0/0
+	dir out action allow index 33 priority 1769729 ptype main
+	tmpl src 192.0.2.11 dst 192.0.2.22
+		proto esp reqid 16393 mode tunnel
+	if_id 0x2
+src 0.0.0.0/0 dst 0.0.0.0/0
+	dir fwd action allow index 42 priority 1769729 ptype main
+	tmpl src 192.0.2.22 dst 192.0.2.11
+		proto esp reqid 16393 mode tunnel
+	if_id 0x2
+src 0.0.0.0/0 dst 0.0.0.0/0
+	dir in action allow index 48 priority 1769729 ptype main
+	tmpl src 192.0.2.22 dst 192.0.2.11
+		proto esp reqid 16393 mode tunnel
+	if_id 0x2
+src ::/0 dst ::/0
+	socket out priority 0 ptype main
+src ::/0 dst ::/0
+	socket in priority 0 ptype main
+src ::/0 dst ::/0
+	socket out priority 0 ptype main
+src ::/0 dst ::/0
+	socket in priority 0 ptype main
+src 0.0.0.0/0 dst 0.0.0.0/0
+	socket out priority 0 ptype main
+src 0.0.0.0/0 dst 0.0.0.0/0
+	socket in priority 0 ptype main
+src 0.0.0.0/0 dst 0.0.0.0/0
+	socket out priority 0 ptype main
+src 0.0.0.0/0 dst 0.0.0.0/0
+	socket in priority 0 ptype main
+src 0.0.0.0/0 dst 0.0.0.0/0
+	socket out priority 0 ptype main
+src 0.0.0.0/0 dst 0.0.0.0/0
+	socket in priority 0 ptype main
+src 0.0.0.0/0 dst 0.0.0.0/0
+	socket out priority 0 ptype main
+src 0.0.0.0/0 dst 0.0.0.0/0
+	socket in priority 0 ptype main
+src ::/0 dst ::/0 proto ipv6-icmp type 135
+	dir out priority 1 ptype main
+src ::/0 dst ::/0 proto ipv6-icmp type 135
+	dir fwd priority 1 ptype main
+src ::/0 dst ::/0 proto ipv6-icmp type 135
+	dir in priority 1 ptype main
+src ::/0 dst ::/0 proto ipv6-icmp type 136
+	dir out priority 1 ptype main
+src ::/0 dst ::/0 proto ipv6-icmp type 136
+	dir fwd priority 1 ptype main
+src ::/0 dst ::/0 proto ipv6-icmp type 136
+	dir in priority 1 ptype main
+src 0.0.0.0/0 dst 0.0.0.0/0
+	dir out action allow index 57 priority 1769729 ptype main
+	tmpl src 192.0.2.11 dst 192.0.2.27
+		proto esp reqid 17000 mode tunnel
+	if_id 0x7

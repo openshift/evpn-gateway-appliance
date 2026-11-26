@@ -1,0 +1,9 @@
+{
+  "192.0.2.2": {
+    "neighborAddr": "192.0.2.2",
+    "remoteAs": 64512,
+    "localAs": 65044,
+    "bgpVersion": 4,
+    "bgpState": "Established"
+  }
+}

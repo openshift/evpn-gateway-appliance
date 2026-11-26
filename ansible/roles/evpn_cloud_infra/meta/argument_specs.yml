@@ -1,12 +1,12 @@
 ---
 argument_specs:
   main:
-    short_description: Configure the cloud-side EVPN relay (terminates the on-prem transport and configures FRR).
+    short_description: Configure the cloud-side EVPN relay (terminates WireGuard, if used, and configures FRR).
     description:
-      - Terminates the transport from the on-prem appliance and configures FRR
-        as a route relay (not a VTEP) between the on-prem appliance and the
-        workload-VPC VTEP, using next-hop-unchanged so VTEP IPs are preserved
-        end-to-end.
+      - Terminates WireGuard from the on-prem appliance (with ipsec, the AWS VPN
+        ends at the TGW instead) and configures FRR as a route relay (not a
+        VTEP) between the on-prem appliance and the workload-VPC VTEP, using
+        attribute-unchanged next-hop so VTEP IPs are preserved end-to-end.
     options:
       workload_vtep_host:
         type: str
@@ -34,7 +34,7 @@ argument_specs:
           onprem_ip:
             type: str
             required: true
-            description: Tunnel address of the on-prem appliance. Used as the FRR relay's BGP neighbor.
+            description: Tunnel address of the on-prem appliance. Used as the FRR relay's BGP neighbor (with ipsec, every appliance's).
           cloud_ip:
             type: str
             description: Tunnel address of the infra relay. Used as the WireGuard server's local address.
