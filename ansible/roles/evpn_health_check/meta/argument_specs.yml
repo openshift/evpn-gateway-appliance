@@ -44,7 +44,6 @@ argument_specs:
             description: Gateway IP on the cloud workload side for this stretch. Pinged to verify cloud gateway reachability.
       tunnel:
         type: dict
-        required: true
         description: >-
           Transport configuration parameters for the tunnel between on-prem and
           cloud; type, cloud_ip and onprem_ip are used to check the BGP/EVPN
@@ -57,12 +56,13 @@ argument_specs:
             description: Transport type. Determines which transport-specific checks run.
           cloud_ip:
             type: str
-            required: true
             description: Tunnel address of the infra relay. Checked as the on-prem appliance's BGP peer.
           onprem_ip:
             type: str
-            required: true
-            description: Tunnel address of the on-prem appliance. Checked as the infra relay's BGP/EVPN peer.
+            description: Single-appliance peer checked on the relay. In multihoming mode, the relay checks both inventory peers.
+          underlay_interface:
+            type: str
+            description: FRR uplink interface on the appliance. Part of the shared deployment inputs.
           port:
             type: int
             description: WireGuard listen port. Part of the shared playbook configuration model; not used by this role.

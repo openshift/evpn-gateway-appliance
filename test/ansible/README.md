@@ -22,4 +22,5 @@ lives here instead.
 | --- | --- | --- |
 | `network.evpn_gateway_test.simulate` | before `network.evpn_gateway.deploy` | build the simulated on-prem environment |
 | `network.evpn_gateway_test.healthcheck` | after the deploy | run the simulated-host data-plane checks |
+| `network.evpn_gateway_test.multihoming` | after `network.evpn_gateway.deploy` | verify LACP, BFD, peer Ethernet Segment routes, DF election, broadcast delivery, overlay failover and FRR restart |
 | `network.evpn_gateway_test.teardown` | on cleanup (non-clab runs) | remove the simulated on-prem environment |

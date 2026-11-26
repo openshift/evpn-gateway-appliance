@@ -1,0 +1,20 @@
+---
+- name: Read the resulting kernel bond state
+  ansible.builtin.command: cat /proc/net/bonding/{{ trunk_interface }}
+  register: evpn_onprem_appliance_bond_state
+  changed_when: false
+
+- name: Verify the requested 802.3ad bond exists
+  ansible.builtin.assert:
+    that:
+      - "'Bonding Mode: IEEE 802.3ad Dynamic link aggregation' in evpn_onprem_appliance_bond_state.stdout"
+      - >-
+        (evpn_onprem_appliance_bond_state.stdout | regex_findall('(?m)^Slave Interface: ')) | length
+        == multihoming.bond_interfaces | length
+      - >-
+        (multihoming.bond_interfaces | map('regex_replace', '^', 'Slave Interface: ') | list)
+        | difference(evpn_onprem_appliance_bond_state.stdout_lines) | length == 0
+    fail_msg: >-
+      {{ trunk_interface }} is not the requested persistent 802.3ad bond with
+      all configured member interfaces. A live upstream LACP peer is still
+      required for physical qualification.

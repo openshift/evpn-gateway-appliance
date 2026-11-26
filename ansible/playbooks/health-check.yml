@@ -3,7 +3,7 @@
 # Usage: ansible-playbook playbooks/health-check.yml
 
 - name: Run health checks
-  hosts: all
+  hosts: cloud_infra:cloud_workload:onprem_appliances
   become: true
   roles:
     - evpn_health_check

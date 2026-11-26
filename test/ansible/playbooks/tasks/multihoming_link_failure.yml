@@ -1,0 +1,116 @@
+---
+- name: Disconnect the appliance link and verify failover
+  block:
+    - name: Take the appliance link down
+      ansible.builtin.command: ip link set dev {{ failed_link }} down
+      delegate_to: appliance-a
+      changed_when: true
+
+    # Linux veths do not support the kernel's protodown operation. Verify FRR's
+    # decision here; actual access-port enforcement needs a supported NIC.
+    - name: Verify FRR requests access protodown after uplink loss
+      ansible.builtin.command: podman exec frr vtysh -c "show evpn json"
+      delegate_to: appliance-a
+      register: uplink_state
+      changed_when: false
+      retries: 15
+      delay: 1
+      until: "'uplinkDown' in (uplink_state.stdout | from_json).protodownReasons | default([])"
+      when: failed_link == hostvars['appliance-a'].tunnel.underlay_interface
+
+    - name: Verify the relay detects the underlay failure through BFD
+      ansible.builtin.command: podman exec frr vtysh -c "show bfd peer {{ failed_vtep }} json"
+      delegate_to: relay
+      register: failed_bfd
+      changed_when: false
+      retries: 15
+      delay: 1
+      until: failed_bfd.rc == 0 and (failed_bfd.stdout | from_json).status | default('') == 'down'
+      when: failed_link == hostvars['appliance-a'].tunnel.underlay_interface
+
+    - name: Wait for the surviving appliance to become DF
+      vars:
+        segment: "{{ surviving_es.stdout | from_json }}"
+      ansible.builtin.command: podman exec frr vtysh -c "show evpn es {{ esi }} json"
+      delegate_to: appliance-b
+      register: surviving_es
+      changed_when: false
+      retries: 25
+      delay: 2
+      until:
+        - "'operUp' in segment.flags | default([])"
+        - "'df' in segment.flags | default([])"
+
+    - name: Prime the overlay path so the surviving appliance learns the source
+      ansible.builtin.command: ping -c 1 -W 1 -I br-vni10100 {{ edge_ip }}
+      register: overlay_probe
+      changed_when: false
+      retries: 25
+      delay: 1
+      until: overlay_probe.rc == 0
+
+    - name: Require the surviving appliance's EVPN MAC advertisement
+      ansible.builtin.command: >-
+        podman exec frr vtysh -c
+        "show bgp l2vpn evpn route rd {{ surviving_vtep }}:10100 mac {{ edge_mac }} json"
+      register: surviving_mac_route
+      changed_when: false
+      retries: 20
+      delay: 2
+      until: surviving_mac_route.rc == 0 and surviving_vtep in surviving_mac_route.stdout and esi in surviving_mac_route.stdout
+
+    - name: Wait for the exact edge MAC to resolve to the segment or the surviving appliance
+      vars:
+        mac: "{{ (edge_mac_state.stdout | from_json).get(edge_mac, {}) }}"
+      ansible.builtin.command:
+        argv:
+          - podman
+          - exec
+          - frr
+          - vtysh
+          - -c
+          - show evpn mac vni 10100 mac {{ edge_mac }} json
+      register: edge_mac_state
+      changed_when: false
+      # The ES read below checks the active VTEPs separately from the MAC lookup.
+      retries: 20
+      delay: 2
+      until:
+        - mac.type | default('') == 'remote'
+        - mac.remoteVtep | default('') == surviving_vtep or mac.esi | default('') == esi
+
+    - name: Verify the Ethernet Segment has only the surviving active next hop
+      vars:
+        next_hops: >-
+          {{ (overlay_es.stdout | from_json).vteps | default([])
+             | selectattr('nexthopId', 'defined') | map(attribute='vtep') | list }}
+      ansible.builtin.command: podman exec frr vtysh -c "show evpn es {{ esi }} json"
+      register: overlay_es
+      changed_when: false
+      retries: 20
+      delay: 2
+      until: next_hops == [surviving_vtep]
+
+    - name: Verify zero-loss VXLAN traffic after convergence
+      ansible.builtin.command: ping -c 5 -W 1 -I br-vni10100 {{ edge_ip }}
+      register: failover_ping
+      changed_when: false
+      failed_when: failover_ping.rc != 0 or failover_ping.stdout is not search(ping_ok)
+  always:
+    - name: Restore the appliance link
+      ansible.builtin.command: ip link set dev {{ failed_link }} up
+      delegate_to: appliance-a
+      changed_when: true
+
+    - name: Restore the test topology's static routes after bringing the uplink back
+      ansible.builtin.command: >-
+        ip route replace {{ item }} via {{ hostvars['appliance-a'].tunnel.cloud_ip }} dev {{ failed_link }}
+      delegate_to: appliance-a
+      changed_when: true
+      loop:
+        - 10.200.0.0/24
+        - 10.44.44.4/30
+      when: failed_link == hostvars['appliance-a'].tunnel.underlay_interface
+
+- name: Verify control and data plane recovery after link restoration
+  ansible.builtin.include_tasks: multihoming_recovery.yml

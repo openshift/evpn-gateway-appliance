@@ -1,0 +1,10 @@
+---
+trunk_interface: bond0
+infra_relay_host: relay
+multihoming:
+  enabled: true
+  bond_interfaces: [eth1]
+  es_id: 1
+  es_sys_mac: "02:aa:bb:cc:dd:ee"
+  anycast_mac: "02:00:5e:00:00:01"
+  df_pref: 32767

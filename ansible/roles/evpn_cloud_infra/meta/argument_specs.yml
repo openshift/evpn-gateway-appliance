@@ -20,7 +20,7 @@ argument_specs:
         type: dict
         required: true
         required_if:
-          - [type, wireguard, [cloud_ip, port]]
+          - [type, wireguard, [onprem_ip, cloud_ip, port]]
         description: >-
           Transport configuration parameters for the tunnel between on-prem and
           cloud; type, onprem_ip, cloud_ip, port and network_cidr are used to
@@ -33,8 +33,7 @@ argument_specs:
             description: Transport type. Determines which transport-specific configuration is applied.
           onprem_ip:
             type: str
-            required: true
-            description: Tunnel address of the on-prem appliance. Used as the FRR relay's BGP neighbor.
+            description: Single-appliance FRR neighbor and WireGuard peer. A routed multihoming deployment takes its peers from the appliance inventory.
           cloud_ip:
             type: str
             description: Tunnel address of the infra relay. Used as the WireGuard server's local address.

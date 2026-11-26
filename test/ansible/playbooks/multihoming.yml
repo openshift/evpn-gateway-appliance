@@ -1,0 +1,203 @@
+---
+# CORENET-7502 assertions after network.evpn_gateway.deploy.
+- name: Verify the edge LACP bundle has both appliances in one aggregator
+  hosts: edge_hosts
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for the shared two-port aggregator
+      ansible.builtin.command: cat /proc/net/bonding/edge-bond
+      register: edge_bond
+      changed_when: false
+      retries: 20
+      delay: 2
+      until:
+        - "'Number of ports: 2' in edge_bond.stdout"
+        - "'Partner Mac Address: ' ~ hostvars['appliance-a'].multihoming.es_sys_mac in edge_bond.stdout"
+
+- name: Validate the two deployed appliances
+  hosts: onprem_appliances
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Discover the peer appliance and Ethernet Segment identity
+      ansible.builtin.set_fact:
+        peer_ip: "{{ hostvars[groups['onprem_appliances'] | reject('equalto', inventory_hostname) | first].tunnel.onprem_ip }}"
+
+    - name: Read the rendered FRR configuration
+      ansible.builtin.slurp:
+        src: /etc/frr/frr.conf
+      register: frr_config
+
+    - name: Read the negotiated bond state
+      ansible.builtin.command: cat /proc/net/bonding/{{ trunk_interface }}
+      register: bond_state
+      changed_when: false
+      retries: 15
+      delay: 2
+      until:
+        - "'Partner Mac Address:' in bond_state.stdout"
+        - "'Partner Mac Address: 00:00:00:00:00:00' not in bond_state.stdout"
+
+    - name: Assert both appliances configured the shared Ethernet Segment bond
+      ansible.builtin.assert:
+        that:
+          - "'Bonding Mode: IEEE 802.3ad Dynamic link aggregation' in bond_state.stdout"
+          - "'Slave Interface: eth1' in bond_state.stdout"
+        fail_msg: >-
+          {{ inventory_hostname }} did not configure the requested 802.3ad bond with its
+          local member. The shared edge bond contributes one link per appliance.
+
+    - name: Assert both appliances negotiated the shared upstream LACP peer
+      ansible.builtin.assert:
+        that:
+          - "'Partner Mac Address:' in bond_state.stdout"
+          - "'Partner Mac Address: 00:00:00:00:00:00' not in bond_state.stdout"
+        fail_msg: >-
+          {{ inventory_hostname }} did not negotiate its LACP member with the
+          emulated shared edge peer.
+
+    - name: Assert the appliance presents the shared LACP actor identity
+      ansible.builtin.assert:
+        that:
+          - "'System MAC address: 02:aa:bb:cc:dd:ee' in bond_state.stdout"
+        fail_msg: >-
+          {{ inventory_hostname }} did not present the shared ESI/LACP actor
+          system MAC on its appliance bond.
+
+    - name: Assert the shared Ethernet Segment identity is present in test input
+      ansible.builtin.assert:
+        that:
+          - >-
+            'evpn mh es-id 1' in
+            (frr_config.content | b64decode)
+          - >-
+            'evpn mh es-sys-mac 02:aa:bb:cc:dd:ee' in
+            (frr_config.content | b64decode)
+        fail_msg: >-
+          {{ inventory_hostname }} did not render the shared CORENET-7502
+          Ethernet Segment identity into FRR configuration.
+
+    - name: Read the multihoming anycast SVI state
+      ansible.builtin.command: ip -o link show trunk.100
+      register: anycast_svi
+      changed_when: false
+
+    - name: Assert both appliances use the shared anycast SVI MAC
+      ansible.builtin.assert:
+        that: "'02:00:5e:00:00:01' in anycast_svi.stdout"
+        fail_msg: >-
+          {{ inventory_hostname }} did not configure the shared anycast MAC
+          on trunk.100.
+
+    - name: Verify the live BFD session to the relay
+      ansible.builtin.command: podman exec frr vtysh -c "show bfd peer {{ tunnel.cloud_ip }} json"
+      register: bfd_peer
+      changed_when: false
+      retries: 20
+      delay: 2
+      until: bfd_peer.rc == 0 and (bfd_peer.stdout | from_json).status | default('') == 'up'
+
+    - name: Verify the peer's Type-1 Ethernet A-D routes for each stretch
+      ansible.builtin.command: >-
+        podman exec frr vtysh -c
+        "show bgp l2vpn evpn route rd {{ peer_ip }}:{{ 10000 + item.vlan }} type 1 json"
+      register: evpn_type1
+      changed_when: false
+      retries: 20
+      delay: 2
+      until:
+        - evpn_type1.rc == 0
+        - "'03:02:aa:bb:cc:dd:ee:00:00:01' in evpn_type1.stdout"
+      loop: "{{ stretches }}"
+
+    - name: Verify Type-4 discovery and the expected DF role on each appliance
+      vars:
+        es: "{{ es_state.stdout | from_json }}"
+      ansible.builtin.command: podman exec frr vtysh -c "show evpn es 03:02:aa:bb:cc:dd:ee:00:00:01 json"
+      register: es_state
+      changed_when: false
+      retries: 20
+      delay: 2
+      until:
+        - es_state.rc == 0
+        - "'operUp' in es.flags | default([])"
+        - es.vniCount == stretches | length
+        - >-
+          es.vteps | default([]) | selectattr('vtep', 'equalto', peer_ip)
+          | selectattr('dfPreference', 'defined') | list | length == 1
+        - ('nonDF' in es.flags) == (inventory_hostname == 'appliance-b')
+
+- name: Exercise the overlay during multihoming failures
+  hosts: cloud_workload
+  become: true
+  gather_facts: false
+  vars:
+    edge_ip: 10.42.1.10
+    edge_mac: '02:00:5e:00:10:10'
+    esi: '03:02:aa:bb:cc:dd:ee:00:00:01'
+    failed_vtep: "{{ hostvars['appliance-a'].tunnel.onprem_ip }}"
+    surviving_vtep: "{{ hostvars['appliance-b'].tunnel.onprem_ip }}"
+    ping_ok: '(?:^|\s)0(?:\.0+)?% packet loss(?:[,\s]|$)'
+  tasks:
+    - name: Verify the baseline VXLAN path and learn the edge MAC
+      ansible.builtin.command: ping -c 5 -W 1 -I br-vni10100 {{ edge_ip }}
+      register: baseline_ping
+      changed_when: false
+      retries: 10
+      delay: 2
+      until: baseline_ping.rc == 0 and baseline_ping.stdout is search(ping_ok)
+
+    - name: Verify both appliances know the same edge MAC on the Ethernet Segment
+      vars:
+        mac: "{{ (appliance_mac.stdout | from_json).get(edge_mac, {}) }}"
+      ansible.builtin.command: podman exec frr vtysh -c "show evpn mac vni 10100 mac {{ edge_mac }} json"
+      delegate_to: "{{ item }}"
+      register: appliance_mac
+      changed_when: false
+      retries: 15
+      delay: 2
+      until:
+        - mac.type | default('') == 'local'
+        - mac.esi | default('') == esi
+        - not (mac.isDuplicate | default(true) | bool)
+      loop: "{{ groups['onprem_appliances'] }}"
+
+    - name: Exercise access and underlay cable loss and recovery
+      ansible.builtin.include_tasks: tasks/multihoming_link_failure.yml
+      loop:
+        - "{{ hostvars['appliance-a'].multihoming.bond_interfaces | first }}"
+        - "{{ hostvars['appliance-a'].tunnel.underlay_interface }}"
+      loop_control:
+        loop_var: failed_link
+
+    - name: Record the FRR service instance before crashing the container
+      ansible.builtin.command: systemctl show -p InvocationID --value frr-container.service
+      delegate_to: appliance-a
+      register: frr_before
+      changed_when: false
+
+    - name: Kill the running FRR container abruptly
+      ansible.builtin.command: podman kill --signal KILL frr
+      delegate_to: appliance-a
+      changed_when: true
+
+    - name: Wait for systemd to bring up a new FRR service instance
+      ansible.builtin.command: systemctl show -p InvocationID --value frr-container.service
+      delegate_to: appliance-a
+      register: frr_after
+      changed_when: false
+      retries: 20
+      delay: 2
+      until:
+        - frr_after.stdout | length == 32
+        - frr_after.stdout != frr_before.stdout
+
+    - name: Verify the recovered appliance's EVPN path and traffic
+      ansible.builtin.include_tasks: tasks/multihoming_recovery.yml
+
+    - name: Verify exactly one copy of each broadcast probe arrives at the edge
+      ansible.builtin.include_tasks: tasks/multihoming_broadcast.yml
+      loop: "{{ stretches }}"
+      loop_control:
+        loop_var: stretch

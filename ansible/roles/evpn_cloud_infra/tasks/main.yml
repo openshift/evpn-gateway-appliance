@@ -1,15 +1,46 @@
 ---
+- name: Detect bootc image
+  ansible.builtin.command: bootc status --format=json
+  register: evpn_cloud_infra_bootc_status
+  changed_when: false
+  failed_when: false
+
+- name: Set bootc image fact
+  ansible.builtin.set_fact:
+    evpn_cloud_infra_bootc: "{{ evpn_cloud_infra_bootc_status.rc == 0 }}"
+
+- name: Select the relay's multihoming peers from inventory
+  ansible.builtin.set_fact:
+    _evpn_cloud_infra_mh_peers: >-
+      {{ groups.get('onprem_appliances', []) | map('extract', hostvars)
+         | selectattr('multihoming', 'defined') | selectattr('multihoming.enabled', 'defined')
+         | selectattr('multihoming.enabled', 'equalto', true)
+         | map(attribute='tunnel.onprem_ip') | list }}
+
+- name: Validate the relay transport and appliance peers
+  ansible.builtin.assert:
+    that:
+      - (_evpn_cloud_infra_mh_peers | length == 0 and tunnel.onprem_ip is defined)
+        or (_evpn_cloud_infra_mh_peers | unique | length == 2 and tunnel.type != 'wireguard')
+    fail_msg: >-
+      Set tunnel.onprem_ip for a single-appliance relay, or configure two
+      multihoming appliances with distinct addresses and a routed transport.
+
 - name: Generate/load WireGuard keys
   ansible.builtin.include_tasks: wireguard_keys.yml
   when: tunnel.type == 'wireguard'
 
 - name: Install packages (skipped on bootc images)
+  # bootc images are immutable and already carry the runtime dependencies;
+  # attempting dnf there would fail or create an unmanaged mutable layer.
   ansible.builtin.dnf:
     name: >-
       {{ ['podman', 'tcpdump', 'traceroute', 'mtr', 'bind-utils']
          + (['wireguard-tools'] if tunnel.type == 'wireguard' else []) }}
     state: present
-  when: ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
+  when:
+    - ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
+    - not evpn_cloud_infra_bootc
 
 - name: Enable IP forwarding
   ansible.posix.sysctl:

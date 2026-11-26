@@ -1,0 +1,52 @@
+---
+# Validate the multihoming inputs before nm_networking.yml renders the bond and
+# its members declaratively through nmstate. NetworkManager owns the resulting
+# profiles so they survive reboot.
+
+- name: Validate all-active multihoming inputs
+  ansible.builtin.assert:
+    that:
+      - tunnel.type != 'wireguard'
+      - tunnel.underlay_interface | default('') | length > 0
+      - stretches | length > 0
+      - groups.get('onprem_appliances', []) | length == 2
+      # The CE-facing ESI-LAG may span the two appliances, so each appliance
+      # can legitimately have one local bond member.  A single-member bond is
+      # still required: it carries the shared actor identity and LACP state.
+      - multihoming.bond_interfaces | length >= 1
+      - multihoming.bond_interfaces | unique | length == multihoming.bond_interfaces | length
+      - trunk_interface not in multihoming.bond_interfaces
+      - multihoming.es_id is defined
+      - multihoming.es_sys_mac is defined
+      - multihoming.anycast_mac is defined
+      - (multihoming.es_id | int) >= 1
+      - (multihoming.es_id | int) <= 16777215
+      - multihoming.es_sys_mac is match('^[0-9A-Fa-f][26AaEe](:[0-9A-Fa-f]{2}){5}$')
+      - multihoming.anycast_mac is match('^[0-9A-Fa-f][26AaEe](:[0-9A-Fa-f]{2}){5}$')
+      - multihoming.es_sys_mac | lower != multihoming.anycast_mac | lower
+      - (multihoming.df_pref | default(32767) | int) >= 0
+      - (multihoming.df_pref | default(32767) | int) <= 65535
+    fail_msg: >-
+      Multihoming requires two appliances, a routed underlay interface, at least
+      one stretch and unique bond members, a numeric ES ID, and distinct locally
+      administered unicast ES and anycast MACs shared by the pair.
+
+- name: Find the other appliance in inventory
+  ansible.builtin.set_fact:
+    _evpn_onprem_appliance_mh_peer_name: "{{ groups['onprem_appliances'] | reject('equalto', inventory_hostname) | first }}"
+
+- name: Validate matching Ethernet Segment and distinct routed identities
+  vars:
+    _evpn_onprem_appliance_mh_peer: "{{ hostvars[_evpn_onprem_appliance_mh_peer_name] }}"
+  ansible.builtin.assert:
+    that:
+      - _evpn_onprem_appliance_mh_peer.multihoming.enabled | default(false) | bool
+      - _evpn_onprem_appliance_mh_peer.multihoming.es_id | int == multihoming.es_id | int
+      - _evpn_onprem_appliance_mh_peer.multihoming.es_sys_mac | lower == multihoming.es_sys_mac | lower
+      - _evpn_onprem_appliance_mh_peer.multihoming.anycast_mac | lower == multihoming.anycast_mac | lower
+      - _evpn_onprem_appliance_mh_peer.tunnel.onprem_ip != tunnel.onprem_ip
+      - _evpn_onprem_appliance_mh_peer.bgp.onprem_asn | int != bgp.onprem_asn | int
+      - bgp.onprem_asn | int not in [bgp.infra_asn | int, bgp.workload_asn | int]
+    fail_msg: >-
+      Both appliances must share an Ethernet Segment ID, system MAC and anycast
+      MAC, with unique VTEP addresses and ASNs for eBGP through the relay.

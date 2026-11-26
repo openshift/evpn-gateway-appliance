@@ -15,6 +15,12 @@ router bgp {{ bgp.workload_asn }}
  no bgp default ipv4-unicast
  !
 {% set infra_host = hostvars[infra_relay_host] %}
+{% set onprem = namespace(asns=[]) %}
+{% for host in groups.get('onprem_appliances', []) %}
+{% if hostvars[host].multihoming.enabled | default(false) | bool %}
+{% set onprem.asns = onprem.asns + [hostvars[host].bgp.onprem_asn] %}
+{% endif %}
+{% endfor %}
  neighbor {{ infra_host.private_ip }} remote-as {{ bgp.infra_asn }}
  neighbor {{ infra_host.private_ip }} description infra-relay
  neighbor {{ infra_host.private_ip }} ebgp-multihop 4
@@ -34,7 +40,9 @@ router bgp {{ bgp.workload_asn }}
   vni {{ vni }}
    rd {{ private_ip }}:{{ vni }}
    route-target import {{ bgp.workload_asn }}:{{ vni }}
-   route-target import {{ bgp.onprem_asn }}:{{ vni }}
+{% for asn in onprem.asns | default([bgp.onprem_asn], true) | unique | sort %}
+   route-target import {{ asn }}:{{ vni }}
+{% endfor %}
    route-target export {{ bgp.workload_asn }}:{{ vni }}
    advertise-svi-ip
   exit-vni

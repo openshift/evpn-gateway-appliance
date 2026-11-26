@@ -30,7 +30,10 @@ argument_specs:
           onprem_ip:
             type: str
             required: true
-            description: Tunnel address of the on-prem appliance. Used as the VTEP and BGP router-id.
+            description: >-
+              Tunnel address of the on-prem appliance. Used as the VTEP and BGP
+              router-id for both single-link and all-active multihoming
+              deployments.
           cloud_ip:
             type: str
             required: true
@@ -45,6 +48,11 @@ argument_specs:
               CIDR covering the tunnel addresses (onprem_ip and cloud_ip). Sets
               the WireGuard interface address prefix and the FRR BGP network
               statement and blackhole route.
+          underlay_interface:
+            type: str
+            description: >-
+              Interface carrying the direct-connect or emulated EVPN underlay.
+              In multihoming mode the role marks it as the FRR EVPN-MH uplink.
           mtu_mode:
             type: str
             choices: [safe, unsafe]
@@ -99,6 +107,31 @@ argument_specs:
         description: >-
           Name of the tagged VLAN trunk interface to attach. The role enslaves it
           to the trunk bridge and builds a per-stretch VLAN sub-interface on it.
+          When multihoming is enabled, this is the bond interface name.
+      multihoming:
+        type: dict
+        description: Optional all-active EVPN multihoming configuration.
+        options:
+          enabled:
+            type: bool
+            default: false
+          bond_interfaces:
+            type: list
+            elements: str
+            description: Physical interfaces enslaved to the 802.3ad bond.
+          es_id:
+            type: int
+            description: Numeric shared EVPN Ethernet Segment discriminator (1-16777215).
+          es_sys_mac:
+            type: str
+            description: Shared Ethernet Segment system MAC address.
+          df_pref:
+            type: int
+            default: 32767
+            description: EVPN designated-forwarder preference.
+          anycast_mac:
+            type: str
+            description: Shared MAC address used by the multihoming SVI on both appliances.
       bgp:
         type: dict
         required: true

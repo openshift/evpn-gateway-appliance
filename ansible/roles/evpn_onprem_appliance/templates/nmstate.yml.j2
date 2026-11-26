@@ -3,10 +3,9 @@
 # nmstatectl. nmstate reconciles current -> desired (create/modify/recreate) and verifies.
 # Interface names stay conventional; the profiles we create carry ownership via their NM
 # profile name (ega-*). The trunk itself is NOT owned: we attach it to the vlan-aware trunk
-# bridge as a trunk port, which nmstate does by editing the trunk's existing profile in place
-# (a partial merge) — so any pre-existing config (e.g. an LACP bond) is preserved and we do not
-# restate it. Each stretch gets a VNI bridge (holding the SVI) with a VXLAN port and a VLAN
-# sub-interface port.
+# bridge as a trunk port. The regular path gets a VNI bridge per stretch. Multihoming instead attaches
+# fixed-VNI VXLAN devices to the shared VLAN-aware bridge as access ports and puts the shared
+# anycast SVI on each VLAN sub-interface. The role owns the multihoming bond profile.
 #
 # Two things nmstate cannot express, handled by dispatchers: trunk-br's own VLAN membership
 # and the VXLAN neigh_suppress flag.
@@ -16,61 +15,108 @@
 # trunk; each is detached with controller: "" so nmstate clears the controller from its (foreign, non-ega)
 # profile and persists it. This handles swapping the trunk (detach the old one) and teardown (no desired
 # trunk, so detach all). _evpn_onprem_appliance_absent lists ega-* interfaces no longer desired, marked absent.
-interfaces:
+desiredState:
+  interfaces:
 {% if stretches | length > 0 %}
-  - name: trunk-br
-    type: linux-bridge
-    state: up
-    profile-name: ega-bridge-trunk
-    ipv4: {enabled: false}
-    ipv6: {enabled: false}
-    bridge:
-      options:
-        stp: {enabled: false}
-      port:
-        - name: {{ trunk_interface }}
-          vlan:
-            mode: trunk
-            trunk-tags:
-{% for s in stretches %}
-              - id: {{ s.vlan }}
+{% if multihoming.enabled | default(false) | bool %}
+{% for iface in multihoming.bond_interfaces %}
+    - name: {{ iface }}
+      type: ethernet
+      state: up
+      profile-name: ega-{{ trunk_interface }}-{{ iface }}
 {% endfor %}
+    - name: {{ trunk_interface }}
+      type: bond
+      state: up
+      profile-name: ega-{{ trunk_interface }}
+      ipv4: {enabled: false}
+      ipv6: {enabled: false}
+      link-aggregation:
+        mode: 802.3ad
+        options:
+          ad_actor_system: {{ multihoming.es_sys_mac }}
+          lacp_rate: fast
+          miimon: 100
+          min_links: 1
+          xmit_hash_policy: layer3+4
+        port:
+{% for iface in multihoming.bond_interfaces %}
+          - {{ iface }}
+{% endfor %}
+{% endif %}
+    - name: trunk-br
+      type: linux-bridge
+      state: up
+      profile-name: ega-bridge-trunk
+      ipv4: {enabled: false}
+      ipv6: {enabled: false}
+      bridge:
+        options:
+          stp: {enabled: false}
+        port:
+          - name: {{ trunk_interface }}
+            vlan:
+              mode: trunk
+              trunk-tags:
+{% for s in stretches %}
+                - id: {{ s.vlan }}
+{% endfor %}
+{% if multihoming.enabled | default(false) | bool %}
+{% for s in stretches %}
+          - name: vxlan{{ 10000 + s.vlan }}
+            vlan:
+              mode: access
+              tag: {{ s.vlan }}
+{% endfor %}
+{% endif %}
 {% for s in stretches %}
 {% set vni = 10000 + s.vlan %}
-  - name: trunk.{{ s.vlan }}
-    type: vlan
-    state: up
-    profile-name: ega-vlan-{{ s.vlan }}
-    vlan: {base-iface: trunk-br, id: {{ s.vlan }}}
-  - name: vxlan{{ vni }}
-    type: vxlan
-    state: up
-    profile-name: ega-vxlan-{{ vni }}
-    vxlan: {id: {{ vni }}, local: {{ tunnel.onprem_ip }}, destination-port: 4789, learning: false}
-  - name: br-vni{{ vni }}
-    type: linux-bridge
-    state: up
-    profile-name: ega-bridge-vni{{ vni }}
-    ipv4:
-      enabled: true
-      dhcp: false
-      address:
-        - ip: {{ s.onprem_gateway }}
-          prefix-length: {{ s.subnet | ansible.utils.ipaddr('prefix') }}
-    ipv6: {enabled: false}
-    bridge:
-      options:
-        stp: {enabled: false}
-      port:
-        - name: vxlan{{ vni }}
-        - name: trunk.{{ s.vlan }}
+    - name: trunk.{{ s.vlan }}
+      type: vlan
+      state: up
+      profile-name: ega-vlan-{{ s.vlan }}
+      vlan: {base-iface: trunk-br, id: {{ s.vlan }}}
+{% if multihoming.enabled | default(false) | bool %}
+      mac-address: {{ multihoming.anycast_mac }}
+      ipv4:
+        enabled: true
+        dhcp: false
+        address:
+          - ip: {{ s.onprem_gateway }}
+            prefix-length: {{ s.subnet | ansible.utils.ipaddr('prefix') }}
+      ipv6: {enabled: false}
+{% endif %}
+    - name: vxlan{{ vni }}
+      type: vxlan
+      state: up
+      profile-name: ega-vxlan-{{ vni }}
+      vxlan: {id: {{ vni }}, local: {{ tunnel.onprem_ip }}, destination-port: 4789, learning: false}
+{% if not (multihoming.enabled | default(false) | bool) %}
+    - name: br-vni{{ vni }}
+      type: linux-bridge
+      state: up
+      profile-name: ega-bridge-vni{{ vni }}
+      ipv4:
+        enabled: true
+        dhcp: false
+        address:
+          - ip: {{ s.onprem_gateway }}
+            prefix-length: {{ s.subnet | ansible.utils.ipaddr('prefix') }}
+      ipv6: {enabled: false}
+      bridge:
+        options:
+          stp: {enabled: false}
+        port:
+          - name: vxlan{{ vni }}
+          - name: trunk.{{ s.vlan }}
+{% endif %}
 {% endfor %}
 {% endif %}
 {% for iface in _evpn_onprem_appliance_detach | default([]) %}
-  - name: {{ iface }}
-    controller: ""
+    - name: {{ iface }}
+      controller: ""
 {% endfor %}
 {% for iface in _evpn_onprem_appliance_absent | default([]) %}
-  - name: {{ iface }}
-    state: absent
+    - name: {{ iface }}
+      state: absent
 {% endfor %}

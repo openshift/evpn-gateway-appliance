@@ -38,6 +38,68 @@ run, and the lane fails if any scenario fails. Both runners forward `EGA_SCENARI
 `deploy` and `destroy` require exactly one explicitly selected scenario; discovery and
 multi-scenario runs must use the default `full` lifecycle.
 
+## CORENET-7502 coverage boundary
+
+The `multihoming` scenario runs the collection's normal deploy playbook for
+both appliances, the relay, and the workload VTEP, then runs the multihoming
+assertions. Run both scenarios in the shared lane with:
+
+```bash
+EGA_SCENARIOS=emulated,multihoming test/e2e/run_remote.sh
+```
+
+For image exports on a host with a small `/tmp`, set `TMPDIR=/var/tmp` before
+invoking the remote runner.
+
+The CI topology emulates the upstream DVS/edge segment with a VLAN-aware Linux bridge
+and a VLAN trunk. The edge side terminates one 802.3ad bond with one member toward each
+appliance; each appliance contributes one link through its own single-member 802.3ad
+bond. This follows the FRR EVPN-MH test topology and models the shared edge actor without
+pretending that a plain Linux bridge implements vendor-specific MLAG.
+Both appliances run FRR EVPN-MH with the same numeric discriminator and system MAC,
+which produces the shared Type-3 ESI. The multihoming path uses one fixed-VNI VXLAN
+device per stretch, attached to the shared bridge as an access port;
+this avoids requiring the SVD-only NetworkManager/nmstate attributes. VLANs 100, 200,
+and 300 are trunked across it.
+
+The lane checks the following behavior.
+
+- both edge links in one LACP aggregator and a shared Ethernet Segment with a common
+  anycast gateway IP/MAC;
+- live BFD between each appliance and the relay, and receipt of peer Type-1 and Type-4
+  routes over eBGP through that relay;
+- DF election with distinct preferences, DF takeover after an access or underlay link
+  is disabled, and FRR requesting access protodown after uplink loss;
+- the surviving appliance's Type-2 advertisement for the actual edge-host MAC and
+  zero-loss VXLAN traffic after convergence;
+- exactly one copy of a marked broadcast from the cloud on each stretched VLAN;
+- FRR container crash and restart, including recovery of the Ethernet Segment and
+  VXLAN reachability.
+
+The scenario emulates link loss by administratively disabling one veth. The VM's
+access links reject `protodown`, so the appliance can request it and still remain
+in the edge LACP bundle. In that state, the edge can send ARP and ICMP replies
+to the isolated appliance after the surviving VTEP takes over. Disabling that
+appliance's access link in the VM restored reachability. Qualification needs to
+verify that FRR withdraws and restores the access link on the appliance NIC,
+along with physical power loss, cabling, NSX/DVS behavior, and vendor-specific
+RARP handling.
+
+The pinned OpenShift 4.22 FRR 10.4.3 payload and upstream FRR 10.5.3 both
+delivered duplicate broadcasts in the VM. The upstream split-horizon draft
+delivered one broadcast copy per VLAN with either appliance as DF. A separate
+VM probe also received one marked Ethernet multicast frame per VLAN. Detaching
+the egress filter brought duplicates back in both probes. Passing the broadcast
+check with a supported appliance payload depends on shipping and qualifying
+that filter. The draft leaves unknown unicast outside its scope.
+[FRR split-horizon draft](https://github.com/FRRouting/frr/pull/23741),
+[tested revision](https://github.com/FRRouting/frr/commit/e8a7c9063b79a45c13c63cdbe8d57043e3d72684)
+
+The scenario uses distinct appliance ASNs and a single relay, following the PR review
+direction. The earlier appliance plan proposed a shared ASN with direct iBGP or
+`allowas-in`. With unique ASNs, the relay preserves the original VTEP next hops and
+neither appliance needs a direct peer session or relaxed AS-path loop checks.
+
 ## Layout
 
 ```text

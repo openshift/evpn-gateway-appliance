@@ -1,0 +1,72 @@
+---
+# CORENET-7502 emulated all-active multihoming lane.
+# The edge host terminates one two-link LACP bundle spanning both appliance
+# VTEPs. Each appliance contributes one link to that ESI-LAG through its
+# single-member bond. A separate relay carries the EVPN control plane, which
+# is required to exercise Type-1/Type-4 Ethernet-Segment state.
+name: ega-multihoming
+
+mgmt:
+  network: clab
+  ipv4-subnet: 172.20.20.0/24
+
+topology:
+  defaults:
+    kind: linux
+    image: ${EGA_NODE_IMAGE}
+    cgroupns-mode: host
+    tmpfs:
+      /run: rw,nosuid,nodev
+      /run/lock: rw,nosuid,nodev,noexec
+      /tmp: rw,nosuid,nodev
+    binds:
+      - ${EGA_SSH_PUBKEY}:/root/.ssh/authorized_keys:ro
+  nodes:
+    appliance-a:
+      mgmt-ipv4: 172.20.20.21
+      exec:
+        - timeout 20 bash -c 'until nmcli dev set eth2 managed no; do sleep 1; done'
+        - bash -ec 'ip addr replace 10.44.44.1/30 dev eth2; ip link set eth2 up; ip route replace 10.200.0.0/24 via 10.44.44.2 dev eth2; ip route replace 10.44.44.4/30 via 10.44.44.2 dev eth2'
+    appliance-b:
+      mgmt-ipv4: 172.20.20.22
+      exec:
+        - timeout 20 bash -c 'until nmcli dev set eth2 managed no; do sleep 1; done'
+        - bash -ec 'ip addr replace 10.44.44.5/30 dev eth2; ip link set eth2 up; ip route replace 10.200.0.0/24 via 10.44.44.6 dev eth2; ip route replace 10.44.44.0/30 via 10.44.44.6 dev eth2'
+    relay:
+      mgmt-ipv4: 172.20.20.23
+      exec:
+        - timeout 20 bash -c 'until nmcli general status >/dev/null 2>&1; do sleep 1; done'
+        - bash -ec 'sysctl -w net.ipv4.ip_forward=1; for i in eth1 eth2 eth3; do nmcli dev set "$i" managed no; ip link set "$i" up; done; ip addr replace 10.44.44.2/30 dev eth1; ip addr replace 10.44.44.6/30 dev eth2; ip addr replace 10.200.0.2/24 dev eth3'
+    edge-host:
+      mgmt-ipv4: 172.20.20.24
+      exec:
+        - timeout 20 bash -c 'until systemctl mask --runtime --now NetworkManager.service; do sleep 1; done'
+        # The CE/edge bridge terminates one LACP bundle with one member toward
+        # each appliance. This is the same topology used by FRR's EVPN-MH
+        # topotest and models the shared NSX/DVS edge actor in CI.
+        - ip link add edge-bond type bond mode 802.3ad
+        - ip link set edge-bond type bond lacp_rate fast miimon 100 min_links 1 xmit_hash_policy layer3+4
+        - ip link add edge-br type bridge vlan_filtering 1
+        - ip link set edge-br up
+        - bash -ec 'for i in eth1 eth2; do ip link set $i down; ip link set $i master edge-bond; ip link set $i up; done'
+        - ip link set edge-bond up
+        - ip link set edge-bond master edge-br
+        - bash -c 'for v in 100 200 300; do bridge vlan add vid $v dev edge-bond; bridge vlan add vid $v dev edge-br self; done'
+        - ip link add link edge-br name edge-br.100 type vlan id 100
+        - ip link set edge-br.100 address 02:00:5e:00:10:10
+        - ip addr add 10.42.1.10/24 dev edge-br.100
+        - ip link set edge-br.100 up
+        - bash -ec 'for v in 200 300; do ip link add link edge-br name edge-br.$v type vlan id $v; ip link set edge-br.$v up; done'
+        - ip route replace 10.42.2.0/24 via 10.42.1.1 dev edge-br.100
+        - ip route replace 10.42.3.0/24 via 10.42.1.1 dev edge-br.100
+    workload:
+      mgmt-ipv4: 172.20.20.25
+      exec:
+        - timeout 20 bash -c 'until nmcli dev set eth1 managed no; do sleep 1; done'
+        - bash -ec 'ip addr replace 10.200.0.1/24 dev eth1; ip link set eth1 up; ip route replace 10.44.44.0/24 via 10.200.0.2 dev eth1'
+  links:
+    - endpoints: ["appliance-a:eth1", "edge-host:eth1"]
+    - endpoints: ["appliance-b:eth1", "edge-host:eth2"]
+    - endpoints: ["appliance-a:eth2", "relay:eth1"]
+    - endpoints: ["appliance-b:eth2", "relay:eth2"]
+    - endpoints: ["relay:eth3", "workload:eth1"]

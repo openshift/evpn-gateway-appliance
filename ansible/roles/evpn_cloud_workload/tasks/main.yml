@@ -1,4 +1,14 @@
 ---
+- name: Detect bootc image
+  ansible.builtin.command: bootc status --format=json
+  register: evpn_cloud_workload_bootc_status
+  changed_when: false
+  failed_when: false
+
+- name: Set bootc image fact
+  ansible.builtin.set_fact:
+    evpn_cloud_workload_bootc: "{{ evpn_cloud_workload_bootc_status.rc == 0 }}"
+
 - name: Install packages (skipped on bootc images)
   ansible.builtin.dnf:
     name:
@@ -8,7 +18,9 @@
       - mtr
       - bind-utils
     state: present
-  when: ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
+  when:
+    - ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
+    - not evpn_cloud_workload_bootc
 
 - name: Enable IP forwarding
   ansible.posix.sysctl:

@@ -1,0 +1,32 @@
+---
+- name: Wait for the restored appliance to rejoin the segment and win DF
+  vars:
+    segment: "{{ restored_es.stdout | from_json }}"
+  ansible.builtin.command: podman exec frr vtysh -c "show evpn es {{ esi }} json"
+  delegate_to: appliance-a
+  register: restored_es
+  changed_when: false
+  # FRR's default access-port startup hold-down is 180 seconds.
+  retries: 45
+  delay: 5
+  until:
+    - restored_es.rc == 0
+    - "'operUp' in segment.flags | default([])"
+    - "'df' in segment.flags | default([])"
+    - surviving_vtep in (segment.vteps | default([]) | map(attribute='vtep') | list)
+
+- name: Verify the workload learns the restored appliance's Ethernet A-D route
+  ansible.builtin.command: podman exec frr vtysh -c "show bgp l2vpn evpn route rd {{ failed_vtep }}:10100 type 1 json"
+  register: restored_ead
+  changed_when: false
+  retries: 20
+  delay: 2
+  until: restored_ead.rc == 0 and esi in restored_ead.stdout
+
+- name: Verify the recovered overlay delivers every ping
+  ansible.builtin.command: ping -c 5 -W 1 -I br-vni10100 {{ edge_ip }}
+  register: recovered_ping
+  changed_when: false
+  retries: 10
+  delay: 2
+  until: recovered_ping.rc == 0 and recovered_ping.stdout is search(ping_ok)

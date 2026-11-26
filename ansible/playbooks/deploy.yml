@@ -42,7 +42,7 @@
         seconds: 15
 
 - name: Health checks
-  hosts: all
+  hosts: cloud_infra:cloud_workload:onprem_appliances
   become: true
   roles:
     - evpn_health_check

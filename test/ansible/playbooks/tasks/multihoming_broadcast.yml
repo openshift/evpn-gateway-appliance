@@ -1,0 +1,55 @@
+---
+- name: Create a unique broadcast probe directory on the edge
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: ega-broadcast-
+  delegate_to: edge-host
+  register: broadcast_probe
+
+- name: Send one marked broadcast from the workload and count copies at the edge
+  vars:
+    probe_id: "{{ broadcast_probe.path | basename }}"
+  block:
+    - name: Copy the probe script to the edge
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/files/multihoming_broadcast.py"
+        dest: "{{ broadcast_probe.path }}/probe.py"
+        mode: "0700"
+      delegate_to: edge-host
+
+    - name: Listen for the marked frame on the edge VLAN
+      ansible.builtin.command: >-
+        python3 {{ broadcast_probe.path }}/probe.py receive edge-br.{{ stretch.vlan }}
+        {{ probe_id }} {{ broadcast_probe.path }}/ready
+      delegate_to: edge-host
+      async: 35
+      poll: 0
+      register: broadcast_receiver
+      changed_when: false
+
+    - name: Wait for the receiver to bind before transmitting
+      ansible.builtin.wait_for:
+        path: "{{ broadcast_probe.path }}/ready"
+        timeout: 10
+      delegate_to: edge-host
+
+    - name: Emit exactly one marked broadcast frame
+      ansible.builtin.script: >-
+        {{ playbook_dir }}/files/multihoming_broadcast.py send br-vni{{ 10000 + stretch.vlan }} {{ probe_id }}
+      changed_when: false
+
+    - name: Require exactly one copy during the receive window
+      ansible.builtin.async_status:
+        jid: "{{ broadcast_receiver.ansible_job_id }}"
+      delegate_to: edge-host
+      register: broadcast_result
+      retries: 15
+      delay: 1
+      until: broadcast_result.finished
+      changed_when: false
+  always:
+    - name: Remove the probe readiness directory
+      ansible.builtin.file:
+        path: "{{ broadcast_probe.path }}"
+        state: absent
+      delegate_to: edge-host

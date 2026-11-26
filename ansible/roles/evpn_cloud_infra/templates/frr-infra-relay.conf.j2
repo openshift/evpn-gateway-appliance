@@ -15,28 +15,47 @@ router bgp {{ bgp.infra_asn }}
  no bgp default ipv4-unicast
  !
 {% set workload_host = hostvars[workload_vtep_host] %}
+{% set peers = namespace(entries=[]) %}
+{% for host in groups.get('onprem_appliances', []) %}
+{% set appliance = hostvars[host] %}
+{% if appliance.multihoming.enabled | default(false) | bool %}
+{% set peers.entries = peers.entries + [{'ip': appliance.tunnel.onprem_ip, 'asn': appliance.bgp.onprem_asn, 'name': host, 'bfd': true}] %}
+{% endif %}
+{% endfor %}
+{% if not peers.entries %}
+{% set peers.entries = [{'ip': tunnel.onprem_ip, 'asn': bgp.onprem_asn, 'name': 'onprem-appliance', 'bfd': false}] %}
+{% endif %}
  neighbor {{ workload_host.private_ip }} remote-as {{ bgp.workload_asn }}
  neighbor {{ workload_host.private_ip }} description workload-vtep
  neighbor {{ workload_host.private_ip }} ebgp-multihop 4
  !
- neighbor {{ tunnel.onprem_ip }} remote-as {{ bgp.onprem_asn }}
- neighbor {{ tunnel.onprem_ip }} description onprem-appliance
+{% for peer in peers.entries %}
+ neighbor {{ peer.ip }} remote-as {{ peer.asn }}
+ neighbor {{ peer.ip }} description {{ peer.name }}
+{% if peer.bfd %}
+ neighbor {{ peer.ip }} bfd
+{% endif %}
+{% endfor %}
  !
  address-family ipv4 unicast
   network {{ private_ip }}/32
   neighbor {{ workload_host.private_ip }} activate
   neighbor {{ workload_host.private_ip }} soft-reconfiguration inbound
-  neighbor {{ tunnel.onprem_ip }} activate
-  neighbor {{ tunnel.onprem_ip }} soft-reconfiguration inbound
+{% for peer in peers.entries %}
+  neighbor {{ peer.ip }} activate
+  neighbor {{ peer.ip }} soft-reconfiguration inbound
+{% endfor %}
  exit-address-family
  !
  address-family l2vpn evpn
   neighbor {{ workload_host.private_ip }} activate
   neighbor {{ workload_host.private_ip }} attribute-unchanged next-hop
   neighbor {{ workload_host.private_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
-  neighbor {{ tunnel.onprem_ip }} activate
-  neighbor {{ tunnel.onprem_ip }} attribute-unchanged next-hop
-  neighbor {{ tunnel.onprem_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% for peer in peers.entries %}
+  neighbor {{ peer.ip }} activate
+  neighbor {{ peer.ip }} attribute-unchanged next-hop
+  neighbor {{ peer.ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% endfor %}
  exit-address-family
 exit
 !

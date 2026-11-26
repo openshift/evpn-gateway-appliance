@@ -16,6 +16,10 @@ schema (`tunnel`, `bgp`, `stretches`).
 
 - `workload_vtep_host` must name an actual inventory host with a `private_ip`
   host variable (defaults to `workload-router`; no multi-peer/HA support yet).
+- Configure `tunnel.onprem_ip` for a single appliance. For all-active multihoming,
+  the relay takes the two `tunnel.onprem_ip` and `bgp.onprem_asn` values from
+  `onprem_appliances` and enables BFD on both sessions. The environment provides
+  the routed transport.
 - `stretches` (only `subnet` is read) must match the on-prem/workload stretch
   list — used to build the WireGuard server's `AllowedIPs` (wireguard
   transport only).

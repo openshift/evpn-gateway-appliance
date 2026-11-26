@@ -28,13 +28,27 @@
     _evpn_onprem_appliance_desired_conns:
       - ega-bridge-trunk
 
+- name: Add the multihoming bond profile name
+  ansible.builtin.set_fact:
+    _evpn_onprem_appliance_desired_conns: >-
+      {{ _evpn_onprem_appliance_desired_conns + ['ega-' ~ trunk_interface] }}
+  when: multihoming.enabled | default(false) | bool
+
+- name: Add multihoming bond-member profile names
+  ansible.builtin.set_fact:
+    _evpn_onprem_appliance_desired_conns: >-
+      {{ _evpn_onprem_appliance_desired_conns +
+         ['ega-' ~ trunk_interface ~ '-' ~ item] }}
+  loop: "{{ multihoming.bond_interfaces | default([]) }}"
+  when: multihoming.enabled | default(false) | bool
+
 - name: Add the per-stretch profile names
   ansible.builtin.set_fact:
     _evpn_onprem_appliance_desired_conns: >-
-      {{ _evpn_onprem_appliance_desired_conns + [
-           'ega-bridge-vni' ~ (10000 + item.vlan),
-           'ega-vxlan-' ~ (10000 + item.vlan),
-           'ega-vlan-' ~ item.vlan ] }}
+      {{ _evpn_onprem_appliance_desired_conns +
+         (['ega-vxlan-' ~ (10000 + item.vlan)] if multihoming.enabled | default(false) | bool else
+          ['ega-bridge-vni' ~ (10000 + item.vlan), 'ega-vxlan-' ~ (10000 + item.vlan)]) +
+         ['ega-vlan-' ~ item.vlan] }}
   loop: "{{ stretches }}"
   loop_control:
     label: "{{ item.name }}"

@@ -1,0 +1,29 @@
+---
+# Common values for the emulated multihoming fabric. Per-appliance underlay
+# addresses and ASNs remain in hosts.yml because they are intentionally unique.
+infra_relay_host: relay
+workload_vtep_host: workload
+bgp:
+  onprem_asn: 65044
+  infra_asn: 65100
+  workload_asn: 65200
+
+monitoring:
+  frr_exporter: false
+  node_exporter: false
+stretches:
+  - vlan: 100
+    name: production
+    subnet: 10.42.1.0/24
+    onprem_gateway: 10.42.1.1
+    cloud_gateway: 10.42.1.2
+  - vlan: 200
+    name: staging
+    subnet: 10.42.2.0/24
+    onprem_gateway: 10.42.2.1
+    cloud_gateway: 10.42.2.2
+  - vlan: 300
+    name: management
+    subnet: 10.42.3.0/24
+    onprem_gateway: 10.42.3.1
+    cloud_gateway: 10.42.3.2
