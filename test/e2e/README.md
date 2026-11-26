@@ -38,6 +38,22 @@ run, and the lane fails if any scenario fails. Both runners forward `EGA_SCENARI
 `deploy` and `destroy` require exactly one explicitly selected scenario; discovery and
 multi-scenario runs must use the default `full` lifecycle.
 
+## CORENET-7503 relay HA
+
+The `relay-ha` scenario uses two BGP relays on a shared appliance-side underlay.
+After SSH is ready, the setup playbook waits for NetworkManager to release the test
+interfaces and checks connectivity from each relay to both VTEPs. The production
+deployment and baseline health checks run before the outage test.
+
+The test stops FRR on each relay in turn. It verifies that the other relay still
+receives EVPN prefixes from both VTEPs and checks every VLAN in both directions.
+FRR is restored and its EVPN prefixes must return before the next outage. The
+underlay continues to forward during this test of BGP relay availability.
+
+```bash
+sudo EGA_SCENARIOS=relay-ha test/e2e/run.sh
+```
+
 ## Layout
 
 ```text

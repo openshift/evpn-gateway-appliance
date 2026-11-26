@@ -1,0 +1,84 @@
+---
+- name: Configure the relay HA underlay after the nodes are reachable over SSH
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # sshd can be ready before NetworkManager. Retry the unmanage operation
+    # itself and fail setup if NetworkManager never accepts it.
+    - name: Wait for NetworkManager to release each test interface
+      ansible.builtin.command:
+        argv: [nmcli, device, set, "{{ item }}", managed, "no"]
+      loop: "{{ relay_ha_ports }}"
+      register: unmanaged_port
+      until: unmanaged_port.rc == 0
+      retries: 30
+      delay: 2
+      changed_when: true
+
+    - name: Bring up the underlay interfaces
+      ansible.builtin.command:
+        argv: [ip, link, set, dev, "{{ item }}", up]
+      loop: "{{ relay_ha_ports }}"
+      changed_when: true
+
+    - name: Assign the underlay addresses
+      ansible.builtin.command:
+        argv: [ip, address, replace, "{{ item.cidr }}", dev, "{{ item.dev }}"]
+      loop: "{{ relay_ha_addresses | default([]) }}"
+      changed_when: true
+
+    - name: Install the underlay routes
+      ansible.builtin.command:
+        argv: >-
+          {{ ['ip', 'route', 'replace', item.prefix, 'via', item.via]
+             + (['metric', item.metric | string] if item.metric is defined else []) }}
+      loop: "{{ relay_ha_routes | default([]) }}"
+      changed_when: true
+
+- name: Connect both relays to the appliance's underlay segment
+  hosts: relay_ha_switch
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Create the shared underlay bridge
+      ansible.builtin.command: ip link add br-underlay type bridge
+      changed_when: true
+
+    - name: Attach the test interfaces to the bridge
+      ansible.builtin.command:
+        argv: [ip, link, set, dev, "{{ item }}", master, br-underlay]
+      loop: "{{ relay_ha_ports }}"
+      changed_when: true
+
+    - name: Bring up the underlay bridge
+      ansible.builtin.command: ip link set dev br-underlay up
+      changed_when: true
+
+- name: Enable forwarding on the simulated transit gateway
+  hosts: relay_ha_transit
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Enable IPv4 forwarding
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        sysctl_set: true
+
+- name: Verify each relay can reach both VTEPs before deployment
+  hosts: cloud_infra
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Ping the VTEP underlay addresses
+      ansible.builtin.command:
+        argv: [ping, -c, "1", -W, "1", "{{ item }}"]
+      loop:
+        - "{{ tunnel.onprem_ip }}"
+        - "{{ hostvars[workload_vtep_host].private_ip }}"
+      register: reachable_vtep
+      until: reachable_vtep.rc == 0
+      retries: 10
+      delay: 2
+      changed_when: false

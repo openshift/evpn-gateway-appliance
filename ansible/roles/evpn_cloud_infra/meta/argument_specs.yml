@@ -66,6 +66,12 @@ argument_specs:
             type: int
             required: true
             description: BGP ASN of the workload VTEP.
+          infra_peers:
+            type: list
+            elements: str
+            description: >-
+              BGP addresses of all infra relays. Consumed by the on-prem role
+              when the transport exposes multiple relay peers.
           max_prefix:
             type: int
             default: 1000

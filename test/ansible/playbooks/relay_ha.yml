@@ -1,0 +1,76 @@
+---
+- name: Verify EVPN and traffic survive stopping FRR on each relay
+  hosts: cloud_infra
+  serial: 1
+  any_errors_fatal: true
+  become: true
+  gather_facts: false
+  vars:
+    zero_loss: '(?:^| )0(?:[.]0+)?% packet loss(?:[, ]|$)'
+    vtep_peers:
+      - "{{ tunnel.onprem_ip }}"
+      - "{{ hostvars[workload_vtep_host].private_ip }}"
+    surviving_relay: "{{ groups['cloud_infra'] | reject('equalto', inventory_hostname) | first }}"
+  tasks:
+    - name: Exercise one relay outage
+      block:
+        - name: Stop FRR on the selected relay
+          ansible.builtin.systemd:
+            name: frr-container.service
+            state: stopped
+
+        - name: Verify the surviving relay still receives EVPN prefixes from both VTEPs
+          ansible.builtin.command:
+            argv: [podman, exec, frr, vtysh, -c, show bgp l2vpn evpn summary json]
+          delegate_to: "{{ surviving_relay }}"
+          register: surviving_bgp
+          loop: "{{ vtep_peers }}"
+          until: >-
+            surviving_bgp.rc == 0 and
+            ((surviving_bgp.stdout | from_json).get('peers', {}).get(item, {}).get('pfxRcd', 0) | int) > 0
+          retries: 10
+          delay: 2
+          changed_when: false
+
+        - name: Require zero packet loss from each simulated on-prem host to the cloud gateway
+          ansible.builtin.command:
+            argv: [ip, netns, exec, "vm-{{ item.name }}", ping, -c, "5", -W, "1", "{{ item.cloud_gateway }}"]
+          delegate_to: "{{ groups['onprem_appliances'] | first }}"
+          loop: "{{ stretches }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: onprem_ping
+          until: onprem_ping.rc == 0 and onprem_ping.stdout is search(zero_loss)
+          retries: 5
+          delay: 2
+          changed_when: false
+
+        - name: Require zero packet loss from the workload to each on-prem gateway
+          ansible.builtin.command:
+            argv: [ping, -c, "5", -W, "1", "{{ item.onprem_gateway }}"]
+          delegate_to: "{{ workload_vtep_host }}"
+          loop: "{{ stretches }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: cloud_ping
+          until: cloud_ping.rc == 0 and cloud_ping.stdout is search(zero_loss)
+          retries: 5
+          delay: 2
+          changed_when: false
+      always:
+        - name: Restore FRR on the selected relay
+          ansible.builtin.systemd:
+            name: frr-container.service
+            state: started
+
+        - name: Wait for the restored relay to receive EVPN prefixes from both VTEPs
+          ansible.builtin.command:
+            argv: [podman, exec, frr, vtysh, -c, show bgp l2vpn evpn summary json]
+          register: recovered_bgp
+          loop: "{{ vtep_peers }}"
+          until: >-
+            recovered_bgp.rc == 0 and
+            ((recovered_bgp.stdout | from_json).get('peers', {}).get(item, {}).get('pfxRcd', 0) | int) > 0
+          retries: 30
+          delay: 2
+          changed_when: false

@@ -22,6 +22,10 @@ left unset — only override them if your VPC/pod-network CIDRs differ.
   defensive `maximum-prefix`; see the comment at the top of
   `templates/frr-onprem-appliance.conf.j2`.
 
+For relay HA, set `bgp.infra_peers` to the on-prem BGP addresses of the relays.
+Each peer needs a reachable underlay. The WireGuard client config has one
+endpoint.
+
 ## Example
 
 ```yaml

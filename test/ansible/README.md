@@ -22,4 +22,6 @@ lives here instead.
 | --- | --- | --- |
 | `network.evpn_gateway_test.simulate` | before `network.evpn_gateway.deploy` | build the simulated on-prem environment |
 | `network.evpn_gateway_test.healthcheck` | after the deploy | run the simulated-host data-plane checks |
+| `network.evpn_gateway_test.relay_ha_setup` | before relay HA deployment | configure and verify the test underlay |
+| `network.evpn_gateway_test.relay_ha` | after relay HA deployment | stop and restore each relay's FRR while checking EVPN and traffic |
 | `network.evpn_gateway_test.teardown` | on cleanup (non-clab runs) | remove the simulated on-prem environment |

@@ -9,7 +9,11 @@
       {{ ['podman', 'tcpdump', 'traceroute', 'mtr', 'bind-utils']
          + (['wireguard-tools'] if tunnel.type == 'wireguard' else []) }}
     state: present
-  when: ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
+  when:
+    - ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
+    - >-
+      ansible_facts.services is not defined or
+      'frr-container.service' not in ansible_facts.services
 
 - name: Enable IP forwarding
   ansible.posix.sysctl:

@@ -9,6 +9,7 @@
   register: _evpn_health_check_frr_ps
   changed_when: false
   failed_when: "'frr' not in _evpn_health_check_frr_ps.stdout"
+  when: group_names | intersect(['cloud_infra', 'cloud_workload', 'onprem_appliances']) | length > 0
 
 # ═══════════════════════════════════════════════════════════════
 # Infra relay checks
@@ -27,9 +28,12 @@
     set -o pipefail;
     podman exec frr vtysh -c "show bgp summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
-    p=d['ipv4Unicast']['peers']['{{ hostvars[workload_vtep_host].private_ip }}'];
+    p=d['ipv4Unicast']['peers']['{{ hostvars[item].private_ip }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
+  loop: "{{ groups['cloud_workload'] | default([workload_vtep_host]) }}"
+  loop_control:
+    label: "{{ hostvars[item].private_ip }}"
   when: "'cloud_infra' in group_names"
 
 - name: "HEALTH [infra]: BGP session to on-prem is Established"
@@ -57,9 +61,12 @@
     set -o pipefail;
     podman exec frr vtysh -c "show bgp l2vpn evpn summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
-    p=d['peers']['{{ hostvars[workload_vtep_host].private_ip }}'];
+    p=d['peers']['{{ hostvars[item].private_ip }}'];
     assert int(p['pfxRcd'])>0, f'pfxRcd={p[\"pfxRcd\"]}'"
   changed_when: false
+  loop: "{{ groups['cloud_workload'] | default([workload_vtep_host]) }}"
+  loop_control:
+    label: "{{ hostvars[item].private_ip }}"
   when: "'cloud_infra' in group_names"
 
 - name: "HEALTH [infra]: No VXLAN interfaces on relay"
@@ -77,9 +84,12 @@
     set -o pipefail;
     podman exec frr vtysh -c "show bgp summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
-    p=d['ipv4Unicast']['peers']['{{ hostvars[infra_relay_host].private_ip }}'];
+    p=d['ipv4Unicast']['peers']['{{ hostvars[item].private_ip }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
+  loop: "{{ groups['cloud_infra'] | default([infra_relay_host]) }}"
+  loop_control:
+    label: "{{ hostvars[item].private_ip }}"
   when: "'cloud_workload' in group_names"
 
 - name: "HEALTH [workload]: remote VTEP present per VNI"
@@ -122,9 +132,12 @@
     set -o pipefail;
     podman exec frr vtysh -c "show bgp summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
-    p=d['ipv4Unicast']['peers']['{{ tunnel.cloud_ip }}'];
+    p=d['ipv4Unicast']['peers']['{{ item }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
+  loop: "{{ bgp.infra_peers | default([tunnel.cloud_ip]) }}"
+  loop_control:
+    label: "{{ item }}"
   when: "'onprem_appliances' in group_names"
 
 - name: "HEALTH [onprem]: remote VTEP present per VNI"

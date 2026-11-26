@@ -1,0 +1,44 @@
+---
+# CORENET-7503 local validation topology.
+#
+# Two relays share an on-prem L3 segment and have independent routed links to the
+# simulated TGW.  The transport is direct-connect for this lab: it exercises the
+# relay BGP fan-out and ECMP behavior without claiming that the current single-
+# endpoint WireGuard transport is HA.
+name: ega-relay-ha
+
+mgmt:
+  network: clab
+  ipv4-subnet: 172.20.20.0/24
+
+topology:
+  defaults:
+    kind: linux
+    image: ${EGA_NODE_IMAGE}
+    cgroupns-mode: host
+    tmpfs:
+      /run: rw,nosuid,nodev
+      /run/lock: rw,nosuid,nodev,noexec
+      /tmp: rw,nosuid,nodev
+    binds:
+      - ${EGA_SSH_PUBKEY}:/root/.ssh/authorized_keys:ro
+  nodes:
+    appliance:
+      mgmt-ipv4: 172.20.20.11
+    underlay-switch:
+      mgmt-ipv4: 172.20.20.16
+    relay-a:
+      mgmt-ipv4: 172.20.20.12
+    relay-b:
+      mgmt-ipv4: 172.20.20.15
+    tgw:
+      mgmt-ipv4: 172.20.20.13
+    workload:
+      mgmt-ipv4: 172.20.20.14
+  links:
+    - endpoints: ["appliance:eth1", "underlay-switch:eth1"]
+    - endpoints: ["relay-a:eth1", "underlay-switch:eth2"]
+    - endpoints: ["relay-b:eth1", "underlay-switch:eth3"]
+    - endpoints: ["relay-a:eth2", "tgw:eth1"]
+    - endpoints: ["relay-b:eth2", "tgw:eth3"]
+    - endpoints: ["tgw:eth2", "workload:eth1"]
