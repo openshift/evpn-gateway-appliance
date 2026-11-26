@@ -1,0 +1,9 @@
+---
+# Every lookup and delete filters on tag:Project. EC2 filters treat * and ? as wildcards, and the CLI's shorthand
+# treats a comma as OR, so a name with them could match, or delete, another project's resources.
+- name: Validate the project name used in AWS tag filters
+  ansible.builtin.assert:
+    that:
+      - evpn_aws_infra_project_name is string
+      - evpn_aws_infra_project_name is match('^[A-Za-z0-9][A-Za-z0-9._-]*\Z')
+    fail_msg: Set evpn_aws_infra_project_name to letters, digits, '.', '_' and '-', starting with a letter or digit.

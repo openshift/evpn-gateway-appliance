@@ -1,0 +1,98 @@
+---
+# After network.evpn_gateway.teardown: the appliance keeps no IPsec kernel objects of the role's (XFRM states and
+# policies with if_id 1 or 2, and the ipsec1 and ipsec2 interfaces). Then, with Libreswan stopped, the role's IPsec
+# removal retries an if_id 1 leftover while its configuration remains, and leaves one alone once it is gone.
+- name: Check the appliance teardown
+  hosts: onprem_appliances
+  become: true
+  gather_facts: false
+  vars:
+    # `ip xfrm state` prints keys, so only the count leaves the host.
+    count_owned: >-
+      set -o pipefail; for kind in state policy; do
+      ip xfrm $kind | awk '/^[[:space:]]*if_id 0x[12]([[:space:]]|$)/ {n++} END {print n+0}'; done
+    leftover: src 192.0.2.10/32 dst 198.51.100.0/24 dir out if_id 1
+  tasks:
+    - name: "TEARDOWN [onprem]: Count leftover IPsec XFRM states and policies"
+      ansible.builtin.shell: "{{ count_owned }}"
+      args:
+        executable: /bin/bash
+      register: _ipsec_xfrm_counts
+      changed_when: false
+      no_log: true
+
+    - name: "TEARDOWN [onprem]: Look for leftover IPsec interfaces"
+      ansible.builtin.stat:
+        path: "/sys/class/net/{{ item }}"
+        get_attributes: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - ipsec1
+        - ipsec2
+      register: _ipsec_links
+
+    - name: "TEARDOWN [onprem]: No IPsec XFRM state, policy or interface remains"
+      ansible.builtin.assert:
+        that:
+          - _ipsec_xfrm_counts.stdout_lines | map('int') | list == [0, 0]
+          - _ipsec_links.results | selectattr('stat.exists') | list | length == 0
+        fail_msg: Appliance IPsec teardown left XFRM states, policies or interfaces behind.
+
+    - name: "TEARDOWN [onprem]: Stop Libreswan"
+      ansible.builtin.systemd:
+        name: ipsec
+        state: stopped
+
+    # As after a failed removal: the configuration remains, pluto is stopped and no IPsec interface is left.
+    - name: "TEARDOWN [onprem]: Leave an if_id 1 policy and the appliance configuration"
+      ansible.builtin.shell: |
+        set -e
+        ip xfrm policy add {{ leftover }}
+        touch /etc/ipsec.d/ega-aws.conf
+      changed_when: true
+
+    - name: "TEARDOWN [onprem]: Retry the IPsec removal"
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_onprem_appliance
+        tasks_from: ipsec_absent
+
+    - name: "TEARDOWN [onprem]: Count IPsec XFRM objects after the retry"
+      ansible.builtin.shell: "{{ count_owned }}"
+      args:
+        executable: /bin/bash
+      register: _ipsec_retry_counts
+      changed_when: false
+      no_log: true
+
+    - name: "TEARDOWN [onprem]: The retry removed the leftover"
+      ansible.builtin.assert:
+        that: _ipsec_retry_counts.stdout_lines | map('int') | list == [0, 0]
+        fail_msg: A retried IPsec removal left an if_id 1 policy behind.
+
+    # Without ega-aws.conf, if_ids 1 and 2 may belong to another Libreswan connection.
+    - name: "TEARDOWN [onprem]: Add an if_id 1 policy without the appliance configuration"
+      ansible.builtin.command: "ip xfrm policy add {{ leftover }}"
+      changed_when: true
+
+    - name: "TEARDOWN [onprem]: Run the IPsec removal again"
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_onprem_appliance
+        tasks_from: ipsec_absent
+
+    - name: "TEARDOWN [onprem]: Count IPsec XFRM objects after the second removal"
+      ansible.builtin.shell: "{{ count_owned }}"
+      args:
+        executable: /bin/bash
+      register: _ipsec_foreign_counts
+      changed_when: false
+      no_log: true
+
+    - name: "TEARDOWN [onprem]: The removal left another owner's if_id 1 policy alone"
+      ansible.builtin.assert:
+        that: _ipsec_foreign_counts.stdout_lines | map('int') | list == [0, 1]
+        fail_msg: The IPsec removal changed if_id 1 or 2 objects on a host without ega-aws.conf.
+
+    - name: "TEARDOWN [onprem]: Delete the if_id 1 policy"
+      ansible.builtin.command: "ip xfrm policy delete {{ leftover }}"
+      changed_when: true

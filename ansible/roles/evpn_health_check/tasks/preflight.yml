@@ -1,0 +1,21 @@
+---
+# Internet-mode transports leave a smaller inner MTU, and no MTU/MSS controls exist yet (CORENET-7709).
+- name: "PREFLIGHT: Require acknowledgment of internet-mode limits"
+  ansible.builtin.assert:
+    # The argument spec's bool also takes y and t, which the bool filter reads as false.
+    that: evpn_health_check_accept_internet_mode_limits is ansible.builtin.truthy(convert_bool=true)
+    fail_msg: >-
+      tunnel.type {{ tunnel.type }} crosses the internet: workload packets above
+      {{ _evpn_health_check_workload_mtu_budget[tunnel.type] }} bytes are not supported (dropped or fragmented, untested;
+      no MSS clamping until CORENET-7709), and latency and loss follow the internet path.
+      {{ 'WireGuard is for development and test only. ' if tunnel.type == 'wireguard' else '' }}Set
+      evpn_health_check_accept_internet_mode_limits to true to accept these limits.
+  when: tunnel.type in ['wireguard', 'ipsec']
+
+- name: "PREFLIGHT: Require the workload MTU to fit the transport"
+  ansible.builtin.assert:
+    that: 576 <= evpn_health_check_workload_mtu | int <= _evpn_health_check_workload_mtu_budget[tunnel.type]
+    fail_msg: >-
+      Set evpn_health_check_workload_mtu to the workload (CUDN and on-premises VLAN) IP MTU, from 576 (the CUDN API's minimum) to the
+      {{ tunnel.type }} budget of {{ _evpn_health_check_workload_mtu_budget[tunnel.type] }} bytes (the transport's
+      inner MTU minus 50 bytes of VXLAN); it is {{ evpn_health_check_workload_mtu }}.

@@ -1,0 +1,15 @@
+---
+# The transport preflight's internet-mode checks against inline inputs; run by run.py.
+- name: Transport preflight
+  hosts: all
+  gather_facts: false
+  vars:
+    tunnel:
+      type: "{{ ttype }}"
+      onprem_ip: 10.44.44.1
+      cloud_ip: 10.44.44.2
+  tasks:
+    - name: Run the transport preflight
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../../ansible/roles/evpn_health_check"
+        tasks_from: preflight

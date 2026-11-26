@@ -42,7 +42,7 @@ multi-scenario runs must use the default `full` lifecycle.
 
 ```text
 test/
-  ansible/                test-only collection (network.evpn_gateway_test): on-prem sim role + playbooks; installed into the EE
+  ansible/                test-only collection (network.evpn_gateway_test): on-prem and AWS VPN sim roles + playbooks; installed into the EE
   e2e/
     run.sh                run a lane locally (rootful): podman run the toolchain image, run ${EGA_ENTRYPOINT}
     run_remote.sh         shared core: against a remote target (or locally): export, ship, build, run
@@ -52,8 +52,10 @@ test/
     entrypoint_molecule.sh  molecule in-container steps: molecule test against the rootful socket
     topology/
       emulated.clab.yml   the emulated fabric
+      ipsec.clab.yml      the IPsec variant (TGW as the AWS VPN endpoint)
     inventory/
       emulated/           e2e Ansible inventory + group_vars for the emulated fabric
+      ipsec/              links emulated/ and adds group_vars/all/ipsec.yml
     scenarios/            *.env definitions: topology, inventory, ordered playbooks
     ee/                   execution-environment definition + build.sh (make ee-image)
 
@@ -149,6 +151,19 @@ then tear down that same scenario with `EGA_STAGE=destroy`:
 sudo EGA_SCENARIOS=emulated EGA_STAGE=deploy test/e2e/run.sh
 sudo EGA_SCENARIOS=emulated EGA_STAGE=destroy test/e2e/run.sh
 ```
+
+## Transport scenarios
+
+`emulated` runs the WireGuard transport and `ipsec` the IPsec one. The `ipsec` inventory
+links the `emulated` inventory and adds `group_vars/all/ipsec.yml`. Its TGW node runs
+Libreswan responders and FRR in place of the AWS VPN endpoint, with a public test-only
+handoff. It does not prove IKE/ESP proposal compatibility with AWS (the simulator copies
+the appliance's), AWS telemetry, NAT-T, rekey or maintenance behavior, ECMP or route
+limits, and its Libreswan responder (`uniqueids=no`) can keep an older Child SA until it expires (an hour)
+after a tunnel is replaced or torn down. It ends with the product teardown and a check that the appliance's
+XFRM policies, states and interfaces are gone, that a rerun retries a failed removal with Libreswan stopped, and
+that the removal leaves if_id 1 alone without the role's configuration. `EGA_STAGE=deploy` skips `*.teardown` and `*.teardown_check`
+playbooks so the lab stays deployed for inspection.
 
 ## run_remote.sh — remote target (or local, no target)
 

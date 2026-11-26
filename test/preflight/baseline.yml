@@ -1,0 +1,28 @@
+---
+# The health check's loss and RTT baseline against canned ping output (ping_out, printed by the fake ping
+# run.py puts first on PATH); run by run.py.
+- name: Add an on-premises appliance
+  hosts: first
+  gather_facts: false
+  tasks:
+    - name: Add it
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: onprem_appliances
+        ansible_connection: local
+        private_ip: 10.200.1.10
+      loop: "{{ appliances | default(['appliance']) }}"
+
+- name: Health check baseline
+  hosts: onprem_appliances
+  gather_facts: false
+  environment:
+    PING_OUT: "{{ ping_out }}"
+  vars:
+    tunnel: {onprem_ip: 10.44.44.1}
+    workload_vtep_host: appliance
+  tasks:
+    - name: Run the baseline tasks
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../../ansible/roles/evpn_health_check"
+        tasks_from: baseline

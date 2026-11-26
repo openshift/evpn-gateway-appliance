@@ -145,8 +145,8 @@ Use the linked feature/epic for current contacts and
 ## Transport context
 
 - Intended AWS transport: **Direct Connect** or **Site-to-Site VPN**
-  (WireGuard = dev/test only). The current source implements only WireGuard;
-  the production transports remain blocking implementation work under
+  (WireGuard = dev/test only). The current source implements WireGuard and the Site-to-Site VPN
+  (`ipsec`); Direct Connect remains blocking implementation work under
   CORENET-7498's live acceptance criteria.
 - On-prem appliances and cloud infrastructure relays have different roles;
   record the actual packet path for each supported transport. Do not transfer

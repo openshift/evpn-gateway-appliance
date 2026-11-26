@@ -1,0 +1,3 @@
+#2: "ega-aws-1", type=ESP, add_time=1795583221, inBytes=10710, outBytes=3374, maxBytes=2^63B, id='192.0.2.21'
+#4: "ega-aws-2", type=ESP, add_time=1795583221, inBytes=1894, outBytes=9183, maxBytes=2^63B, id='192.0.2.22'
+#5: "ega-aws-2", type=ESP, add_time=1795583404, inBytes=471, outBytes=1380, maxBytes=2^63B, id='192.0.2.22'

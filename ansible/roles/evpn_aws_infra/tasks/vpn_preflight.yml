@@ -1,0 +1,73 @@
+---
+- name: List the appliances
+  ansible.builtin.include_tasks: vpn_appliances.yml
+
+- name: Validate each appliance's customer gateway and tunnel inside networks
+  ansible.builtin.assert:
+    that:
+      - item.customer_gateway_ip | ansible.utils.ipv4('public') == item.customer_gateway_ip
+      - item.customer_gateway_ip | ansible.utils.ipv4('address') == item.customer_gateway_ip
+      - item.customer_gateway_asn > 0
+      - item.customer_gateway_asn < 4294967295
+      # main.yml creates the TGW with AWS's default Amazon-side ASN; AWS reserves the others.
+      - item.customer_gateway_asn not in [64512, 7224, 9059, 10124, 17943]
+      - item.tunnel_inside_cidrs | unique | length == 2
+      - item.tunnel_inside_cidrs | map('ansible.utils.ipv4', 'network/prefix') | list == item.tunnel_inside_cidrs
+      - item.tunnel_inside_cidrs | map('ansible.utils.ipv4', 'prefix') | unique == [30]
+      - item.tunnel_inside_cidrs | map('ansible.utils.ipv4', '169.254.0.0/16') | list == item.tunnel_inside_cidrs
+      - >-
+        item.tunnel_inside_cidrs | intersect(['169.254.0.0/30', '169.254.1.0/30', '169.254.2.0/30', '169.254.3.0/30',
+        '169.254.4.0/30', '169.254.5.0/30', '169.254.169.252/30']) | length == 0
+    fail_msg: >-
+      {{ item.customer_gateway_ip }}: set evpn_aws_infra_vpn_customer_gateway_ip to its static public IPv4 address,
+      evpn_aws_infra_vpn_customer_gateway_asn to a valid ASN other than the TGW's 64512 and AWS's reserved 7224,
+      9059, 10124 and 17943, and
+      evpn_aws_infra_vpn_tunnel_inside_cidrs to two distinct, canonical, non-reserved /30s in 169.254.0.0/16.
+  loop: "{{ _evpn_aws_infra_vpn_appliances }}"
+  loop_control:
+    label: "{{ item.customer_gateway_ip }}"
+
+# AWS returns the existing gateway for an identical IP, ASN and device name, so appliances sharing an IP would
+# share one gateway; distinct inside networks keep each tunnel's BGP addresses unambiguous. Deploy requires one
+# on-prem ASN that the customer gateways use, so check it here, before any AWS resource exists.
+- name: Require distinct customer gateway addresses and inside networks, and one ASN, across appliances
+  ansible.builtin.assert:
+    that:
+      - _evpn_aws_infra_vpn_appliances | map(attribute='customer_gateway_ip') | unique | length == _evpn_aws_infra_vpn_appliances | length
+      - _cidrs | unique | length == _cidrs | length
+      - _asns | length == 1
+      - _onprem_asns | length == 0 or _onprem_asns == _asns
+    fail_msg: >-
+      Each appliance needs its own customer gateway IP and its own two tunnel inside networks, set in host variables,
+      and all share one customer gateway ASN equal to bgp.onprem_asn. Got ASNs {{ _asns }}, bgp.onprem_asn
+      {{ _onprem_asns }}.
+  vars:
+    _cidrs: "{{ _evpn_aws_infra_vpn_appliances | map(attribute='tunnel_inside_cidrs') | flatten }}"
+    _asns: "{{ _evpn_aws_infra_vpn_appliances | map(attribute='customer_gateway_asn') | unique }}"
+    _onprem_asns: "{{ _evpn_aws_infra_vpn_appliances | map(attribute='onprem_asn') | reject('none') | map('int') | unique }}"
+
+# The same filter as teardown, so whatever blocks provisioning, teardown-aws.yml removes.
+- name: Look up project VPN connections
+  block:
+    - name: Find existing project VPN connections before provisioning
+      amazon.aws.ec2_vpc_vpn_info:
+        region: "{{ evpn_aws_infra_aws_region }}"
+        filters:
+          "tag:Project": "{{ evpn_aws_infra_project_name }}"
+          "tag:Name": "{{ evpn_aws_infra_project_name }}-vpn-*"
+      register: _evpn_aws_infra_vpn_preflight_lookup
+      # The module returns PSKs in tunnel options and customer_gateway_configuration.
+      no_log: true
+  rescue:
+    - name: Report the hidden VPN preflight failure
+      ansible.builtin.fail:
+        msg: >-
+          The project VPN lookup failed in {{ evpn_aws_infra_aws_region }} ({{ ansible_failed_result.msg | default('') }});
+          the rest of its output is hidden because it carries keys. Check the controller credentials, the region and
+          ec2:DescribeVpnConnections, then rerun.
+
+- name: Require teardown before reprovisioning a project VPN
+  ansible.builtin.assert:
+    that: >-
+      _evpn_aws_infra_vpn_preflight_lookup.vpn_connections | rejectattr('state', 'equalto', 'deleted') | list | length == 0
+    fail_msg: A project VPN already exists; run teardown-aws.yml first before provisioning new VPCs and a TGW.

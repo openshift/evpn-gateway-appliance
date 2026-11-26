@@ -11,6 +11,66 @@
   loop_control:
     label: "vm-{{ item.name }} → {{ item.cloud_gateway }}"
 
+# The emulated AWS side also advertises 192.0.2.0/24: the appliance must receive it from each AWS peer but keep it
+# out of BGP and the kernel, and must advertise only its tunnel.network_cidr (AC3).
+- name: "HEALTH [onprem-sim]: AWS underlay prefix policy"
+  ansible.builtin.shell: |
+    set -eu
+    vt() { podman exec frr vtysh -c "$1"; }
+    for peer in {{ evpn_onprem_appliance_ipsec.tunnels | map(attribute='inside_cidr') | map('ansible.utils.ipmath', 1) | join(' ') }}; do
+      vt "show bgp ipv4 unicast neighbors $peer received-routes json" | grep -q '"192.0.2.0/24"' || { echo "$peer: test prefix not received"; exit 1; }
+      gr=$(vt "show bgp neighbors $peer json" |
+        python3 -c 'import json,sys; print(next(iter(json.load(sys.stdin).values()))["neighborCapabilities"].get("gracefulRestart", ""))')
+      case "$gr" in advertised*) echo "$peer: graceful restart offered to AWS ($gr)"; exit 1;; esac
+      adv=$(vt "show bgp ipv4 unicast neighbors $peer advertised-routes json" |
+        python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin).get("advertisedRoutes", {}))))')
+      [ "$adv" = "{{ tunnel.network_cidr | default('10.44.44.0/24') }}" ] || { echo "$peer: advertised [$adv]"; exit 1; }
+    done
+    # Capture first, so a failing query fails the check instead of reading as an absent prefix.
+    bgp=$(vt "show bgp ipv4 unicast 192.0.2.0/24 json")
+    kernel=$(ip route show 192.0.2.0/24)
+    ! printf '%s\n' "$bgp" | grep -q '"paths"' || { echo "test prefix accepted into BGP"; exit 1; }
+    [ -z "$kernel" ] || { echo "test prefix in the kernel"; exit 1; }
+  changed_when: false
+  when: tunnel.type | default('wireguard') == 'ipsec'
+
+# With both tunnels down, the policy rules must drop VPC-bound traffic instead of letting the default route send it
+# unencrypted. Block both AWS endpoints until BGP withdraws both VPC routes (hold time 30 s), ping the relay and the
+# workload VTEP from the VTEP address, and require that no packet to a VPC prefix leaves unencrypted; then restore
+# and wait for the relay to answer again (measured recovery 36-57 s). IPsec-bound packets pass postrouting a second time with the
+# uplink as their interface before encryption, so the count leaves out packets with an IPsec route.
+- name: "HEALTH [onprem-sim]: both tunnels down sends no VPC traffic in the clear"
+  ansible.builtin.shell: |
+    set -eu
+    relay={{ hostvars[groups['cloud_infra'][0]].private_ip }}
+    targets="$relay {{ groups['cloud_workload'] | map('extract', hostvars, 'private_ip') | join(' ') }}"
+    {% set vpc_cidrs = [infra_vpc_cidr | default('10.100.0.0/16'), workload_vpc_cidr | default('10.200.0.0/16')] %}
+    routes="{{ vpc_cidrs | join(' ') }}"
+    vpcs="{{ vpc_cidrs | join(', ') }}"
+    aws="{{ evpn_onprem_appliance_ipsec.tunnels | map(attribute='outside_ip') | join(', ') }}"
+    cleanup() { nft delete table inet ega_sim_down 2>/dev/null || true; }
+    trap cleanup EXIT
+    nft -f - <<EOF
+    table inet ega_sim_down {
+      chain out { type filter hook output priority -10; policy accept; ip daddr { $aws } drop; }
+      chain leak { type filter hook postrouting priority 100; policy accept;
+        ip daddr { $vpcs } oifname != { "ipsec1", "ipsec2" } rt ipsec missing counter; }
+    }
+    EOF
+    via_ipsec() { for route in $routes; do ip route show "$route" | grep -q ipsec && return 0; done; return 1; }
+    for _ in $(seq 1 18); do via_ipsec || break; sleep 5; done
+    ! via_ipsec || { echo "VPC routes outlived 90 s"; exit 1; }
+    for target in $targets; do
+      for _ in $(seq 1 5); do ping -c 1 -W 1 -I {{ tunnel.onprem_ip }} "$target" >/dev/null 2>&1 || true; done
+    done
+    leaked=$(nft list chain inet ega_sim_down leak | grep -o 'packets [0-9]*' | awk '{print $2}')
+    [ "$leaked" = 0 ] || { echo "$leaked VPC-bound packets left unencrypted"; exit 1; }
+    cleanup
+    for _ in $(seq 1 24); do ping -c 1 -W 2 -I {{ tunnel.onprem_ip }} "$relay" >/dev/null 2>&1 && exit 0; sleep 5; done
+    echo "the relay did not answer within 120 s of restoring the tunnels"; exit 1
+  changed_when: false
+  when: tunnel.type | default('wireguard') == 'ipsec'
+
 # DISABLED pending the isolation-model decision — destined for the pytest/testinfra
 # layer as an xfail (see test/e2e/README.md). Carried over from evpn_health_check:
 # it fails today because prod reaches staging via L3 routing (ttl=63, one routed

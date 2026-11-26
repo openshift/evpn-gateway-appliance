@@ -42,23 +42,29 @@ argument_specs:
             type: str
             required: true
             description: Gateway IP on the cloud workload side for this stretch. Pinged to verify cloud gateway reachability.
+      evpn_health_check_vpn_telemetry:
+        type: bool
+        description: >-
+          Run controller-side AWS VPN telemetry checks; requires ec2:DescribeVpnConnections credentials.
+          Defaults to true when tunnel.type is ipsec.
       tunnel:
         type: dict
         required: true
+        required_if:
+          - [type, wireguard, [cloud_ip]]
         description: >-
           Transport configuration parameters for the tunnel between on-prem and
-          cloud; type, cloud_ip and onprem_ip are used to check the BGP/EVPN
-          peers.
+          cloud; onprem_ip is each appliance's EVPN peer at the relay, and
+          cloud_ip is unused with ipsec.
         options:
           type:
             type: str
             required: true
-            choices: [wireguard, ipsec, direct-connect]
-            description: Transport type. Determines which transport-specific checks run.
+            choices: [wireguard, ipsec]
+            description: Transport type. Determines which transport-specific checks run. direct-connect awaits CORENET-7708.
           cloud_ip:
             type: str
-            required: true
-            description: Tunnel address of the infra relay. Checked as the on-prem appliance's BGP peer.
+            description: WireGuard tunnel address of the infra relay. Checked as the on-prem appliance's BGP peer for wireguard.
           onprem_ip:
             type: str
             required: true
@@ -73,3 +79,34 @@ argument_specs:
             type: str
             choices: [safe, unsafe]
             description: Intended underlay MTU regime. Part of the shared playbook configuration model; not used by this role.
+  preflight:
+    short_description: Read-only transport checks that block provisioning and deployment.
+    description:
+      - Run by provision-aws.yml before it creates anything, and by playbooks/preflight.yml, which deploy.yml imports first.
+    options:
+      # Provisioning runs this on localhost, where per-appliance addresses (host_vars) are undefined.
+      tunnel:
+        type: dict
+        required: true
+        description: Transport configuration; the preflight checks only its type.
+        options:
+          type:
+            type: str
+            required: true
+            choices: [wireguard, ipsec]
+            description: Transport type. direct-connect awaits CORENET-7708.
+          cloud_ip: {type: str, description: Not checked by the preflight.}
+          onprem_ip: {type: str, description: Not checked by the preflight.}
+          port: {type: int, description: Not checked by the preflight.}
+          network_cidr: {type: str, description: Not checked by the preflight.}
+          mtu_mode: {type: str, choices: [safe, unsafe], description: Not checked by the preflight.}
+      evpn_health_check_accept_internet_mode_limits:
+        type: bool
+        default: false
+        description: Accept the internet-mode transports' limits, which the preflight lists; required for wireguard and ipsec.
+      evpn_health_check_workload_mtu:
+        type: int
+        default: 0
+        description: >-
+          The workload (CUDN and on-premises VLAN) IP MTU, which the operator must declare: the transport preflight
+          requires it to fit the transport's budget (vars/main.yml) and fails on 0, the default.

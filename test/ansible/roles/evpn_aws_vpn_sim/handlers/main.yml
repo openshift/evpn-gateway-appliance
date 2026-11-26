@@ -1,0 +1,10 @@
+---
+- name: Restart simulated AWS IPsec
+  ansible.builtin.systemd:
+    name: ipsec.service
+    state: restarted
+
+- name: Restart simulated AWS FRR
+  ansible.builtin.systemd:
+    name: frr-container.service
+    state: restarted

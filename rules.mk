@@ -65,6 +65,7 @@ check-markdown:
 .PHONY: check-python
 check-python:
 	git ls-files -z -c -o --exclude-standard -- '*.py' | sed -z 's|^|./|' | xargs -0 -r env -u RUFF_OUTPUT_FILE ruff check --no-cache --config .ruff.toml --
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s test/unit -p 'test_*.py'
 
 # Repo-wide shell lint with ShellCheck (installed in Dockerfile.ci). --norc ignores every
 # .shellcheckrc and `env -u` drops options inherited through SHELLCHECK_OPTS, so exceptions
@@ -115,7 +116,12 @@ ANSIBLE_SMOKE_DIR := /tmp/ega-collections
 
 .PHONY: check-ansible
 # Sanity needs the virtualenvs primed in the CI image, so host runs (USE_IMAGE=0) skip it.
-check-ansible: check-ansible-lint check-ansible-syntax check-ansible-build check-ansible-install $(if $(EGA_IN_CI_IMAGE),check-ansible-sanity)
+check-ansible: check-ansible-lint check-ansible-syntax check-ansible-build check-ansible-install check-ansible-preflight $(if $(EGA_IN_CI_IMAGE),check-ansible-sanity)
+
+# The transport preflight's internet-mode checks and the health checks' ping baseline.
+.PHONY: check-ansible-preflight
+check-ansible-preflight:
+	test/preflight/run.py
 
 .PHONY: check-ansible-lint
 check-ansible-lint:

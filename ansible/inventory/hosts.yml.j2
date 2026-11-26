@@ -3,10 +3,16 @@ all:
   children:
     onprem_appliances:
       hosts:
-        appliance-a:
-          ansible_host: localhost
-          ansible_connection: local
-          trunk_interface: trunk0
+{# Keep the inventory's appliances (per-host overrides belong in host_vars/); default to this host. #}
+{% for h in groups['onprem_appliances'] | default([]) or ['appliance-a'] %}
+{% set hv = hostvars[h] if h in hostvars else {} %}
+        {{ h | to_json }}:
+          ansible_host: {{ hv.ansible_host | default(h if h in hostvars else 'localhost') }}
+{% if hv.ansible_connection is defined or h not in hostvars %}
+          ansible_connection: {{ hv.ansible_connection | default('local') }}
+{% endif %}
+          trunk_interface: {{ hv.trunk_interface | default('trunk0') | to_json }}
+{% endfor %}
 
     cloud_infra:
       hosts:
