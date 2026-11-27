@@ -32,4 +32,5 @@ emulated scenario lists a standalone VTEP in `cloud_workload`, runs
 | `network.evpn_gateway_test.simulate` | before `network.evpn_gateway.deploy` | build the simulated on-prem environment |
 | `network.evpn_gateway_test.deploy_workload` | before `network.evpn_gateway.deploy` | deploy the standalone workload VTEP |
 | `network.evpn_gateway_test.healthcheck` | after the deploy | simulated-host data-plane checks; with a standalone VTEP in cloud_workload, also its workload-side checks |
+| `network.evpn_gateway_test.l2_pod` | after the deploy (kind scenario fabric) | apply a pod on the primary CUDN and assert the appliance reaches its stretched address (ICMP + HTTP) |
 | `network.evpn_gateway_test.teardown` | on cleanup (non-clab runs) | remove the simulated on-prem environment and the standalone VTEP |
