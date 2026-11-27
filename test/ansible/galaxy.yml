@@ -23,3 +23,6 @@ issues: https://github.com/openshift/evpn-gateway-appliance/issues
 dependencies:
   # ipaddr/ipmath filters, used to derive the simulated VM addresses.
   ansible.utils: ">=2.10.0"
+  # k8s_info/k8s: the l2-pod scenario playbook applies and waits on cluster
+  # objects directly, not only through the production collection's role.
+  kubernetes.core: ">=2.4.0"

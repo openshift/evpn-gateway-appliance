@@ -1,0 +1,185 @@
+---
+# L2 reachability on the primary EVPN CUDN: run by the e2e AFTER
+# network.evpn_gateway.deploy on the kind fabric. Applies a pod on the
+# production CUDN and asserts the appliance reaches its stretched address
+# (ICMP + HTTP). The kind scenario assets (namespace, VTEP, CUDN, route
+# advertisements) are already applied by kind/setup-cluster.sh; only the pod
+# is missing.
+- name: L2 pod reachability on the primary CUDN
+  hosts: onprem_appliances
+  become: true
+  tasks:
+    - name: "L2POD [k8s]: apply the workload pod on the primary CUDN"
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ega-test-workload
+            namespace: ega-evpn
+          spec:
+            containers:
+              - name: agnhost
+                image: registry.k8s.io/e2e-test-images/agnhost:2.43
+                args:
+                  - netexec
+                  - --http-port=8080
+            restartPolicy: Always
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: "L2POD [k8s]: primary CUDN is created"
+      kubernetes.core.k8s_info:
+        api_version: k8s.ovn.org/v1
+        kind: ClusterUserDefinedNetwork
+        name: ega-evpn-production
+      register: _l2_pod_cudn
+      until: >-
+        _l2_pod_cudn.resources | length > 0
+        and _l2_pod_cudn.resources[0].status.conditions | default([]) | selectattr('type', '==', 'NetworkCreated') | map(attribute='status') | select('==', 'True') | list | length > 0
+      retries: 36
+      delay: 5
+      changed_when: false
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: "L2POD [k8s]: workload pod is Ready"
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: ega-evpn
+        name: ega-test-workload
+      register: _l2_pod_pod
+      until: >-
+        _l2_pod_pod.resources | length > 0
+        and _l2_pod_pod.resources[0].status.conditions | default([]) | selectattr('type', '==', 'Ready') | map(attribute='status') | select('==', 'True') | list | length > 0
+      retries: 36
+      delay: 5
+      changed_when: false
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    # A Ready pod only means the CNI finished. add_host discovery does not
+    # survive into this playbook (the runner starts each EGA_PLAYBOOKS entry
+    # as a separate process), so rebuild the peer list from the same frr-k8s
+    # source the deploy discovery uses, then poll until every kind node has
+    # advertised an EVPN prefix; the assert reports which peers are missing.
+    - name: "L2POD [k8s]: list the frr-k8s peers"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ frr_kubernetes_namespace }}"
+        label_selectors:
+          - "{{ frr_kubernetes_label }}"
+        field_selectors:
+          - status.phase=Running
+      register: _l2_pod_frr_pods
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: "L2POD [k8s]: take the frr-k8s peers"
+      vars:
+        _l2_pod_nodes: "{{ _l2_pod_frr_pods.resources | map(attribute='spec.nodeName') | list }}"
+        _l2_pod_addrs: "{{ _l2_pod_frr_pods.resources | map(attribute='status.hostIP') | list }}"
+      # FRR keys the BGP summary peers by neighbor address, not by name.
+      ansible.builtin.set_fact:
+        _l2_pod_peers: "{{ dict(_l2_pod_nodes | zip(_l2_pod_addrs)) }}"
+      run_once: true
+
+    - name: "L2POD [k8s]: frr-k8s peers found"
+      ansible.builtin.assert:
+        that: _l2_pod_peers | length > 0
+        fail_msg: >-
+          No running frr-k8s pods in {{ frr_kubernetes_namespace }} with
+          selector {{ frr_kubernetes_label }}: no peers to check prefixes for.
+      run_once: true
+
+    - name: "L2POD [infra]: EVPN prefixes are received from every kind node"
+      ansible.builtin.command:
+        argv: [podman, exec, frr, vtysh, -c, show bgp l2vpn evpn summary json]
+      register: _l2_pod_evpn_summary
+      until: >-
+        _l2_pod_evpn_summary.stdout | default('', true) is match('^\s*\{')
+        and ((_l2_pod_evpn_summary.stdout | from_json).get('peers', {})) | dict2items
+        | selectattr('key', 'in', _l2_pod_peers.values() | list)
+        | selectattr('value.pfxRcd', 'defined') | map(attribute='value.pfxRcd') | map('int') | select('>', 0) | list | length
+        == _l2_pod_peers | length
+      retries: 36
+      delay: 5
+      changed_when: false
+      failed_when: false
+      delegate_to: "{{ infra_relay_host }}"
+      run_once: true
+
+    - name: "L2POD [infra]: assert EVPN prefixes received from every kind node"
+      ansible.builtin.assert:
+        that:
+          - ((_l2_pod_evpn_summary.stdout | from_json).peers.get(item.value) | default({}, true)).get('pfxRcd', 0) | int > 0
+        fail_msg: >-
+          The relay received no EVPN prefixes from node {{ item.key }}
+          ({{ item.value }}); BGP EVPN summary:
+          {{ _l2_pod_evpn_summary.stdout | default('<no output>', true) }}
+      loop: "{{ _l2_pod_peers | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      run_once: true
+
+    # status.podIP stays on the cluster network. The stretched address is the
+    # primary network recorded in k8s.ovn.org/pod-networks.
+    - name: "L2POD [k8s]: take the pod's primary (stretched) address"
+      vars:
+        _l2_pod_networks: "{{ _l2_pod_pod.resources[0].metadata.annotations['k8s.ovn.org/pod-networks'] | from_json }}"
+      ansible.builtin.set_fact:
+        _l2_pod_ip: "{{ (_l2_pod_networks | dict2items | selectattr('value.role', '==', 'primary') | map(attribute='value.ip_address') | first).split('/')[0] }}"
+      run_once: true
+
+    - name: "L2POD [onprem]: ping the pod's stretched address"
+      # The kind scenario's single stretch is the CUDN subnet; the appliance
+      # owns its gateway address. Bounded retry: the prefix poll above is per
+      # peer, not per pod route, so the pod's own advertisement may lag.
+      ansible.builtin.command:
+        argv:
+          - ping
+          - -c
+          - "3"
+          - -W
+          - "5"
+          - -I
+          - "{{ stretches[0].onprem_gateway }}"
+          - "{{ _l2_pod_ip }}"
+      register: _l2_pod_ping
+      until: _l2_pod_ping.rc == 0
+      retries: 12
+      delay: 5
+      changed_when: false
+
+    - name: "L2POD [onprem]: HTTP the pod's stretched address"
+      ansible.builtin.command:
+        argv:
+          - curl
+          - -sf
+          - --interface
+          - "{{ stretches[0].onprem_gateway }}"
+          - --max-time
+          - "5"
+          - "http://{{ _l2_pod_ip }}:8080/hostname"
+      register: _l2_pod_http
+      until: _l2_pod_http.rc == 0
+      retries: 12
+      delay: 5
+      changed_when: false
+
+    - name: "L2POD [onprem]: assert the workload answered"
+      ansible.builtin.assert:
+        that: _l2_pod_http.stdout == 'ega-test-workload'
+        fail_msg: >-
+          Unexpected hostname response from the workload pod:
+          {{ _l2_pod_http.stdout | default('<empty>', true) }}
+
+    - name: "L2POD: report"
+      ansible.builtin.debug:
+        msg: "l2-pod ok: appliance {{ stretches[0].onprem_gateway }} reached {{ _l2_pod_ip }} ({{ _l2_pod_http.stdout }})"

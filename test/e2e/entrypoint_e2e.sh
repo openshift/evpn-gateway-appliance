@@ -82,6 +82,10 @@ run_scenario() (
 	mkdir -p "$lab_dir" "$EGA_ARTIFACT_DIR"
 	cp "$src_topo" "$lab_dir/"
 	topo="${lab_dir}/$(basename "$src_topo")"
+	# Deploy honors --name, but destroy resolves the lab by the topology's
+	# name field: the staged copy must carry the scenario's lab name or
+	# destroy silently no-ops and leaks the lab into the next scenario.
+	yq -i ".name = \"${lab_name}\"" "$topo"
 	cd "$lab_dir"
 
 	# Share teardown between explicit destroy and the per-scenario EXIT trap.

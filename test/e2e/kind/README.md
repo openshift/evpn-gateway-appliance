@@ -11,6 +11,11 @@ alongside `emulated`). `scenarios/kind.env` defines its topology
 sequence. `EGA_STAGE=deploy` leaves the cluster and containerlab up;
 `EGA_STAGE=destroy` tears both down. Any other exit destroys them.
 
+The `l2-pod` scenario (`scenarios/l2-pod.env`) reuses this same topology,
+inventory and kind cluster setup, and adds
+`network.evpn_gateway_test.l2_pod` after the deploy: a pod on the primary
+CUDN that the appliance must reach on its stretched address.
+
 `entrypoint_e2e.sh` detects the kind network's `ega-kind-br` node in the
 scenario topology and, before the containerlab deploy, calls
 `setup-cluster.sh setup <work_dir>` here; the scenario cleanup calls its
