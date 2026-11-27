@@ -14,10 +14,17 @@ USE_IMAGE ?= 1
 CI_IMAGE ?= localhost/evpn-gateway-appliance-ci:local
 EE_IMAGE ?= localhost/evpn-gateway-appliance-ee:local
 CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+DIST_FSTYPE := $(shell findmnt --noheadings --first-only --target "$(CURDIR)/dist" --output FSTYPE 2>/dev/null)
 comma := ,
 
 # One container run. $(1) = goals to run inside (empty -> the image's default goal).
+# All targets can retain output in dist/. AH_TOKEN is forwarded only for publishing.
+# Defaults preserve host ownership and support SELinux/virtiofs mounts.
 CONTAINER_RUN = $(CONTAINER_ENGINE) run --rm \
+	$(if $(filter podman,$(notdir $(CONTAINER_ENGINE))),--userns=keep-id:uid=1001$(comma)gid=0,--user $(shell id -u):0) \
+	$(if $(filter virtiofs,$(DIST_FSTYPE)),--security-opt label=disable,) \
+	$(if $(filter collection-publish,$(1)),--env AH_TOKEN,) \
+	-v "$(CURDIR)/dist:/src/dist:Z" \
 	$(if $(TERMS),-v $(abspath $(TERMS)):/terms:ro$(comma)Z,) \
 	$(CI_IMAGE) make $(1) OFFLINE=$(OFFLINE) $(if $(TERMS),TERMS=/terms,)
 

@@ -424,6 +424,10 @@ needs can serve it and doubles as the isolated trial destination. Label its cont
 Use RHTAS's Konflux carrier only if the collection must travel in the Snapshot; shipping an EVPN EE
 remains optional.
 
+Manual `collection-build` and `collection-publish` targets run in the CI image
+([procedure](../../../ansible/README.md#building-and-publishing-to-red-hat-automation-hub)).
+They do not settle decision 15 or demonstrate Hub approval or customer visibility.
+
 CORENET-7667 requires an approved Hub or Galaxy destination. Agree the content
 class, support contract, namespace and importer/signing/approval with AAP early.
 Role-only content is directed toward validated content, which carries no support

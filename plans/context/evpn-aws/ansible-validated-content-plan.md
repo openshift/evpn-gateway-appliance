@@ -37,3 +37,7 @@ direction. This does not settle the collection support matrix or publication dec
    the evidence.
 2. **Upload the reviewed artifact.** An authorized `network` namespace publisher uploads
    the collection to console.redhat.com and records successful import.
+
+The [manual build and publish procedure](../../../ansible/README.md#building-and-publishing-to-red-hat-automation-hub)
+uses the CI image and an authorized publisher's `AH_TOKEN`. Adding these commands does not
+approve decisions 5/15/18 or demonstrate a successful upload/customer readback.

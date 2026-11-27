@@ -139,9 +139,7 @@ check-ansible-syntax:
 .PHONY: check-ansible-build
 check-ansible-build:
 	# Build into the smoke dir, not the source tree, so the checkout can stay read-only.
-	# --force overwrites a stale tarball so reruns don't fail.
-	mkdir -p $(ANSIBLE_SMOKE_DIR)
-	cd $(ANSIBLE) && ansible-galaxy collection build --force --output-path $(ANSIBLE_SMOKE_DIR)
+	$(MAKE) collection-build COLLECTION_DIST="$(ANSIBLE_SMOKE_DIR)"
 	$(ANSIBLE)/tools/check-collection-tarball.sh $(ANSIBLE_SMOKE_DIR)/*.tar.gz
 
 # Install into a clean collections dir OUTSIDE the checkout (source-tree runs
@@ -170,3 +168,16 @@ check-ansible-install: check-ansible-build
 .PHONY: check-ansible-sanity
 check-ansible-sanity: check-ansible-install
 	cd $(ANSIBLE_SMOKE_DIR)/ansible_collections/network/evpn_gateway && ansible-test sanity --python 3.12
+
+# ── Ansible collection build and publish ─────────────────────────────────────
+# Manual release targets use the same CI image as the source checks.
+COLLECTION_DIST ?= dist/collection
+
+.PHONY: collection-build collection-publish
+collection-build:
+	# --force overwrites a stale tarball so reruns don't fail.
+	mkdir -p "$(COLLECTION_DIST)"
+	cd $(ANSIBLE) && ansible-galaxy collection build --force --output-path "$(abspath $(COLLECTION_DIST))"
+
+collection-publish:
+	bash $(ANSIBLE)/tools/publish-collection.sh "$(COLLECTION_DIST)"

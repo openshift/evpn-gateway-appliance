@@ -33,8 +33,7 @@ playbooks/
 └── teardown-aws.yml                Destroy AWS infrastructure (irreversible)
 inventory/
 └── hosts.yml.j2                    Sample inventory template (real hosts.yml is generated, gitignored)
-tools/
-└── check-collection-tarball.sh     CI: assert the built tarball ships only approved paths
+tools/                              CI packaging check and maintainer-only Hub publisher (not shipped)
 ```
 
 `inventory/` and `ansible.cfg` are excluded from the published collection
@@ -44,7 +43,7 @@ collection.
 
 ## Installation
 
-To install a published version from Red Hat Automation Hub, configure its
+Once an approved version is published to Red Hat Automation Hub, configure its
 server URL and token in a private Ansible configuration file outside the
 checkout. Set `[galaxy] server_list` to contain only that authenticated Hub
 server; see [Configuring the ansible-galaxy client](https://docs.ansible.com/projects/ansible/latest/collections_guide/collections_installing.html#configuring-the-ansible-galaxy-client).
@@ -192,6 +191,57 @@ ownership):
   "VLAN isolation" assertion is disabled pending a decision on the intended
   model (VRF-per-tenant or a forwarding filter, or accepting inter-tenant
   routing). CORENET-7508 calls for L2/VNI isolation testing in integration CI.
+
+## Building and publishing to Red Hat Automation Hub
+
+Run these commands from the **repository root**, not `ansible/`. The process follows
+the [OpenShift offline migration collection's manual publisher](https://github.com/openshift/network.offline_migration_sdn_to_ovnk/blob/67b3eac1364b088cbb4fe46030007dfed8329162/hack/publish_collection.sh),
+adapted for our `ansible/` layout. Both targets run in the CI image by default.
+
+Before a release, update the version in `ansible/galaxy.yml` and release notes in
+`ansible/changelogs/changelog.yaml`, then merge through the normal PR process.
+Publishing requires an Automation Hub API token with upload access to the
+[network namespace](https://console.redhat.com/ansible/automation-hub/namespaces/network/)
+and authorization from the publication owner.
+
+```bash
+make check OFFLINE=1
+make collection-build
+
+# Load AH_TOKEN securely into your environment, then upload:
+make collection-publish
+```
+
+The repository's `dist/` directory is mounted at `/src/dist` for all delegated Make targets.
+The build target creates `dist/collection/` and saves the tarball there. Keep exactly one
+tarball in that directory; remove older versions before building a new release.
+The standard commands above need no extra arguments. Make supplies these defaults:
+
+- With Podman, `--userns=keep-id:uid=1001,gid=0` maps your host UID/GID to the image's non-root
+  UID 1001/GID 0, so the mounted directory is writable and output remains owned by you.
+- With Docker, `--user <host-uid>:0` runs as your host UID so output remains owned by you.
+  GID 0 provides access to the image's group-writable tool caches, as on the Prow runner.
+- Only when `dist/` is on virtiofs, `--security-opt label=disable` disables SELinux
+  container separation for that run because that filesystem cannot be relabeled.
+  Make detects the mount type with `findmnt` (from the host's util-linux package).
+  Other filesystems retain SELinux confinement and use the bind mount's `:Z` relabeling.
+
+Podman is selected when available. To use Docker explicitly, append
+`CONTAINER_ENGINE=docker` to the Make commands above, for example:
+
+```bash
+make collection-build CONTAINER_ENGINE=docker
+make check OFFLINE=1 CONTAINER_ENGINE=docker
+```
+
+These runtime settings affect local delegated containers, not the gateway appliance's
+SELinux configuration or Prow's runner settings.
+
+The publisher selects that tarball, uses a temporary Hub configuration, and runs
+`ansible-galaxy collection publish`, which waits for import. `AH_TOKEN` is forwarded only
+when `collection-publish` is requested, never to the image build. Never store it in the
+checkout. After import, complete any required Hub approval and confirm the version is
+available to consumers. Publication does not change the collection's lab/dev/test status.
 
 ## Feedback and contributing
 

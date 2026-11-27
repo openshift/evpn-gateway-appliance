@@ -5,6 +5,8 @@
 .DS_Store
 ansible/.ansible/
 ansible/*.tar.gz
+/dist/*
+!/dist/.gitkeep
 ansible/**/*.retry
 ansible/.wg-keys/
 ansible/inventory/hosts.yml
