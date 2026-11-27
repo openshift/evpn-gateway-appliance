@@ -1,0 +1,113 @@
+---
+# Independent fixtures, not cases derived from the argument spec under test. Each omission keeps
+# all other required inputs, and each type/choice error must be rejected by argument validation.
+_contract_cases:
+  - description: missing infra_relay_host
+    omit: [infra_relay_host]
+    expect: 'missing required arguments: infra_relay_host'
+  - description: missing trunk_interface
+    omit: [trunk_interface]
+    expect: 'missing required arguments: trunk_interface'
+  - description: missing tunnel
+    omit: [tunnel]
+    expect: 'missing required arguments: tunnel'
+  - description: missing bgp
+    omit: [bgp]
+    expect: 'missing required arguments: bgp'
+  - description: missing stretches
+    omit: [stretches]
+    expect: 'missing required arguments: stretches'
+  - description: missing tunnel.type
+    vars:
+      tunnel: "{{ _valid.tunnel | dict2items | rejectattr('key', 'equalto', 'type') | items2dict }}"
+    expect: 'missing required arguments: type.*found in tunnel'
+  - description: missing tunnel.onprem_ip
+    vars:
+      tunnel: "{{ _valid.tunnel | dict2items | rejectattr('key', 'equalto', 'onprem_ip') | items2dict }}"
+    expect: 'missing required arguments: onprem_ip.*found in tunnel'
+  - description: missing tunnel.cloud_ip
+    vars:
+      tunnel: "{{ _valid.tunnel | dict2items | rejectattr('key', 'equalto', 'cloud_ip') | items2dict }}"
+    expect: 'missing required arguments: cloud_ip.*found in tunnel'
+  - description: missing WireGuard port
+    vars:
+      tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+    expect: 'type is wireguard but all of the following are missing: port'
+  - description: missing bgp.onprem_asn
+    vars:
+      bgp: "{{ _valid.bgp | dict2items | rejectattr('key', 'equalto', 'onprem_asn') | items2dict }}"
+    expect: 'missing required arguments: onprem_asn.*found in bgp'
+  - description: missing bgp.infra_asn
+    vars:
+      bgp: "{{ _valid.bgp | dict2items | rejectattr('key', 'equalto', 'infra_asn') | items2dict }}"
+    expect: 'missing required arguments: infra_asn.*found in bgp'
+  - description: missing bgp.workload_asn
+    vars:
+      bgp: "{{ _valid.bgp | dict2items | rejectattr('key', 'equalto', 'workload_asn') | items2dict }}"
+    expect: 'missing required arguments: workload_asn.*found in bgp'
+  - description: missing stretches[].vlan
+    vars:
+      stretches: "{{ [_valid.stretches.0 | dict2items | rejectattr('key', 'equalto', 'vlan') | items2dict] }}"
+    expect: 'missing required arguments: vlan.*found in stretches'
+  - description: missing stretches[].name
+    vars:
+      stretches: "{{ [_valid.stretches.0 | dict2items | rejectattr('key', 'equalto', 'name') | items2dict] }}"
+    expect: 'missing required arguments: name.*found in stretches'
+  - description: missing stretches[].subnet
+    vars:
+      stretches: "{{ [_valid.stretches.0 | dict2items | rejectattr('key', 'equalto', 'subnet') | items2dict] }}"
+    expect: 'missing required arguments: subnet.*found in stretches'
+  - description: missing stretches[].onprem_gateway
+    vars:
+      stretches: "{{ [_valid.stretches.0 | dict2items | rejectattr('key', 'equalto', 'onprem_gateway') | items2dict] }}"
+    expect: 'missing required arguments: onprem_gateway.*found in stretches'
+  - description: a list instead of the tunnel dictionary
+    vars:
+      tunnel: [not-a-dictionary]
+    expect: "'tunnel'.*cannot be converted to a dict"
+  - description: a list instead of the BGP dictionary
+    vars:
+      bgp: [not-a-dictionary]
+    expect: "'bgp'.*cannot be converted to a dict"
+  - description: a dictionary instead of the stretch list
+    vars:
+      stretches: {vlan: 100}
+    expect: "'stretches'.*cannot be converted to a list"
+  - description: a non-dictionary stretch element
+    vars:
+      stretches: [not-a-dictionary]
+    expect: "Elements value for option 'stretches'.*unable to convert to dict"
+  - description: a non-convertible VLAN
+    vars:
+      stretches:
+        - {vlan: not-a-vlan, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1}
+    expect: "'vlan'.*found in 'stretches'.*cannot be converted to an int"
+  - description: a non-convertible ASN
+    vars:
+      bgp: {onprem_asn: not-an-asn, infra_asn: 65100, workload_asn: 65200}
+    expect: "'onprem_asn'.*found in 'bgp'.*cannot be converted to an int"
+  - description: a non-convertible WireGuard port
+    vars:
+      tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2, port: not-a-port}
+    expect: "'port'.*found in 'tunnel'.*cannot be converted to an int"
+  - description: an unknown global transport type
+    vars:
+      tunnel: {type: unsupported, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+    expect: 'value of type must be one of: wireguard, ipsec, direct-connect, got: unsupported'
+  - description: an invalid MTU choice
+    vars:
+      tunnel: "{{ _valid.tunnel | combine({'mtu_mode': 'jumbo'}) }}"
+    expect: 'value of mtu_mode must be one of: safe, unsafe, got: jumbo'
+  - description: an unknown tunnel option
+    vars:
+      tunnel: "{{ _valid.tunnel | combine({'typo': true}) }}"
+    expect: 'tunnel.typo. Supported parameters include'
+  - description: an unknown BGP option
+    vars:
+      bgp: "{{ _valid.bgp | combine({'typo': true}) }}"
+    expect: 'bgp.typo. Supported parameters include'
+  - description: a configured VNI rather than a derived VNI
+    vars:
+      stretches:
+        - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1, vni: 10100}
+    expect: 'stretches.vni. Supported parameters include'

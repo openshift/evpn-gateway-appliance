@@ -1,0 +1,15 @@
+---
+# Deploy validation runs the actual playbook against synthetic inventories with guarded SSH connections.
+driver:
+  name: default
+  options:
+    managed: false
+platforms: []
+provisioner:
+  playbooks:
+    converge: converge.yml
+scenario:
+  test_sequence:
+    - dependency
+    - syntax
+    - converge

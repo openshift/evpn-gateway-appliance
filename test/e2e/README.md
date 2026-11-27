@@ -49,7 +49,7 @@ test/
     run_e2e.sh            wrapper: select the e2e lane (entrypoint_e2e.sh)
     run_molecule.sh       wrapper: select the molecule lane (entrypoint_molecule.sh; skips the EE build)
     entrypoint_e2e.sh     iterate scenarios: clab deploy -> scenario playbooks -> teardown
-    entrypoint_molecule.sh  molecule in-container steps: molecule test against the rootful socket
+    entrypoint_molecule.sh  molecule in-container steps: test selected scenarios
     topology/
       emulated.clab.yml   the emulated fabric
       kind.clab.yml       appliance, relay, and TGW attached to the kind network bridge
@@ -69,6 +69,12 @@ ansible/
         default/          converge + ownership-reconcile + reboot
         modify/           re-converge a changed config (add/remove stretch, SVI edit)
         teardown/         converge then teardown, assert empty
+      validation/         controller-only input validation
+    evpn_cloud_infra/
+      validation/         controller-only input validation
+    deploy/
+      validation/         controller-only preflight checks
+    resources/validation/ shared input-contract test tasks
 ```
 
 ## run.sh — local, rootful
@@ -218,11 +224,15 @@ sudo env FRR_IMAGE=<ocp frr> NODE_EXPORTER_IMAGE=<ocp node-exporter> \
 The Molecule lane tests role behavior in isolation. The on-prem networking scenarios cover
 idempotence, ownership reconciliation, teardown, and persistence across reboot. The FRR scenario
 covers first startup, live configuration changes, unchanged redeploys, drift correction,
-invalid configuration, and reload retries. `run_molecule.sh` reuses the `run_remote.sh` runner
-and selects `entrypoint_molecule.sh`.
+invalid configuration, and reload retries. The validation scenarios check appliance and relay
+input contracts through both role entry points, including partial inventories and invalid values.
+A separate deploy scenario checks preflight failure handling. All three run controller-only,
+without provisioning targets.
 
-Because the role needs a real kernel (vxlan/bridge netlink) and a privileged systemd container, the
-lane cannot create its instance from the nested, rootless Prow container — same constraint as e2e.
+`run_molecule.sh` reuses `run_remote.sh` and selects `entrypoint_molecule.sh`.
+
+Because live networking needs a real kernel (vxlan/bridge netlink) and a privileged systemd container,
+the lane cannot create its instance from the nested, rootless Prow container — same constraint as e2e.
 The Molecule Podman driver runs the appliance image as a sibling container over the rootful
 Podman socket mounted in the CI image. The networking scenarios check devices, SVI IPs,
 self-VLANs, `neigh_suppress`, ownership, and teardown. The FRR scenario checks running and
@@ -236,8 +246,10 @@ FRR_IMAGE=<ocp frr> NODE_EXPORTER_IMAGE=<ocp node-exporter> \
 test/e2e/run_molecule.sh
 ```
 
-Scenarios live under `ansible/extensions/molecule/` (see the Layout above). To run a single scenario,
-set `EGA_STAGE` to its nested path, for example `EGA_STAGE=evpn_onprem_appliance/nm_networking/default`.
+Scenarios live under `ansible/extensions/molecule/` (see the Layout above). Set `EGA_SCENARIOS`
+to one nested path or a comma-separated list, for example
+`EGA_SCENARIOS=evpn_onprem_appliance/nm_networking/default,evpn_onprem_appliance/nm_networking/modify`.
+Unset or empty runs all scenarios. The Molecule lane does not use `EGA_STAGE`.
 
 ## Status
 

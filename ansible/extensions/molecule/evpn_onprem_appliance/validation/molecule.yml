@@ -1,0 +1,22 @@
+---
+# Controller-only input checks. Override the shared live-host driver and inventory: the host
+# supplies variable context only. Any target-side task fails at /bin/false rather than connecting.
+driver:
+  name: default
+  options:
+    managed: false
+platforms:
+  - name: onprem-inputs
+provisioner:
+  inventory:
+    group_vars:
+      all:
+        ansible_connection: ssh
+        ansible_ssh_executable: /bin/false
+  playbooks:
+    converge: converge.yml
+scenario:
+  test_sequence:
+    - dependency
+    - syntax
+    - converge

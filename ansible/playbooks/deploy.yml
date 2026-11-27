@@ -1,6 +1,12 @@
 ---
 # Full deploy — idempotent, safe to re-run.
 # Usage: ansible-playbook playbooks/deploy.yml
+#
+# Each role's input checks run before any play changes a host, so an invalid VLAN, ASN or transport
+# setting fails while every host is still untouched.
+
+- name: Validate appliance and relay inputs
+  ansible.builtin.import_playbook: validate_inputs.yml
 
 - name: Deploy cloud infra (EVPN relay + WireGuard)
   hosts: cloud_infra

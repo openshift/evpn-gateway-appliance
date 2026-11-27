@@ -1,0 +1,88 @@
+---
+# Required fields, supported shapes and choices are tested through the role, not by calling a
+# parallel validator. Each case must fail inside the native argument validator.
+_contract_cases:
+  - description: missing private_ip
+    omit: [private_ip]
+    expect: 'missing required arguments: private_ip'
+  - description: missing tunnel
+    omit: [tunnel]
+    expect: 'missing required arguments: tunnel'
+  - description: missing bgp
+    omit: [bgp]
+    expect: 'missing required arguments: bgp'
+  - description: missing stretches
+    omit: [stretches]
+    expect: 'missing required arguments: stretches'
+  - description: missing tunnel.type
+    vars:
+      tunnel: "{{ _valid.tunnel | dict2items | rejectattr('key', 'equalto', 'type') | items2dict }}"
+    expect: 'missing required arguments: type.*found in tunnel'
+  - description: missing tunnel.onprem_ip
+    vars:
+      tunnel: "{{ _valid.tunnel | dict2items | rejectattr('key', 'equalto', 'onprem_ip') | items2dict }}"
+    expect: 'missing required arguments: onprem_ip.*found in tunnel'
+  - description: missing WireGuard cloud address
+    vars:
+      tunnel: {type: wireguard, onprem_ip: 10.44.44.1, port: 51820}
+    expect: 'type is wireguard but all of the following are missing: cloud_ip'
+  - description: missing WireGuard port
+    vars:
+      tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+    expect: 'type is wireguard but all of the following are missing: port'
+  - description: missing bgp.onprem_asn
+    vars:
+      bgp: "{{ _valid.bgp | dict2items | rejectattr('key', 'equalto', 'onprem_asn') | items2dict }}"
+    expect: 'missing required arguments: onprem_asn.*found in bgp'
+  - description: missing bgp.infra_asn
+    vars:
+      bgp: "{{ _valid.bgp | dict2items | rejectattr('key', 'equalto', 'infra_asn') | items2dict }}"
+    expect: 'missing required arguments: infra_asn.*found in bgp'
+  - description: missing bgp.workload_asn
+    vars:
+      bgp: "{{ _valid.bgp | dict2items | rejectattr('key', 'equalto', 'workload_asn') | items2dict }}"
+    expect: 'missing required arguments: workload_asn.*found in bgp'
+  - description: a list instead of the tunnel dictionary
+    vars:
+      tunnel: [not-a-dictionary]
+    expect: "'tunnel'.*cannot be converted to a dict"
+  - description: a list instead of the BGP dictionary
+    vars:
+      bgp: [not-a-dictionary]
+    expect: "'bgp'.*cannot be converted to a dict"
+  - description: a dictionary instead of the stretch list
+    vars:
+      stretches: {subnet: 10.42.1.0/24}
+    expect: "'stretches'.*cannot be converted to a list"
+  - description: a non-dictionary stretch element
+    vars:
+      stretches: [not-a-dictionary]
+    expect: "Elements value for option 'stretches'.*unable to convert to dict"
+  - description: a non-convertible ASN
+    vars:
+      bgp: {onprem_asn: not-an-asn, infra_asn: 65100, workload_asn: 65200}
+    expect: "'onprem_asn'.*found in 'bgp'.*cannot be converted to an int"
+  - description: a non-convertible WireGuard port
+    vars:
+      tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2, port: not-a-port}
+    expect: "'port'.*found in 'tunnel'.*cannot be converted to an int"
+  - description: an unknown global transport type
+    vars:
+      tunnel: {type: unsupported, onprem_ip: 10.44.44.1}
+    expect: 'value of type must be one of: wireguard, ipsec, direct-connect, got: unsupported'
+  - description: an invalid MTU choice
+    vars:
+      tunnel: "{{ _valid.tunnel | combine({'mtu_mode': 'jumbo'}) }}"
+    expect: 'value of mtu_mode must be one of: safe, unsafe, got: jumbo'
+  - description: an unknown tunnel option
+    vars:
+      tunnel: "{{ _valid.tunnel | combine({'typo': true}) }}"
+    expect: 'tunnel.typo. Supported parameters include'
+  - description: an unknown BGP option
+    vars:
+      bgp: "{{ _valid.bgp | combine({'typo': true}) }}"
+    expect: 'bgp.typo. Supported parameters include'
+  - description: an unknown stretch option
+    vars:
+      stretches: [{subnet: 10.42.1.0/24, typo: true}]
+    expect: 'stretches.typo. Supported parameters include'

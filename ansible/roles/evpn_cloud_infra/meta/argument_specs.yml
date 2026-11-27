@@ -8,7 +8,7 @@ argument_specs:
         workload-side VTEPs, using next-hop-unchanged so VTEP IPs are preserved
         end-to-end.
       - Workload peers are read from the cloud_workload inventory group.
-    options:
+    options: &role_options
       frr_kubernetes_namespace:
         type: str
         default: openshift-frr-k8s
@@ -35,7 +35,7 @@ argument_specs:
             type: str
             required: true
             choices: [wireguard, ipsec, direct-connect]
-            description: Transport type. Determines which transport-specific configuration is applied.
+            description: Shared fabric transport selector. This role configures the WireGuard endpoint only; other transports are provided separately.
           onprem_ip:
             type: str
             required: true
@@ -86,7 +86,7 @@ argument_specs:
         options:
           subnet:
             type: str
-            description: IPv4 /24 subnet for this stretch. Added to the WireGuard server AllowedIPs.
+            description: Canonical IPv4 subnet for this stretch. Required for WireGuard server AllowedIPs.
           vlan:
             type: int
             description: VLAN ID; the VNI is always 10000 + vlan. Part of the shared playbook configuration model; not used by this role.
@@ -99,3 +99,10 @@ argument_specs:
           cloud_gateway:
             type: str
             description: Gateway IP on the cloud workload side for this stretch. Part of the shared playbook configuration model; not used by this role.
+  validate:
+    short_description: Validate the infra relay inputs without changing the host.
+    description:
+      - >-
+        Checks the same input contract as main, followed by the role's semantic
+        assertions. Requires this role's inputs, but not a complete fabric inventory.
+    options: *role_options

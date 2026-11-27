@@ -1,0 +1,154 @@
+---
+# Input checks for the on-prem appliance. meta/argument_specs.yml owns presence, types and allowed
+# choices; this file only adds the rules an argument spec cannot express: domain bounds, duplicate
+# detection across the stretch list and cross-field consistency. It covers just the values this
+# role consumes, so the appliance can be configured with a partial inventory while the cloud side
+# is configured separately.
+#
+# The role runs this file before its first task that changes the host. It is also the role's
+# `validate` argument-spec entry point, which playbooks/deploy.yml calls (via tasks_from) before any
+# play changes a host; that entry point declares the same types and required values as main. Keep
+# this file to assertions: it must not depend on anything the role itself creates.
+
+- name: Require stretch VLAN IDs in the range that can be carried on a trunk
+  ansible.builtin.assert:
+    that:
+      - item.vlan | int >= 2
+      - item.vlan | int <= 4094
+    fail_msg: >-
+      stretches[].vlan must be 2-4094 (got {{ item.vlan }} for '{{ item.name }}'). VLAN 1 is the
+      trunk port's untagged/native VLAN and would collide with the trunk's untagged membership;
+      802.1Q defines VLAN IDs up to 4094. The VNI is derived as 10000 + vlan.
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Reject duplicate stretch VLAN IDs
+  ansible.builtin.assert:
+    that: "(stretches | map(attribute='vlan') | map('int') | unique | length) == (stretches | length)"
+    fail_msg: >-
+      stretches[].vlan must be unique: each VLAN derives one VNI, one VNI bridge, one VXLAN
+      interface and one trunk sub-interface, so a duplicate would collide on all of them.
+
+- name: Require non-empty stretch names
+  ansible.builtin.assert:
+    that:
+      - item.name | length > 0
+    fail_msg: "stretches[].name must not be empty (VLAN {{ item.vlan }})."
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.vlan }}"
+
+- name: Reject duplicate stretch names
+  ansible.builtin.assert:
+    that: "(stretches | map(attribute='name') | list | unique | length) == (stretches | length)"
+    fail_msg: "stretches[].name must be unique so task output and per-stretch labels stay unambiguous."
+
+- name: Require canonical IPv4 stretch subnets with usable host addresses
+  ansible.builtin.assert:
+    that:
+      - item.subnet | ansible.utils.ipaddr('ipv4') is truthy
+      - (item.subnet | ansible.utils.ipaddr('network/prefix')) == item.subnet
+      - (item.subnet | ansible.utils.ipaddr('prefix') | int) <= 30
+    fail_msg: >-
+      stretches[].subnet must be a canonical IPv4 network with a /30 or larger prefix
+      (got '{{ item.subnet }}' for '{{ item.name }}'). Write the network address, e.g.
+      10.42.1.0/24: the SVI takes its prefix length from this value and needs usable host addresses.
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Reject duplicate stretch subnets
+  ansible.builtin.assert:
+    that: "(stretches | map(attribute='subnet') | list | unique | length) == (stretches | length)"
+    fail_msg: "stretches[].subnet must be unique: a duplicate subnet makes the SVI and VTEP addressing ambiguous."
+
+- name: Require plain IPv4 addresses for on-prem stretch gateways
+  ansible.builtin.assert:
+    that:
+      - item.onprem_gateway | ansible.utils.ipv4('address') is truthy
+      - (item.onprem_gateway | ansible.utils.ipv4('address')) == item.onprem_gateway
+    fail_msg: >-
+      stretches[].onprem_gateway must be a plain IPv4 address
+      without a prefix (the subnet supplies the prefix length) for '{{ item.name }}'.
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Require each on-prem gateway to be a usable host inside its stretch subnet
+  ansible.builtin.assert:
+    that:
+      - (item.onprem_gateway | ansible.utils.ipaddr(item.subnet)) is truthy
+      - item.onprem_gateway != (item.subnet | ansible.utils.ipaddr('network'))
+      - item.onprem_gateway != (item.subnet | ansible.utils.ipaddr('broadcast'))
+    fail_msg: >-
+      stretches[].onprem_gateway must be a usable host inside its stretch subnet, not its network
+      or broadcast address ('{{ item.name }}': {{ item.onprem_gateway }} in {{ item.subnet }}).
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Require each BGP ASN in the 4-byte ASN range
+  ansible.builtin.assert:
+    that:
+      - item | int >= 1
+      - item | int <= 4294967295
+    fail_msg: "bgp ASNs must be integers between 1 and 4294967295 (got {{ item | to_json }})."
+  loop: "{{ [bgp.onprem_asn, bgp.infra_asn, bgp.workload_asn] }}"
+  loop_control:
+    label: "{{ item }}"
+
+# Argument specs accept numeric strings without rewriting role variables. Compare numeric values.
+- name: Require three distinct eBGP ASNs
+  ansible.builtin.assert:
+    that: "([bgp.onprem_asn, bgp.infra_asn, bgp.workload_asn] | map('int') | unique | length) == 3"
+    fail_msg: >-
+      bgp.onprem_asn, bgp.infra_asn and bgp.workload_asn must all differ: the fabric is three eBGP
+      peers, and an equal ASN makes a session iBGP or invalid (got
+      {{ [bgp.onprem_asn, bgp.infra_asn, bgp.workload_asn] | join(', ') }}).
+
+- name: Require distinct plain IPv4 tunnel addresses
+  ansible.builtin.assert:
+    that:
+      - tunnel.onprem_ip | ansible.utils.ipv4('address') is truthy
+      - (tunnel.onprem_ip | ansible.utils.ipv4('address')) == tunnel.onprem_ip
+      - tunnel.cloud_ip | ansible.utils.ipv4('address') is truthy
+      - (tunnel.cloud_ip | ansible.utils.ipv4('address')) == tunnel.cloud_ip
+      - tunnel.onprem_ip != tunnel.cloud_ip
+    fail_msg: >-
+      tunnel.onprem_ip and tunnel.cloud_ip must be two distinct plain IPv4 addresses (got
+      {{ tunnel.onprem_ip }} and {{ tunnel.cloud_ip }}): they become the VTEP address and the BGP
+      peer address at each end.
+
+# Argument-spec defaults describe the contract but do not populate role variables. Use the same
+# fallback as the templates, including when no tunnel.network_cidr was supplied.
+- name: Validate the effective tunnel network
+  vars:
+    _evpn_onprem_appliance_tunnel_cidr: "{{ tunnel.network_cidr | default('10.44.44.0/24') }}"
+  block:
+    - name: Require a canonical IPv4 tunnel network CIDR
+      ansible.builtin.assert:
+        that:
+          - _evpn_onprem_appliance_tunnel_cidr | ansible.utils.ipaddr('ipv4') is truthy
+          - >-
+            (_evpn_onprem_appliance_tunnel_cidr | ansible.utils.ipaddr('network/prefix'))
+            == _evpn_onprem_appliance_tunnel_cidr
+        fail_msg: >-
+          tunnel.network_cidr must be a canonical IPv4 network such as 10.44.44.0/24
+          (got {{ _evpn_onprem_appliance_tunnel_cidr | to_json }}).
+
+    - name: Require the tunnel addresses inside tunnel.network_cidr
+      ansible.builtin.assert:
+        that:
+          - (tunnel.onprem_ip | ansible.utils.ipaddr(_evpn_onprem_appliance_tunnel_cidr)) is truthy
+          - (tunnel.cloud_ip | ansible.utils.ipaddr(_evpn_onprem_appliance_tunnel_cidr)) is truthy
+        fail_msg: >-
+          tunnel.onprem_ip and tunnel.cloud_ip must both belong to tunnel.network_cidr
+          ({{ _evpn_onprem_appliance_tunnel_cidr }}): that CIDR supplies the tunnel interface address
+          and the FRR network statement.
+
+- name: Require a valid WireGuard listen port
+  when: tunnel.type == 'wireguard'
+  ansible.builtin.assert:
+    that: "tunnel.port | int >= 1 and tunnel.port | int <= 65535"
+    fail_msg: "tunnel.port must be a UDP port between 1 and 65535 (got {{ tunnel.port }})."

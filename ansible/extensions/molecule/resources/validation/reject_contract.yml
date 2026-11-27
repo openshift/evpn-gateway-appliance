@@ -1,0 +1,27 @@
+---
+# Render literal include_role vars so omitted inputs are really absent. include_role does not
+# accept a templated vars mapping, and undefined/null values would test a different contract.
+- name: Create a controller-side task file for argument-spec cases
+  ansible.builtin.tempfile:
+    state: file
+    suffix: -argument-contract.yml
+  delegate_to: localhost
+  register: _contract_tasks
+
+- name: Exercise the role's argument contract
+  block:
+    - name: Render contract cases through both role entry points
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../../resources/validation/contract_cases.yml.j2"
+        dest: "{{ _contract_tasks.path }}"
+        mode: "0600"
+      delegate_to: localhost
+
+    - name: Require argument-spec rejection rather than a later task failure
+      ansible.builtin.include_tasks: "{{ _contract_tasks.path }}"
+  always:
+    - name: Remove the controller-side contract task file
+      ansible.builtin.file:
+        path: "{{ _contract_tasks.path }}"
+        state: absent
+      delegate_to: localhost

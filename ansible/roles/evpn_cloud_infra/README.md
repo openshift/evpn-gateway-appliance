@@ -23,9 +23,13 @@ pods on the Ansible controller into `cloud_workload`.
 
 ## Requirements
 
-- `stretches` (only `subnet` is read) must match the on-prem/workload stretch
-  list — used to build the WireGuard server's `AllowedIPs` (wireguard
-  transport only).
+- Set `private_ip` to the relay's private address.
+- `tunnel.onprem_ip` must be an IPv4 address without a prefix. The three BGP ASNs must be
+  distinct and in 1-4294967295.
+- For WireGuard, set a distinct IPv4 `tunnel.cloud_ip` without a prefix inside `tunnel.network_cidr`
+  (default `10.44.44.0/24`) and `tunnel.port` in 1-65535. Supply each stretch's IPv4 network CIDR
+  in `stretches[].subnet`, matching the on-prem/workload stretch list. Per-stretch VLANs, names
+  and gateways are not required by this role.
 
 ## Known limitations (tracked, not fixed by this role)
 

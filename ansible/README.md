@@ -27,6 +27,7 @@ roles/
 └── evpn_health_check/              Read-only validation suite
 playbooks/
 ├── deploy.yml                      Deploy the relay and the on-prem appliance
+├── validate_inputs.yml             Check appliance and relay inputs without deploying
 ├── health-check.yml                Validation only
 ├── provision-aws.yml               Provision AWS infra, update inventory
 ├── teardown.yml                    Remove appliance/relay/VTEP configuration
@@ -118,6 +119,16 @@ ones (`tunnel`, `bgp`, `stretches`) are normally set once in
   (disposable labs only). See that role's README.
 - **`evpn_aws_infra_aws_region`** — cross-check it matches the region you intend to
   provision in.
+
+## Input validation
+
+`playbooks/deploy.yml` checks the appliance and relay inputs before changing any host; a failure
+stops deployment. `--limit` also limits which hosts are checked. Each role can be used independently
+and checks its inputs before making changes; a complete fabric inventory is not required.
+
+To check inputs without deploying, run `ansible-playbook playbooks/validate_inputs.yml`.
+See the [appliance](roles/evpn_onprem_appliance/README.md) and
+[relay](roles/evpn_cloud_infra/README.md) READMEs for input requirements and transport limitations.
 
 ## Known limitations (tracked, not all fixed here)
 

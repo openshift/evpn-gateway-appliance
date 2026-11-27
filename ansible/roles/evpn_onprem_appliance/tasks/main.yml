@@ -1,6 +1,11 @@
 ---
+# Check this role's inputs before anything changes on the host: argument specs validate types,
+# required values and choices; validate.yml adds the domain bounds and cross-field rules.
+- name: Validate the on-prem appliance inputs
+  ansible.builtin.include_tasks: validate.yml
+
 - name: Generate/load WireGuard keys
-  # include_role (not a playbook_dir-relative path) so this resolves correctly once installed from a collection (ci-bootstrap-spec.md, "Cross-role include").
+  # include_role (not a playbook_dir-relative path) so this resolves correctly once installed from a collection.
   ansible.builtin.include_role:
     name: evpn_cloud_infra
     tasks_from: wireguard_keys

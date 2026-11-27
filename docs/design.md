@@ -534,6 +534,15 @@ ansible/
     └── evpn_health_check/     ← 16 automated checks
 ```
 
+`evpn_onprem_appliance` and `evpn_cloud_infra` check their own inputs: `meta/argument_specs.yml`
+validates types, required values and allowed choices, and `tasks/validate.yml` adds domain bounds
+and cross-field rules (VLAN/VNI, subnet, gateway, ASN and tunnel-address consistency).
+The `main` and `validate` entry points share each role's complete argument spec. `deploy.yml`
+calls `validate` in read-only plays and aborts deployment on any targeted host's validation
+failure. Each role runs the same semantic checks again before its first mutating task.
+Preflight requires that role's inputs, not a complete fabric inventory; semantic checks are
+scoped to the values the role consumes.
+
 ### Day-1: Deploy
 
 ```bash

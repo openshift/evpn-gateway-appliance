@@ -1,0 +1,241 @@
+---
+# Converge. The first task shows that a partial inventory passes: the role checks only the values it
+# consumes, so the appliance can be prepared apart from the relay (whose own input checks have their
+# own scenario under evpn_cloud_infra/validation). The remaining cases apply the on-prem role's main
+# and validate entry points with one invalid value and require the documented failure; if the role
+# accepts the value or attempts a target connection, the case fails loudly.
+- name: Converge
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - contract_cases.yml
+  vars:
+    # A baseline the on-prem role's argument specs accept; invalid cases override one part of it.
+    _valid:
+      infra_relay_host: infra-router
+      trunk_interface: trunk0
+      tunnel:
+        type: direct-connect
+        onprem_ip: 10.44.44.1
+        cloud_ip: 10.44.44.2
+        network_cidr: 10.44.44.0/24
+        mtu_mode: safe
+      bgp:
+        onprem_asn: 65044
+        infra_asn: 65100
+        workload_asn: 65200
+      stretches:
+        - vlan: 100
+          name: production
+          subnet: 10.42.1.0/24
+          onprem_gateway: 10.42.1.1
+          cloud_gateway: 10.42.1.2
+    _invalid_cases:
+      - description: a stretch on VLAN 1 (the trunk port's untagged/native VLAN)
+        expect: must be 2-4094
+        vars:
+          stretches:
+            - {vlan: 1, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1, cloud_gateway: 10.42.1.2}
+      - description: a stretch above the 802.1Q VLAN range
+        expect: must be 2-4094
+        vars:
+          stretches:
+            - {vlan: 4095, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1, cloud_gateway: 10.42.1.2}
+      - description: two stretches on the same VLAN (same derived VNI, bridge and sub-interface)
+        expect: must be unique
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1, cloud_gateway: 10.42.1.2}
+            - {vlan: 100, name: staging, subnet: 10.42.2.0/24, onprem_gateway: 10.42.2.1, cloud_gateway: 10.42.2.2}
+      - description: the same VLAN as an integer and a numeric string
+        expect: must be unique
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1}
+            - {vlan: "100", name: staging, subnet: 10.42.2.0/24, onprem_gateway: 10.42.2.1}
+      - description: an empty stretch name
+        expect: must not be empty
+        vars:
+          stretches:
+            - {vlan: 100, name: "", subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1}
+      - description: duplicate stretch names
+        expect: name must be unique
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1}
+            - {vlan: 200, name: production, subnet: 10.42.2.0/24, onprem_gateway: 10.42.2.1}
+      - description: duplicate stretch subnets
+        expect: subnet must be unique
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1}
+            - {vlan: 200, name: staging, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.2}
+      - description: a stretch subnet with host bits set
+        expect: canonical IPv4 network
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.5/24, onprem_gateway: 10.42.1.1}
+      - description: an IPv6 stretch subnet
+        expect: canonical IPv4 network
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: "fd00:42:1::/64", onprem_gateway: 10.42.1.1}
+      - description: a malformed stretch subnet
+        expect: canonical IPv4 network
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: not-a-subnet, onprem_gateway: 10.42.1.1}
+      - description: a /31 stretch without the required usable host range
+        expect: canonical IPv4 network
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/31, onprem_gateway: 10.42.1.1}
+      - description: a /32 stretch without the required usable host range
+        expect: canonical IPv4 network
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.1/32, onprem_gateway: 10.42.1.1}
+      - description: an ASN below the valid range
+        expect: integers between 1 and 4294967295
+        vars:
+          bgp: {onprem_asn: 0, infra_asn: 65100, workload_asn: 65200}
+      - description: a duplicated ASN (the fabric is three eBGP peers)
+        expect: must all differ
+        vars:
+          bgp: {onprem_asn: 65044, infra_asn: 65044, workload_asn: 65200}
+      - description: the same ASN as an integer and a numeric string
+        expect: must all differ
+        vars:
+          bgp: {onprem_asn: "65044", infra_asn: 65044, workload_asn: 65200}
+      - description: an ASN above the four-byte range
+        expect: integers between 1 and 4294967295
+        vars:
+          bgp: {onprem_asn: 4294967296, infra_asn: 65100, workload_asn: 65200}
+      - description: a stretch gateway outside its own subnet
+        expect: must be a usable host inside its stretch subnet
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.43.1.1}
+      - description: a gateway equal to its network address
+        expect: must be a usable host inside its stretch subnet
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.0}
+      - description: a gateway equal to its broadcast address
+        expect: must be a usable host inside its stretch subnet
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.255}
+      - description: a gateway carrying a prefix
+        expect: must be a plain IPv4 address
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1/24}
+      - description: a boolean instead of a gateway address
+        expect: must be a plain IPv4 address
+        vars:
+          stretches:
+            - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: false}
+      - description: an on-prem tunnel address carrying a prefix
+        expect: must be two distinct plain IPv4 addresses
+        vars:
+          tunnel: {type: direct-connect, onprem_ip: 10.44.44.1/24, cloud_ip: 10.44.44.2}
+      - description: a cloud tunnel address carrying a prefix
+        expect: must be two distinct plain IPv4 addresses
+        vars:
+          tunnel: {type: direct-connect, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2/24}
+      - description: equal tunnel addresses
+        expect: must be two distinct plain IPv4 addresses
+        vars:
+          tunnel: {type: direct-connect, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.1}
+      - description: a tunnel CIDR with host bits set
+        expect: canonical IPv4 network
+        vars:
+          tunnel: {type: direct-connect, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2, network_cidr: 10.44.44.1/24}
+      - description: a tunnel address outside the tunnel network CIDR
+        expect: must both belong to tunnel.network_cidr
+        vars:
+          tunnel:
+            type: direct-connect
+            onprem_ip: 10.99.99.1
+            cloud_ip: 10.44.44.2
+            network_cidr: 10.44.44.0/24
+      - description: tunnel addresses outside the omitted CIDR's effective default
+        expect: must both belong to tunnel.network_cidr
+        vars:
+          tunnel: {type: wireguard, port: 51820, onprem_ip: 10.99.99.1, cloud_ip: 10.99.99.2}
+      - description: WireGuard port zero
+        expect: UDP port between 1 and 65535
+        vars:
+          tunnel: {type: wireguard, port: 0, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+      - description: a WireGuard port above the UDP range
+        expect: UDP port between 1 and 65535
+        vars:
+          tunnel: {type: wireguard, port: 70000, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+  tasks:
+    # The same entry point deploy.yml calls, including its argument spec.
+    - name: Accept an on-prem configuration without the cloud-side gateway and tunnel extras
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_onprem_appliance
+        tasks_from: validate
+      vars:
+        infra_relay_host: "{{ _valid.infra_relay_host }}"
+        trunk_interface: "{{ _valid.trunk_interface }}"
+        stretches:
+          - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1}
+        bgp: {onprem_asn: 65044, infra_asn: 65100, workload_asn: 65200}
+        tunnel: {type: direct-connect, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+
+    - name: Accept WireGuard defaults and ignore the unused cloud gateway
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_onprem_appliance
+        tasks_from: validate
+      vars:
+        infra_relay_host: "{{ _valid.infra_relay_host }}"
+        trunk_interface: "{{ _valid.trunk_interface }}"
+        stretches:
+          - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1, cloud_gateway: configured-separately}
+        bgp: {onprem_asn: "65044", infra_asn: 65100, workload_asn: 65200}
+        tunnel: {type: wireguard, port: 51820, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+
+    - name: Accept the shared IPsec selector without WireGuard-only inputs
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_onprem_appliance
+        tasks_from: validate
+      vars:
+        infra_relay_host: "{{ _valid.infra_relay_host }}"
+        trunk_interface: "{{ _valid.trunk_interface }}"
+        stretches: "{{ _valid.stretches }}"
+        bgp: "{{ _valid.bgp }}"
+        tunnel: {type: ipsec, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+
+    - name: Accept the smallest supported stretch and VLAN and port boundaries
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_onprem_appliance
+        tasks_from: validate
+      vars:
+        infra_relay_host: "{{ _valid.infra_relay_host }}"
+        trunk_interface: "{{ _valid.trunk_interface }}"
+        stretches:
+          - {vlan: 2, name: production, subnet: 10.42.1.0/30, onprem_gateway: 10.42.1.1}
+          - {vlan: 4094, name: staging, subnet: 10.42.2.0/30, onprem_gateway: 10.42.2.2}
+        bgp: {onprem_asn: 1, infra_asn: 65100, workload_asn: 4294967295}
+        tunnel: {type: wireguard, port: "{{ _listen_port }}", onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+      loop: [1, 65535]
+      loop_control:
+        loop_var: _listen_port
+
+    - name: Require the argument contract through both entry points
+      ansible.builtin.include_tasks: ../../resources/validation/reject_contract.yml
+      vars:
+        _validation_role: network.evpn_gateway.evpn_onprem_appliance
+
+    - name: Reject invalid input through both entry points without a target connection
+      ansible.builtin.include_tasks: reject_case.yml
+      vars:
+        _case: "{{ _validation_case.0 }}"
+        _entry_point: "{{ _validation_case.1 }}"
+      loop: "{{ _invalid_cases | product(['main', 'validate']) | list }}"
+      loop_control:
+        loop_var: _validation_case
+        label: "{{ _validation_case.0.description }} ({{ _validation_case.1 }})"

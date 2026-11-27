@@ -1,6 +1,6 @@
 #!/bin/bash
 # NetworkManager dispatcher — reconcile trunk-br's own (self) VLAN membership to the desired stretch
-# VLANs. Managed by the evpn_onprem_appliance role (CORENET-7499). Do not edit.
+# VLANs. Managed by the evpn_onprem_appliance role. Do not edit.
 #
 # nmstate (and NM) cannot express a vlan-aware bridge's self VLAN membership, which the per-stretch
 # trunk.<vlan> sub-interfaces need to receive their tagged frames. This reconciles it to EXACTLY the

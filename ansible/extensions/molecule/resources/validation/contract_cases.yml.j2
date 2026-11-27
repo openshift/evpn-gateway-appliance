@@ -1,0 +1,31 @@
+---
+{% for _test in _contract_cases | product(['main', 'validate']) %}
+{% set _case = _test.0 %}
+{% set _entry_point = _test.1 %}
+{% set _inputs = _valid | combine(_case.vars | default({}))
+    | dict2items | rejectattr('key', 'in', _case.omit | default([])) | items2dict %}
+- name: {{ ('Reject ' ~ _case.description ~ ' through ' ~ _entry_point) | to_json }}
+  block:
+    - name: Call the real role entry point with invalid arguments
+      ansible.builtin.include_role:
+        name: {{ _validation_role | to_json }}
+        tasks_from: {{ _entry_point | to_json }}
+      vars:
+{{ _inputs | to_nice_yaml(indent=2, sort_keys=false) | indent(8, true) }}
+    - name: Fail when invalid arguments were accepted
+      ansible.builtin.fail:
+        msg: The role accepted invalid arguments.
+  rescue:
+    - name: Require the expected argument-validator failure
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_task.action == 'ansible.builtin.validate_argument_spec'
+          - ansible_failed_result.argument_errors is defined
+          - ansible_failed_result.validate_args_context.name == {{ (_validation_role | split('.') | last) | to_json }}
+          - ansible_failed_result.validate_args_context.argument_spec_name == {{ _entry_point | to_json }}
+          - {{ ("(ansible_failed_result.argument_errors | join(' ')) is search(" ~ (_case.expect | to_json) ~ ")") | to_json }}
+        fail_msg: >-
+          Expected argument-spec rejection of {{ _case.description }} through {{ _entry_point }}.
+          {% raw %}Actual failure: {{ ansible_failed_result }}{% endraw %}
+
+{% endfor %}

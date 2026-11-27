@@ -1,0 +1,75 @@
+---
+# Controller-only deploy orchestration regression, separate from the roles' input-rule matrices.
+- name: Verify deploy-wide preflight failure handling
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    # Run the collection's actual playbook, not a copy of its preflight plays. Each group has a
+    # valid and an invalid host, so host-local failure alone cannot satisfy this regression.
+    - name: Run deployment with one invalid host in the selected group
+      ansible.builtin.command:
+        argv:
+          - ansible-playbook
+          - -i
+          - "{{ playbook_dir }}/inventory.yml"
+          - network.evpn_gateway.deploy
+          - --extra-vars
+          - "{{ {'_invalid_group': item} | to_json }}"
+      environment:
+        ANSIBLE_NOCOLOR: "1"
+        ANSIBLE_STDOUT_CALLBACK: default
+      loop: [cloud_infra, onprem_appliances]
+      register: _deploy_preflights
+      changed_when: false
+      failed_when: false
+
+    - name: Every invalid inventory stopped before the first deployment play
+      ansible.builtin.assert:
+        that:
+          - item.rc != 0
+          # Callbacks may send failed-task output to stderr rather than stdout.
+          - (item.stdout ~ item.stderr) is search(_expected_errors[item.item])
+          - item.stdout is not search('PLAY \[Deploy ')
+        fail_msg: "Deployment did not stop at the expected preflight error: {{ item.stdout }} {{ item.stderr }}"
+      vars:
+        _expected_errors:
+          cloud_infra: integers between 1 and 4294967295
+          onprem_appliances: must be 2-4094
+      loop: "{{ _deploy_preflights.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # The selector is global, not a per-role capability declaration. Both preflights must accept
+    # the same IPsec configuration. /bin/false stops all deployment connections before mutation.
+    - name: Run deployment with one shared IPsec configuration
+      ansible.builtin.command:
+        argv:
+          - ansible-playbook
+          - -i
+          - "{{ playbook_dir }}/inventory.yml"
+          - network.evpn_gateway.deploy
+          - --extra-vars
+          - >-
+            {{ {'_invalid_group': 'none', 'tunnel': {'type': 'ipsec', 'onprem_ip': '10.44.44.1',
+                 'cloud_ip': '10.44.44.2'}} | to_json }}
+          - --limit
+          - all:!localhost
+      environment:
+        ANSIBLE_NOCOLOR: "1"
+        ANSIBLE_STDOUT_CALLBACK: default
+      register: _shared_transport_deploy
+      changed_when: false
+      failed_when: false
+
+    - name: Both preflights accepted IPsec before the SSH safety barrier stopped deployment
+      ansible.builtin.assert:
+        that:
+          - _shared_transport_deploy.rc != 0
+          - _shared_transport_deploy.stdout is search('PLAY \[Validate the infra relay inputs\]')
+          - _shared_transport_deploy.stdout is search('PLAY \[Validate the on-prem appliance inputs\]')
+          - _shared_transport_deploy.stdout is search('PLAY \[Deploy cloud infra ')
+          - (_shared_transport_deploy.stdout ~ _shared_transport_deploy.stderr) is search('UNREACHABLE!')
+        fail_msg: >-
+          The shared IPsec selector did not pass preflight and reach the SSH safety barrier:
+          {{ _shared_transport_deploy.stdout }} {{ _shared_transport_deploy.stderr }}

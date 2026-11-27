@@ -1,0 +1,29 @@
+---
+# Validate appliance and relay inputs without changing hosts.
+# Usage: ansible-playbook playbooks/validate_inputs.yml
+
+- name: Validate the infra relay inputs
+  hosts: cloud_infra
+  any_errors_fatal: true
+  # The validation tasks only assert on group variables, so no connection, facts or privilege
+  # escalation are needed and no host is contacted before the checks pass.
+  connection: local
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Validate the infra relay inputs
+      ansible.builtin.include_role:
+        name: evpn_cloud_infra
+        tasks_from: validate
+
+- name: Validate the on-prem appliance inputs
+  hosts: onprem_appliances
+  any_errors_fatal: true
+  connection: local
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Validate the on-prem appliance inputs
+      ansible.builtin.include_role:
+        name: evpn_onprem_appliance
+        tasks_from: validate

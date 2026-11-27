@@ -7,7 +7,7 @@ argument_specs:
         Brings up the on-prem side of the EVPN fabric: the transport endpoint,
         the VLAN trunk on a physical interface, per-stretch VXLAN interfaces
         and bridges, and FRR configured as the on-prem VTEP.
-    options:
+    options: &role_options
       infra_relay_host:
         type: str
         required: true
@@ -26,7 +26,7 @@ argument_specs:
             type: str
             required: true
             choices: [wireguard, ipsec, direct-connect]
-            description: Transport type. Determines which transport-specific configuration is applied.
+            description: Shared fabric transport selector. This role configures the WireGuard endpoint only; other transports are provided separately.
           onprem_ip:
             type: str
             required: true
@@ -85,7 +85,7 @@ argument_specs:
           subnet:
             type: str
             required: true
-            description: IPv4 /24 subnet for this stretch. Used as the per-stretch bridge subnet.
+            description: Canonical IPv4 subnet for this stretch. Used as the per-stretch bridge subnet.
           onprem_gateway:
             type: str
             required: true
@@ -120,3 +120,10 @@ argument_specs:
             type: int
             default: 1000
             description: Defensive maximum-prefix limit applied to EVPN neighbors.
+  validate:
+    short_description: Validate the on-prem appliance inputs without changing the host.
+    description:
+      - >-
+        Checks the same input contract as main, followed by the role's semantic
+        assertions. Requires this role's inputs, but not a complete fabric inventory.
+    options: *role_options

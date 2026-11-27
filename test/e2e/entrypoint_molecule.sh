@@ -5,12 +5,11 @@
 # molecule cannot create it from a nested, rootless Prow container — which is why this lane rides the
 # same rootful VM substrate as the e2e lane.
 #
-# EGA_STAGE selects scenarios: full / unset -> all; otherwise a single molecule scenario name.
+# EGA_SCENARIOS selects comma-separated Molecule scenario names; unset or empty runs all.
 set -euo pipefail
 
 : "${EGA_NODE_IMAGE:?}"    # appliance image the delegated create runs as the instance
 : "${EGA_RUNTIME_SOCK:?}"  # rootful podman socket; container create/exec go through it
-stage="${EGA_STAGE:-full}"
 
 # The podman CLI — and the connection plugin's `podman exec` — target the mounted rootful socket, so
 # the molecule instance is a sibling on the host runtime with the host kernel. The CI image ships
@@ -35,10 +34,15 @@ export ANSIBLE_COLLECTIONS_PATH="${col_root}:/usr/share/ansible/collections"
 # Collection-mode: scenarios live under extensions/molecule/<role>/<scenario>/. Run from the
 # collection root (galaxy.yml here) so molecule auto-detects collection-mode and discovers the nested
 # scenarios — no MOLECULE_GLOB. Scenario names are the path under extensions/molecule, e.g.
-# evpn_onprem_appliance/default (so EGA_STAGE for a single scenario is that full nested name).
+# evpn_onprem_appliance/nm_networking/default (EGA_SCENARIOS uses the full nested names).
 cd "${work}/ansible"
 
-if [ "$stage" = full ] || [ "$stage" = molecule ]; then
+if [ -z "${EGA_SCENARIOS:-}" ]; then
 	exec molecule test --all
 fi
-exec molecule test -s "$stage"
+IFS=, read -r -a scenarios <<< "$EGA_SCENARIOS"
+args=()
+for scenario in "${scenarios[@]}"; do
+	args+=(-s "$scenario")
+done
+exec molecule test "${args[@]}"

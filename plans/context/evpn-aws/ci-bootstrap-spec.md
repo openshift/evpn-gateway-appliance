@@ -52,8 +52,13 @@ scanner suite or an additional workflow platform.
 
 Start L5 with one real scenario, then extend the same suite as roles are ready. Reuse native
 argument specs and role preflight rules; an extra schema/parser, nox suite or destination
-checker is not a prerequisite. This does not claim current roles already reject all invalid
-VNI/ASN/transport settings; the [local mechanism proof](#test-placement) is narrower.
+checker is not a prerequisite. The appliance and relay roles reject invalid VNI/ASN/transport
+settings as of 2026-11-26: `deploy.yml` calls each role's `validate` argument-spec entry point in
+read-only plays before any change, and each role runs the same checks as its first task. The two
+controller-only negative Molecule scenarios exercise both `main` and `validate`; a separate
+`deploy/validation` scenario checks deploy-wide abort on one invalid host in either
+preflight group. The
+[local mechanism proof](#test-placement) records the earlier measurement.
 
 L6 can use a native [Podman build](https://docs.podman.io/en/latest/markdown/podman-build.1.html)
 once source, inputs and runner are approved. Keep resource/privileged builds in their
@@ -83,8 +88,10 @@ The collection-CI criteria were split, rechecked read-only on 2026-10-16: CORENE
 Closed with YAML/Ansible lint complete; [CORENET-7667](https://redhat.atlassian.net/browse/CORENET-7667)
 requires Molecule scenarios for every role, VNI/ASN/transport validation, and build/publication
 to an approved Hub or Galaxy destination. The merged `check-ansible` lint/build/install
-checks are the baseline; Molecule scenarios, input validation and publication remain under
-7667. Neither nox, a second input schema, documentation style lint nor a new execution
+checks are the baseline. As of 2026-11-26 the appliance and relay roles check their own inputs
+before their first host change and the `evpn_onprem_appliance/validation` and
+`evpn_cloud_infra/validation` Molecule scenarios cover the negative cases; scenario coverage for the remaining roles and the publication upload
+remain under 7667. Neither nox, a second input schema, documentation style lint nor a new execution
 environment is an acceptance criterion.
 
 Use existing `make verify OFFLINE=1`, with one native target/prerequisite per selected check.
@@ -206,9 +213,26 @@ call alone does not prove the real deployment path rejects input before making a
 
 Argument specs alone are not enough. On 2026-10-12, native `validate_argument_spec`
 against the on-prem role's [argument specs](https://github.com/openshift/evpn-gateway-appliance/blob/31cfdbb94c680a5107d8fc5ccd246a30b25860f6/ansible/roles/evpn_onprem_appliance/meta/argument_specs.yml)
-accepted negative VLAN/ASN values and `ipsec`, which has no setup path; only an unknown
-transport failed. Add role preflight assertions before the first mutating task and prove
-the real entry point rejects those cases.
+accepted negative VLAN/ASN values; only an unknown transport failed. The global transport
+selector is not a per-role endpoint capability declaration: all roles accept its declared
+`wireguard`, `ipsec` and `direct-connect` values. The 2026-11-26 change adds each fabric role's `validate` entry point
+(`tasks/validate.yml`), run from `deploy.yml` before any change and as the role's first task, with
+rules scoped to the values that role consumes so a partial inventory with that role's required
+inputs is valid. The `main` and `validate` entry points share the full role argument spec.
+The `evpn_onprem_appliance/validation` and
+`evpn_cloud_infra/validation` scenarios exercise both entry points, effective CIDR defaults,
+numeric-string ASN collisions and conditional WireGuard inputs. Their explicit argument-contract
+fixtures require native argument-validator rejection for missing fields, invalid types/choices
+and unknown nested keys, separately from semantic assertions and valid boundary cases.
+Both are controller-only: synthetic inventory hosts have guarded SSH connections, so any
+unexpected target-side execution fails without contacting a target. There is no appliance
+provisioning, service readiness check or host-state inspection. Valid inputs run only through
+`validate`; negative cases exercise both entry points. A separate `deploy/validation`
+scenario invokes the real deploy playbook with one mixed valid/invalid case per preflight group
+to check that any preflight failure stops deployment, and with one shared IPsec configuration
+that both preflight plays must accept. Select these scenarios directly with Molecule's repeated
+`-s` arguments for controller-only execution without an appliance image or runtime socket; the
+existing lane entrypoint retains its runtime requirements and selects scenarios via `EGA_SCENARIOS`.
 
 Molecule's [Ansible-native configuration](https://docs.ansible.com/projects/molecule/ansible-native/)
 ([source](https://github.com/ansible/molecule/blob/da31a19eb0c2aa50faa7255a42ee9792bafa4361/docs/ansible-native.md)) runs a localhost `converge`/`verify` sequence on existing inventories and playbooks without

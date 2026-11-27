@@ -1,0 +1,162 @@
+---
+# Converge. The first task shows that a relay-only inventory passes: the relay checks only the values
+# it consumes, so it needs no per-stretch VLAN, name or gateway. The remaining cases apply the
+# relay's main and validate entry points with one invalid value and require the documented failure;
+# if the role accepts the value or attempts a target connection, the case fails loudly.
+- name: Converge
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - contract_cases.yml
+  vars:
+    # A baseline the relay role's argument specs accept; invalid cases override one part of it.
+    _valid:
+      private_ip: 10.100.0.1
+      tunnel:
+        type: wireguard
+        onprem_ip: 10.44.44.1
+        cloud_ip: 10.44.44.2
+        port: 51820
+      bgp:
+        onprem_asn: 65044
+        infra_asn: 65100
+        workload_asn: 65200
+      stretches:
+        - subnet: 10.42.1.0/24
+    _invalid_cases:
+      - description: a stretch subnet with host bits set
+        expect: canonical IPv4 network
+        vars:
+          stretches:
+            - {subnet: 10.42.1.5/24}
+      - description: an IPv6 stretch subnet
+        expect: canonical IPv4 network
+        vars:
+          stretches:
+            - {subnet: "fd00:42:1::/64"}
+      - description: a malformed stretch subnet
+        expect: canonical IPv4 network
+        vars:
+          stretches:
+            - {subnet: not-a-subnet}
+      - description: an ASN below the valid range
+        expect: integers between 1 and 4294967295
+        vars:
+          bgp: {onprem_asn: 0, infra_asn: 65100, workload_asn: 65200}
+      - description: a duplicated ASN (the relay sits between two eBGP peers)
+        expect: must all differ
+        vars:
+          bgp: {onprem_asn: 65044, infra_asn: 65044, workload_asn: 65200}
+      - description: the same ASN as an integer and a numeric string
+        expect: must all differ
+        vars:
+          bgp: {onprem_asn: "65044", infra_asn: 65044, workload_asn: 65200}
+      - description: an ASN above the four-byte range
+        expect: integers between 1 and 4294967295
+        vars:
+          bgp: {onprem_asn: 4294967296, infra_asn: 65100, workload_asn: 65200}
+      - description: a tunnel endpoint that is not an IPv4 address
+        expect: must be a plain IPv4 address
+        vars:
+          tunnel: {type: direct-connect, onprem_ip: onprem.example}
+      - description: an on-prem tunnel address carrying a prefix
+        expect: must be a plain IPv4 address
+        vars:
+          tunnel: {type: direct-connect, onprem_ip: 10.44.44.1/24}
+      - description: a boolean instead of an on-prem tunnel address
+        expect: must be a plain IPv4 address
+        vars:
+          tunnel: {type: direct-connect, onprem_ip: false}
+      - description: a cloud tunnel address carrying a prefix
+        expect: must be a plain IPv4 address
+        vars:
+          tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2/24, port: 51820}
+      - description: a cloud tunnel address equal to the on-prem one
+        expect: different from tunnel.onprem_ip
+        vars:
+          tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.1, port: 51820}
+      - description: a tunnel network CIDR with host bits set
+        expect: canonical IPv4 network
+        vars:
+          tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2, port: 51820, network_cidr: 10.44.44.1/24}
+      - description: a cloud tunnel address outside the tunnel network CIDR
+        expect: must belong to tunnel.network_cidr
+        vars:
+          tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.99.99.2, port: 51820, network_cidr: 10.44.44.0/24}
+      - description: a cloud tunnel address outside the omitted CIDR's effective default
+        expect: must belong to tunnel.network_cidr
+        vars:
+          tunnel: {type: wireguard, onprem_ip: 10.99.99.1, cloud_ip: 10.99.99.2, port: 51820}
+      - description: a WireGuard stretch without a subnet
+        expect: canonical IPv4 network
+        vars:
+          stretches: [{}]
+      - description: WireGuard port zero
+        expect: UDP port between 1 and 65535
+        vars:
+          tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2, port: 0}
+      - description: a WireGuard port outside the UDP range
+        expect: UDP port between 1 and 65535
+        vars:
+          tunnel: {type: wireguard, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2, port: 70000}
+  tasks:
+    # The same entry point deploy.yml calls, including its argument spec.
+    - name: Accept a relay configuration that carries only the values the relay uses
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_cloud_infra
+        tasks_from: validate
+      vars:
+        private_ip: "{{ _valid.private_ip }}"
+        stretches:
+          - {subnet: 10.42.1.0/24}
+          - {subnet: 10.42.2.0/24}
+        bgp: {onprem_asn: 65044, infra_asn: 65100, workload_asn: 65200}
+        tunnel: {type: direct-connect, onprem_ip: 10.44.44.1}
+
+    - name: Accept WireGuard defaults and numeric string ASNs
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_cloud_infra
+        tasks_from: validate
+      vars:
+        private_ip: "{{ _valid.private_ip }}"
+        stretches: "{{ _valid.stretches }}"
+        bgp: {onprem_asn: "65044", infra_asn: 65100, workload_asn: 65200}
+        tunnel: "{{ _valid.tunnel }}"
+
+    - name: Accept externally provided IPsec transport without WireGuard-only inputs
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_cloud_infra
+        tasks_from: validate
+      vars:
+        private_ip: "{{ _valid.private_ip }}"
+        stretches: [{}]
+        bgp: "{{ _valid.bgp }}"
+        tunnel: {type: ipsec, onprem_ip: 10.44.44.1}
+
+    - name: Accept ASN and WireGuard port boundaries
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_cloud_infra
+        tasks_from: validate
+      vars:
+        private_ip: "{{ _valid.private_ip }}"
+        stretches: "{{ _valid.stretches }}"
+        bgp: {onprem_asn: 1, infra_asn: 65100, workload_asn: 4294967295}
+        tunnel: "{{ _valid.tunnel | combine({'port': _listen_port}) }}"
+      loop: [1, 65535]
+      loop_control:
+        loop_var: _listen_port
+
+    - name: Require the argument contract through both entry points
+      ansible.builtin.include_tasks: ../../resources/validation/reject_contract.yml
+      vars:
+        _validation_role: network.evpn_gateway.evpn_cloud_infra
+
+    - name: Reject invalid relay input through both entry points without a target connection
+      ansible.builtin.include_tasks: reject_case.yml
+      vars:
+        _case: "{{ _validation_case.0 }}"
+        _entry_point: "{{ _validation_case.1 }}"
+      loop: "{{ _invalid_cases | product(['main', 'validate']) | list }}"
+      loop_control:
+        loop_var: _validation_case
+        label: "{{ _validation_case.0.description }} ({{ _validation_case.1 }})"

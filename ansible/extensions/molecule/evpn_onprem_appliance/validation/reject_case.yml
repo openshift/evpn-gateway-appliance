@@ -1,0 +1,36 @@
+---
+# Run each negative case through both the normal role and its read-only validation entry point.
+- name: "Reject {{ _case.description }} through {{ _entry_point }}"
+  block:
+    - name: "Apply {{ _entry_point }} with {{ _case.description }}"
+      ansible.builtin.include_role:
+        name: network.evpn_gateway.evpn_onprem_appliance
+        tasks_from: "{{ _entry_point }}"
+      vars:
+        infra_relay_host: "{{ _valid.infra_relay_host }}"
+        trunk_interface: "{{ _valid.trunk_interface }}"
+        tunnel: "{{ _case.vars.tunnel | default(_valid.tunnel) }}"
+        bgp: "{{ _case.vars.bgp | default(_valid.bgp) }}"
+        stretches: "{{ _case.vars.stretches | default(_valid.stretches) }}"
+
+    - name: "Fail when the role accepted {{ _case.description }}"
+      ansible.builtin.fail:
+        msg: "The role accepted {{ _case.description }} instead of failing before any host change."
+  rescue:
+    # A failed looped assertion reports "One or more items failed" and keeps each item's message under
+    # results, so collect both shapes before matching the documented message.
+    - name: Collect the failure messages
+      ansible.builtin.set_fact:
+        _evpn_validation_messages: >-
+          {{ ([ansible_failed_result.msg | default('')]
+              + (ansible_failed_result.results | default([]) | map(attribute='msg', default='') | list))
+             | unique | list }}
+
+    - name: "Require the documented rejection of {{ _case.description }}"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_task.action == 'ansible.builtin.assert'
+          - (_evpn_validation_messages | select('search', _case.expect) | list | length) > 0
+        fail_msg: >-
+          Expected a failure matching '{{ _case.expect }}' for {{ _case.description }}, got:
+          {{ _evpn_validation_messages | join(' | ') }}

@@ -1,0 +1,32 @@
+---
+# Synthetic multi-host inventory for deploy validation. The SSH plugin can be initialized
+# for controller-side assertions, but /bin/false prevents any connection if deployment is reached.
+all:
+  vars:
+    ansible_connection: ssh
+    ansible_ssh_executable: /bin/false
+    infra_relay_host: relay-valid
+    private_ip: 10.100.0.1
+    trunk_interface: trunk0
+    tunnel: {type: direct-connect, onprem_ip: 10.44.44.1, cloud_ip: 10.44.44.2}
+    _valid_bgp: {onprem_asn: 65044, infra_asn: 65100, workload_asn: 65200}
+    bgp: "{{ _valid_bgp }}"
+    _valid_stretches:
+      - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1}
+    stretches: "{{ _valid_stretches }}"
+  children:
+    cloud_infra:
+      hosts:
+        relay-valid: {}
+        relay-invalid:
+          bgp: "{{ _valid_bgp | combine({'onprem_asn': 0} if _invalid_group == 'cloud_infra' else {}) }}"
+    onprem_appliances:
+      hosts:
+        appliance-valid: {}
+        appliance-invalid:
+          stretches: >-
+            {{ [{'vlan': 4095, 'name': 'invalid', 'subnet': '10.42.1.0/24', 'onprem_gateway': '10.42.1.1'}]
+               if _invalid_group == 'onprem_appliances' else _valid_stretches }}
+    cloud_workload:
+      hosts:
+        workload: {}

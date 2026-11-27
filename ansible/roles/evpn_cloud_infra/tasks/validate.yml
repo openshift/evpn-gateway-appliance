@@ -1,0 +1,97 @@
+---
+# Input checks for the infra relay. meta/argument_specs.yml owns presence, types and allowed
+# choices; this file only adds the rules an argument spec cannot express: domain bounds,
+# cross-field consistency and the transport values the relay consumes. The relay is often
+# configured on its own, so only the tunnel endpoints, the stretch subnets behind the WireGuard
+# tunnel and the ASNs are checked; per-stretch VLANs, names and gateways are not.
+#
+# The role runs this file before its first task that changes the host. It is also the role's
+# `validate` argument-spec entry point, which playbooks/deploy.yml calls (via tasks_from) before any
+# play changes a host; that entry point declares the same types and required values as main. Keep
+# this file to assertions: it must not depend on anything the role itself creates.
+
+- name: Require canonical IPv4 stretch subnets for WireGuard
+  when: tunnel.type == 'wireguard'
+  ansible.builtin.assert:
+    that:
+      - item.subnet is defined
+      - item.subnet | ansible.utils.ipaddr('ipv4') is truthy
+      - (item.subnet | ansible.utils.ipaddr('network/prefix')) == item.subnet
+    fail_msg: >-
+      stretches[].subnet must be a canonical IPv4 network such as 10.42.1.0/24
+      (got {{ item.subnet | default('nothing') | to_json }}): the relay admits these networks
+      behind the WireGuard tunnel.
+  loop: "{{ stretches }}"
+  loop_control:
+    label: "{{ item.name | default(item.subnet | default('stretch')) }}"
+
+- name: Require a plain IPv4 address for the on-prem tunnel endpoint
+  ansible.builtin.assert:
+    that:
+      - tunnel.onprem_ip | ansible.utils.ipv4('address') is truthy
+      - (tunnel.onprem_ip | ansible.utils.ipv4('address')) == tunnel.onprem_ip
+    fail_msg: >-
+      tunnel.onprem_ip must be a plain IPv4 address (got {{ tunnel.onprem_ip }}): it is the on-prem
+      peer of the relay's BGP session.
+
+- name: Require a plain, distinct IPv4 cloud tunnel address for WireGuard
+  when: tunnel.type == 'wireguard'
+  ansible.builtin.assert:
+    that:
+      - tunnel.cloud_ip | ansible.utils.ipv4('address') is truthy
+      - (tunnel.cloud_ip | ansible.utils.ipv4('address')) == tunnel.cloud_ip
+      - tunnel.cloud_ip != tunnel.onprem_ip
+    fail_msg: >-
+      tunnel.cloud_ip must be a plain IPv4 address different from tunnel.onprem_ip
+      (got {{ tunnel.cloud_ip | to_json }}): it is the relay end of the
+      WireGuard tunnel.
+
+# Match the template's fallback: argument-spec defaults do not populate role variables.
+- name: Validate the effective WireGuard network
+  when: tunnel.type == 'wireguard'
+  vars:
+    _evpn_cloud_infra_tunnel_cidr: "{{ tunnel.network_cidr | default('10.44.44.0/24') }}"
+  block:
+    - name: Require a canonical IPv4 tunnel network CIDR
+      ansible.builtin.assert:
+        that:
+          - _evpn_cloud_infra_tunnel_cidr | ansible.utils.ipaddr('ipv4') is truthy
+          - >-
+            (_evpn_cloud_infra_tunnel_cidr | ansible.utils.ipaddr('network/prefix'))
+            == _evpn_cloud_infra_tunnel_cidr
+        fail_msg: >-
+          tunnel.network_cidr must be a canonical IPv4 network such as 10.44.44.0/24
+          (got {{ _evpn_cloud_infra_tunnel_cidr | to_json }}).
+
+    - name: Require the relay tunnel address inside tunnel.network_cidr
+      ansible.builtin.assert:
+        that:
+          - (tunnel.cloud_ip | ansible.utils.ipaddr(_evpn_cloud_infra_tunnel_cidr)) is truthy
+        fail_msg: >-
+          tunnel.cloud_ip must belong to tunnel.network_cidr ({{ _evpn_cloud_infra_tunnel_cidr }}):
+          that CIDR supplies the WireGuard interface address.
+
+- name: Require a valid WireGuard listen port
+  when: tunnel.type == 'wireguard'
+  ansible.builtin.assert:
+    that: "tunnel.port | int >= 1 and tunnel.port | int <= 65535"
+    fail_msg: "tunnel.port must be a UDP port between 1 and 65535 (got {{ tunnel.port }})."
+
+- name: Require each BGP ASN in the 4-byte ASN range
+  ansible.builtin.assert:
+    that:
+      - item | int >= 1
+      - item | int <= 4294967295
+    fail_msg: "bgp ASNs must be integers between 1 and 4294967295 (got {{ item | to_json }})."
+  loop: "{{ [bgp.onprem_asn, bgp.infra_asn, bgp.workload_asn] }}"
+  loop_control:
+    label: "{{ item }}"
+
+# Argument specs accept numeric strings without rewriting role variables. Compare numeric values.
+- name: Require three distinct eBGP ASNs
+  ansible.builtin.assert:
+    that: "([bgp.onprem_asn, bgp.infra_asn, bgp.workload_asn] | map('int') | unique | length) == 3"
+    fail_msg: >-
+      bgp.onprem_asn, bgp.infra_asn and bgp.workload_asn must all differ: the relay sits between
+      two eBGP peers, and an equal ASN makes a session iBGP or invalid (got
+      {{ [bgp.onprem_asn, bgp.infra_asn, bgp.workload_asn] | join(', ') }}).

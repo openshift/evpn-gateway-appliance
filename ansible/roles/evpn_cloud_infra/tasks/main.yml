@@ -1,4 +1,10 @@
 ---
+# Check this role's inputs before generating keys or changing the relay host: argument specs
+# validate types, required values and choices; validate.yml adds the domain bounds and
+# cross-field rules for the values the relay consumes.
+- name: Validate the relay inputs
+  ansible.builtin.include_tasks: validate.yml
+
 - name: Discover OCP frr-k8s workload peers
   ansible.builtin.include_tasks: discover_peers.yml
   when: groups['cloud_workload'] | default([]) | length <= 0
