@@ -1,0 +1,24 @@
+---
+- name: Deploy the infra relay
+  hosts: cloud_infra
+  roles:
+    - network.evpn_gateway.evpn_cloud_infra
+
+- name: Deploy the on-prem appliance
+  hosts: onprem_appliances
+  pre_tasks:
+    - name: Resolve the relay endpoint on the container underlay
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars[infra_relay_host].ansible_facts.default_ipv4.address }} {{ infra_relay_host }}"
+        unsafe_writes: true
+  roles:
+    - network.evpn_gateway.evpn_onprem_appliance
+
+- name: Verify the teardown starting state
+  hosts: onprem_appliances:cloud_infra
+  gather_facts: false
+  tasks:
+    - name: Require deployed networking before teardown
+      ansible.builtin.command: ip link show dev wg0
+      changed_when: false

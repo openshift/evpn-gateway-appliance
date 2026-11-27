@@ -1,0 +1,8 @@
+---
+- name: Tear down FRR
+  ansible.builtin.include_role:
+    name: evpn_frr
+    tasks_from: teardown
+
+- name: Tear down WireGuard
+  ansible.builtin.include_tasks: wireguard_teardown.yml

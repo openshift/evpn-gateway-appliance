@@ -1,5 +1,5 @@
 ---
-# Remove all EVPN appliance components. Does NOT destroy cloud infrastructure.
+# Remove EVPN deployment configuration. Does NOT destroy cloud infrastructure.
 # Usage: ansible-playbook playbooks/teardown.yml
 
 - name: Teardown on-prem appliance
@@ -15,20 +15,7 @@
   hosts: cloud_infra
   become: true
   tasks:
-    - name: Stop and remove FRR container
-      containers.podman.podman_container:
-        name: frr
-        state: absent
-
-    - name: Stop WireGuard
-      ansible.builtin.systemd:
-        name: wg-quick@wg0
-        state: stopped
-        enabled: false
-      register: _wg_stop
-      failed_when: _wg_stop.failed and 'Could not find' not in (_wg_stop.msg | default(''))
-
-    - name: Remove FRR config
-      ansible.builtin.file:
-        path: /etc/frr
-        state: absent
+    - name: Tear down the infra relay
+      ansible.builtin.include_role:
+        name: evpn_cloud_infra
+        tasks_from: teardown

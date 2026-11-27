@@ -1,0 +1,5 @@
+---
+- name: Reconcile FRR to its unconfigured appliance baseline
+  ansible.builtin.include_tasks: main.yml
+  vars:
+    evpn_frr_config_template: "{{ role_path }}/files/empty.conf"

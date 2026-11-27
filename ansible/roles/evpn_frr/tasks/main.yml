@@ -23,11 +23,8 @@
 
 - name: Seed a minimal startup configuration if it is missing
   ansible.builtin.copy:
+    src: empty.conf
     dest: /etc/frr/frr.conf
-    content: |
-      frr defaults traditional
-      !
-      end
     force: false
     mode: "0644"
 
@@ -48,7 +45,7 @@
 
 - name: Render the desired FRR configuration
   ansible.builtin.template:
-    src: "{{ ansible_parent_role_paths[0] }}/templates/{{ evpn_frr_config_template }}"
+    src: "{{ [ansible_parent_role_paths[0] | default(role_path), 'templates', evpn_frr_config_template] | path_join }}"
     dest: /etc/frr/desired/frr.conf
     mode: "0644"
 

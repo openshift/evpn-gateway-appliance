@@ -1,0 +1,45 @@
+---
+platforms:
+  - name: ega-teardown-onprem
+    image: ${EGA_NODE_IMAGE}
+    pre_build_image: true
+    privileged: true
+    systemd: always
+    override_command: false
+    extra_opts: ["--cgroupns=host"]
+    groups: [onprem_appliances]
+  - name: ega-teardown-relay
+    image: ${EGA_NODE_IMAGE}
+    pre_build_image: true
+    privileged: true
+    systemd: always
+    override_command: false
+    extra_opts: ["--cgroupns=host"]
+    groups: [cloud_infra]
+provisioner:
+  playbooks:
+    prepare: prepare.yml
+    converge: converge.yml
+  inventory:
+    hosts:
+      cloud_workload:
+        hosts:
+          # Inventory-only peer: relay configuration needs an address, not a managed VTEP.
+          workload-peer:
+            private_ip: 10.200.0.1
+    group_vars:
+      all:
+        infra_relay_host: ega-teardown-relay
+        trunk_interface: trunk0
+        tunnel:
+          type: wireguard
+          onprem_ip: 10.44.44.1
+          cloud_ip: 10.44.44.2
+          port: 51820
+        bgp: {onprem_asn: 65044, infra_asn: 65100, workload_asn: 65200}
+        stretches:
+          - {vlan: 100, name: production, subnet: 10.42.1.0/24, onprem_gateway: 10.42.1.1, cloud_gateway: 10.42.1.2}
+    host_vars:
+      ega-teardown-relay:
+        ansible_host: ega-teardown-relay
+        private_ip: 10.100.0.1

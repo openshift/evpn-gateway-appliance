@@ -239,6 +239,15 @@ test/e2e/run_molecule.sh
 Scenarios live under `ansible/extensions/molecule/` (see the Layout above). To run a single scenario,
 set `EGA_STAGE` to its nested path, for example `EGA_STAGE=evpn_onprem_appliance/nm_networking/default`.
 
+The `deploy/teardown` scenario deploys the on-prem appliance and relay, then
+invokes the shipped teardown playbook twice. An inventory-only workload peer
+supplies the relay's BGP input; no workload VTEP is deployed or torn down. It checks absent
+WireGuard and deployment networking, preservation of unrelated resources, and a
+minimal live/saved FRR configuration with stable service and BGP process identity.
+The second teardown must leave this baseline unchanged and report only FRR's
+mandatory live reconciliation as changed. Monitoring and fabric connectivity
+qualification are outside this scenario.
+
 ## Status
 
 Deploy + the collection's health check pass end to end: three-AS eBGP, Type-2/3 exchange,

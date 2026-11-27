@@ -1,29 +1,13 @@
 ---
-# Tear down everything main.yml deploys, in reverse: the FRR / exporter containers, the WireGuard
-# tunnel, the on-prem networking and the FRR config. The container/service stops ignore errors so a
-# partial deploy still tears down cleanly.
-- name: Stop and remove FRR container
-  containers.podman.podman_container:
-    name: frr
-    state: absent
+- name: Tear down FRR
+  ansible.builtin.include_role:
+    name: evpn_frr
+    tasks_from: teardown
 
-- name: Stop and remove frr_exporter container
-  containers.podman.podman_container:
-    name: frr_exporter
-    state: absent
-
-- name: Stop and remove node_exporter container
-  containers.podman.podman_container:
-    name: node_exporter
-    state: absent
-
-- name: Stop WireGuard
-  ansible.builtin.systemd:
-    name: wg-quick@wg0
-    state: stopped
-    enabled: false
-  register: _evpn_onprem_appliance_wg_stop
-  failed_when: _evpn_onprem_appliance_wg_stop.failed and 'Could not find' not in (_evpn_onprem_appliance_wg_stop.msg | default(''))
+- name: Tear down WireGuard
+  ansible.builtin.include_role:
+    name: evpn_cloud_infra
+    tasks_from: wireguard_teardown
 
 # Tear down the on-prem networking declaratively, mirroring deploy: render the template with no stretches
 # and apply it. _evpn_onprem_appliance_absent is every ega-* interface we own (marked absent); _evpn_onprem_appliance_detach is every
@@ -50,6 +34,13 @@
          | selectattr('controller', 'equalto', 'trunk-br')
          | map(attribute='name') | list }}
 
+- name: Ensure the teardown state directory exists
+  ansible.builtin.file:
+    path: /var/lib/ega
+    state: directory
+    mode: "0700"
+  when: _evpn_onprem_appliance_absent | length > 0 or _evpn_onprem_appliance_detach | length > 0
+
 - name: Render the teardown nmstate desired state (no stretches, everything owned absent + trunk detached)
   ansible.builtin.template:
     src: nmstate.yml.j2
@@ -72,7 +63,7 @@
     - 90-ega-neigh-suppress
     - 90-ega-trunk-vlans
 
-- name: Remove FRR config
+- name: Remove the saved on-prem network state
   ansible.builtin.file:
-    path: /etc/frr
+    path: /var/lib/ega
     state: absent

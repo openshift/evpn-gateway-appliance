@@ -1,0 +1,96 @@
+---
+- name: Prepare teardown fixtures
+  hosts: onprem_appliances:cloud_infra
+  gather_facts: false
+  tasks:
+    # The container has the bootc image's packages but not its boot marker. Avoid RPM installation.
+    - name: Present the image-mode boot marker
+      ansible.builtin.copy:
+        dest: /run/ostree-booted
+        content: ""
+        mode: "0644"
+
+    - name: Create an unrelated interface
+      ansible.builtin.command: ip link add keep0 type dummy
+      changed_when: true
+
+    - name: Preserve another tunnel's configuration
+      ansible.builtin.copy:
+        dest: /etc/wireguard/keep.conf
+        content: "unrelated tunnel configuration\n"
+        mode: "0600"
+
+    - name: Present each cloud router's address
+      ansible.builtin.command: ip address replace {{ private_ip }}/32 dev lo
+      when: private_ip is defined
+      changed_when: true
+
+- name: Present the on-prem trunk
+  hosts: onprem_appliances
+  gather_facts: false
+  tasks:
+    - name: Wait for NetworkManager
+      ansible.builtin.command: systemctl is-active NetworkManager
+      register: _nm
+      until: _nm.stdout == 'active'
+      retries: 30
+      delay: 1
+      changed_when: false
+
+    - name: Allow NetworkManager to manage the stand-in trunk
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/99-ega-molecule-trunk.conf
+        content: |
+          [device-ega-molecule-trunk]
+          match-device=interface-name:trunk0
+          managed=1
+        mode: "0644"
+
+    - name: Create and activate the foreign trunk profile
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - ip link add trunk0 type veth peer name cpe
+        - nmcli general reload
+        - nmcli connection add type ethernet ifname trunk0 con-name foreign-trunk ipv4.method disabled ipv6.method disabled
+        - nmcli connection up foreign-trunk
+      changed_when: true
+
+- name: Prepare cached keys
+  hosts: cloud_infra
+  gather_facts: false
+  tasks:
+    # Generate on the node: the controller image does not need wireguard-tools for this test.
+    - name: Generate fixture private keys
+      ansible.builtin.command: wg genkey
+      loop: [server, client]
+      register: _private_keys
+      changed_when: true
+      no_log: true
+
+    - name: Derive fixture public keys
+      ansible.builtin.command: wg pubkey
+      args:
+        stdin: "{{ item.stdout }}"
+      loop: "{{ _private_keys.results }}"
+      register: _public_keys
+      changed_when: false
+      no_log: true
+
+    - name: Create the controller key-cache directory
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../.wg-keys"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+
+    - name: Cache fixture keys for the real deployment roles
+      ansible.builtin.copy:
+        dest: "{{ playbook_dir }}/../.wg-keys/keys.yml"
+        content: |
+          wg_server_private: {{ _private_keys.results[0].stdout }}
+          wg_server_public: {{ _public_keys.results[0].stdout }}
+          wg_client_private: {{ _private_keys.results[1].stdout }}
+          wg_client_public: {{ _public_keys.results[1].stdout }}
+        mode: "0600"
+      delegate_to: localhost
+      no_log: true

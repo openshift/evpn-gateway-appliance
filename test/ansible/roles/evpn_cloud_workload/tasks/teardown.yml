@@ -1,0 +1,20 @@
+---
+- name: Tear down FRR
+  ansible.builtin.include_role:
+    name: network.evpn_gateway.evpn_frr
+    tasks_from: teardown
+
+- name: Read the remaining network interfaces
+  ansible.builtin.command: ip -json link show
+  register: _evpn_cloud_workload_teardown_links
+  changed_when: false
+
+- name: Remove workload bridges and VXLAN interfaces
+  ansible.builtin.command: "ip link delete dev {{ item.0 }}{{ 10000 + item.1 }}"
+  when: >-
+    (item.0 ~ (10000 + item.1) | string)
+    in (_evpn_cloud_workload_teardown_links.stdout | from_json | map(attribute='ifname') | list)
+  loop: "{{ ['br-vni', 'vxlan'] | product(stretches | map(attribute='vlan') | map('int') | list) | list }}"
+  loop_control:
+    label: "{{ item.0 }}{{ 10000 + item.1 }}"
+  changed_when: true

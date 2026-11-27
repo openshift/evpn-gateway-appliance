@@ -106,6 +106,27 @@ ansible-playbook playbooks/deploy.yml
 ansible-playbook playbooks/health-check.yml
 ```
 
+## Teardown
+
+Use the deployment inventory to remove the appliance and relay configuration:
+
+```bash
+ansible-playbook network.evpn_gateway.teardown -i /path/to/inventory
+# From a source checkout: ansible-playbook playbooks/teardown.yml
+```
+
+Teardown returns FRR to a minimal configuration while leaving its service enabled
+and running. It stops and disables the deployment's WireGuard tunnel, removes its
+configuration, and removes appliance-owned networking. Monitoring is unchanged.
+Teardown is safe to repeat or run after a partial deployment. It does not change
+the OCP workload peers. Standalone dev/test VTEPs are managed separately by the
+test collection's teardown playbook.
+
+AWS resources, installed packages, embedded images, host-wide IP-forwarding
+settings and the controller's `.wg-keys/keys.yml` cache are retained. Delete cached
+keys separately if retiring the deployment; `teardown-aws.yml` destroys the AWS
+resources.
+
 ## Required variables
 
 See each role's `meta/argument_specs.yml` for its full schema. The shared

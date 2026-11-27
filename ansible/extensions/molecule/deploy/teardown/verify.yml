@@ -1,0 +1,155 @@
+---
+- name: Verify the unconfigured appliance baseline and unrelated resources
+  hosts: onprem_appliances:cloud_infra
+  gather_facts: false
+  tasks:
+    - name: Read FRR state
+      ansible.builtin.include_tasks: read_frr.yml
+
+    - name: Read the desired FRR configuration
+      ansible.builtin.slurp:
+        src: /etc/frr/desired/frr.conf
+      register: _frr_desired
+
+    - name: Normalize FRR configuration without generated comments and headers
+      ansible.builtin.set_fact:
+        _running_lines: >-
+          {{ _frr_running.stdout_lines | map('trim')
+             | reject('match', '^(!|Building configuration|Current configuration:)')
+             | reject('equalto', '') | list }}
+        _saved_lines: >-
+          {{ (_frr_saved.content | b64decode).splitlines() | map('trim')
+             | reject('match', '^!') | reject('equalto', '') | list }}
+
+    - name: FRR is unconfigured without a service or BGP process restart
+      vars:
+        _config: "{{ _frr_running.stdout ~ '\n' ~ (_frr_saved.content | b64decode) }}"
+      ansible.builtin.assert:
+        that:
+          - (_frr_desired.content | b64decode) == 'frr defaults traditional\n!\nend\n'
+          - "'frr defaults traditional' in _running_lines"
+          - "'frr defaults traditional' in _saved_lines"
+          - _config is not search('(?m)^\s*(router bgp |neighbor |address-family |vni |route-target |ip route )')
+          - _frr_invocation.stdout | length > 0
+          - _frr_pid.stdout | int > 0
+          - _frr_invocation.stdout == (_deployed_frr_invocation | default(_frr_invocation.stdout))
+          - _frr_pid.stdout == (_deployed_frr_pid | default(_frr_pid.stdout))
+          - _running_lines == (_baseline_running | default(_running_lines))
+          - _saved_lines == (_baseline_saved | default(_saved_lines))
+
+    - name: Preserve the first baseline for the repeat-run comparison
+      ansible.builtin.set_fact:
+        _baseline_running: "{{ _running_lines }}"
+        _baseline_saved: "{{ _saved_lines }}"
+
+    - name: Check the FRR service is still active
+      ansible.builtin.command: systemctl is-active frr-container.service
+      register: _frr_active
+      changed_when: false
+
+    - name: Check the FRR service is still enabled
+      ansible.builtin.command: systemctl is-enabled frr-container.service
+      register: _frr_enabled
+      changed_when: false
+
+    - name: The appliance FRR service remains available
+      ansible.builtin.assert:
+        that:
+          - _frr_active.stdout == 'active'
+          - _frr_enabled.stdout == 'enabled'
+
+    - name: Check the WireGuard tunnel is stopped
+      ansible.builtin.command: systemctl is-active wg-quick@wg0
+      register: _wg_active
+      changed_when: false
+      failed_when: false
+
+    - name: Check the WireGuard tunnel is disabled
+      ansible.builtin.command: systemctl is-enabled wg-quick@wg0
+      register: _wg_enabled
+      changed_when: false
+      failed_when: false
+
+    - name: The deployment tunnel is inactive and will not start at boot
+      ansible.builtin.assert:
+        that:
+          - _wg_active.stdout in ['inactive', 'unknown']
+          - _wg_enabled.stdout in ['disabled', 'not-found', '']
+
+    - name: Check managed configuration and state paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/wireguard/wg0.conf
+        - /var/lib/ega
+        - /etc/NetworkManager/dispatcher.d/90-ega-neigh-suppress
+        - /etc/NetworkManager/dispatcher.d/90-ega-trunk-vlans
+      register: _paths
+
+    - name: No deployment tunnel or on-prem network state remains
+      ansible.builtin.assert:
+        that: not item.stat.exists
+      loop: "{{ _paths.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Read remaining interfaces
+      ansible.builtin.command: ip -json link show
+      register: _links
+      changed_when: false
+
+    - name: Managed interfaces are gone and unrelated interfaces survive
+      vars:
+        _names: "{{ _links.stdout | from_json | map(attribute='ifname') | list }}"
+      ansible.builtin.assert:
+        that:
+          - "['wg0', 'trunk-br', 'br-vni10100', 'vxlan10100', 'trunk.100'] | intersect(_names) | length == 0"
+          - "'keep0' in _names"
+          - "'onprem_appliances' not in group_names or 'trunk0' in _names"
+
+    - name: Read the unrelated tunnel configuration
+      ansible.builtin.slurp:
+        src: /etc/wireguard/keep.conf
+      register: _keep
+
+    - name: The unrelated tunnel configuration is unchanged
+      ansible.builtin.assert:
+        that: (_keep.content | b64decode) == 'unrelated tunnel configuration\n'
+
+    - name: Read on-prem NetworkManager profiles
+      ansible.builtin.command: nmcli -t -f NAME connection show
+      register: _profiles
+      changed_when: false
+      when: "'onprem_appliances' in group_names"
+
+    - name: Only appliance-owned profiles were removed
+      ansible.builtin.assert:
+        that:
+          - _profiles.stdout_lines | select('match', '^ega-') | length == 0
+          - "'foreign-trunk' in _profiles.stdout_lines"
+      when: "'onprem_appliances' in group_names"
+
+    - name: Read the released trunk
+      ansible.builtin.command: ip -json link show dev trunk0
+      register: _trunk
+      changed_when: false
+      when: "'onprem_appliances' in group_names"
+
+    - name: The foreign trunk is detached
+      ansible.builtin.assert:
+        that: (_trunk.stdout | from_json | first).master is not defined
+      when: "'onprem_appliances' in group_names"
+
+- name: Verify the controller key cache is retained
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check cached keys
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../.wg-keys/keys.yml"
+      register: _keys
+
+    - name: Teardown did not delete the reusable controller keys
+      ansible.builtin.assert:
+        that: _keys.stat.exists

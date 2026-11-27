@@ -16,21 +16,7 @@
   hosts: cloud_workload
   become: true
   tasks:
-    - name: Stop and remove FRR container
-      containers.podman.podman_container:
-        name: frr
-        state: absent
-
-    - name: Remove bridges and VXLAN interfaces
-      ansible.builtin.shell: |
-        {% for s in stretches %}
-        {% set vni = 10000 + s.vlan %}
-        ip link del br-vni{{ vni }} 2>/dev/null || true
-        ip link del vxlan{{ vni }} 2>/dev/null || true
-        {% endfor %}
-      changed_when: false
-
-    - name: Remove FRR config
-      ansible.builtin.file:
-        path: /etc/frr
-        state: absent
+    - name: Tear down the standalone workload VTEP configuration
+      ansible.builtin.include_role:
+        name: network.evpn_gateway_test.evpn_cloud_workload
+        tasks_from: teardown

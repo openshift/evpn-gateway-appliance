@@ -16,3 +16,7 @@ returns the error.
 
 The appliance starts Zebra with `--graceful_restart` and uses FRR's default
 route cleanup timer. Configuration updates are applied live.
+
+The `teardown` entry point reconciles a minimal configuration through the same
+validation and reload flow. FRR stays enabled and running, with its daemon
+configuration and runtime state retained.

@@ -1,0 +1,54 @@
+---
+- name: Capture the deployed FRR state
+  hosts: onprem_appliances:cloud_infra
+  gather_facts: false
+  tasks:
+    - name: Read FRR state
+      ansible.builtin.include_tasks: read_frr.yml
+
+    - name: Require deployment configuration before teardown
+      ansible.builtin.assert:
+        that:
+          - _frr_running.stdout is search('(?m)^router bgp ')
+          - (_frr_saved.content | b64decode) is search('(?m)^router bgp ')
+
+    - name: Save the running service and process identities
+      ansible.builtin.set_fact:
+        _deployed_frr_invocation: "{{ _frr_invocation.stdout }}"
+        _deployed_frr_pid: "{{ _frr_pid.stdout }}"
+
+- name: Tear down the deployed fabric through the shipped playbook
+  ansible.builtin.import_playbook: network.evpn_gateway.teardown
+
+- name: Verify the first teardown
+  ansible.builtin.import_playbook: verify.yml
+
+- name: Require a second teardown with only the mandatory FRR reconciliation
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run the shipped teardown again
+      ansible.builtin.command:
+        argv:
+          - ansible-playbook
+          - -i
+          - "{{ lookup('env', 'MOLECULE_INVENTORY_FILE') }}"
+          - network.evpn_gateway.teardown
+      environment:
+        ANSIBLE_STDOUT_CALLBACK: default
+        ANSIBLE_NOCOLOR: "1"
+      register: _second_teardown
+      changed_when: false
+
+    # evpn_frr always reconciles live state, even when its candidate is unchanged.
+    # Exactly one reported change per host leaves no allowance for other mutations.
+    - name: Only the FRR reload reported a change on each host
+      ansible.builtin.assert:
+        that:
+          - >-
+            _second_teardown.stdout is search(item ~ '\s+: ok=[1-9][0-9]*\s+changed=1\s+unreachable=0\s+failed=0')
+      loop: "{{ groups['onprem_appliances'] + groups['cloud_infra'] }}"
+
+- name: Verify the same baseline after the second teardown
+  ansible.builtin.import_playbook: verify.yml

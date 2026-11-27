@@ -1,0 +1,22 @@
+---
+- name: Read the running FRR configuration
+  ansible.builtin.command:
+    argv: [podman, exec, frr, vtysh, -c, show running-config]
+  register: _frr_running
+  changed_when: false
+
+- name: Read the saved FRR configuration
+  ansible.builtin.slurp:
+    src: /etc/frr/frr.conf
+  register: _frr_saved
+
+- name: Read the FRR systemd invocation
+  ansible.builtin.command: systemctl show -p InvocationID --value frr-container.service
+  register: _frr_invocation
+  changed_when: false
+
+- name: Read the BGP process ID
+  ansible.builtin.command:
+    argv: [podman, exec, frr, cat, /var/run/frr/bgpd.pid]
+  register: _frr_pid
+  changed_when: false

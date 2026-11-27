@@ -1,0 +1,17 @@
+---
+- name: Discover installed services
+  ansible.builtin.service_facts:
+
+- name: Stop and disable the WireGuard tunnel
+  ansible.builtin.systemd:
+    name: wg-quick@wg0
+    state: stopped
+    enabled: false
+  when: >-
+    ('wg-quick@wg0' ~ '.service') in ansible_facts.services
+    or 'wg-quick@.service' in ansible_facts.services
+
+- name: Remove the WireGuard tunnel configuration
+  ansible.builtin.file:
+    path: /etc/wireguard/wg0.conf
+    state: absent
