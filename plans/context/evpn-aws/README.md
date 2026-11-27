@@ -90,6 +90,7 @@ parallel. Record accepted decisions in the decision list.
 | [Networking handoff](networking-spec.md) | Source gaps and interfaces to networking/QE qualification |
 | [FRR metrics and observability](frr-metrics-plan.md) | CORENET-7504 exporter choice, status, implementation chunks and asks; [details](frr-metrics-details.md) hold the evidence behind it |
 | [Site-to-Site VPN](site-to-site-vpn-plan.md) | CORENET-7500 transport plan, owner questions and implementation sequence |
+| [Direct Connect and preflight](direct-connect-plan.md) | CORENET-7501 transport preflight and the DX mode (CORENET-7708): CORENET-7501's acceptance criteria, decisions 22 and 23, the open circuit question (8) and sequence |
 
 [Prior art](prior-art.md) identifies reusable code and its limits;
 [source evidence](source-evidence.md) records checked revisions and the reasons

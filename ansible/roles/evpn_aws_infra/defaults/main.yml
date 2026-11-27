@@ -19,3 +19,13 @@ evpn_aws_infra_router_ami: ""
 evpn_aws_infra_admin_cidr: ""
 # Set true only for a disposable, fully isolated lab; never in CI.
 evpn_aws_infra_allow_open_admin_cidr: false
+
+# AWS Site-to-Site VPN (tunnel.type: ipsec). The collection's group_vars/all.yml sets the ASN from bgp.onprem_asn.
+evpn_aws_infra_vpn_customer_gateway_ip: ""
+evpn_aws_infra_vpn_customer_gateway_asn: 65044
+evpn_aws_infra_vpn_tunnel_inside_cidrs:
+  - 169.254.10.0/30
+  - 169.254.11.0/30
+
+# tunnel.type direct-connect: the customer's existing DX gateway (see the role README).
+evpn_aws_infra_dx_gateway_id: ""

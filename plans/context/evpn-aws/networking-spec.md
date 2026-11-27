@@ -14,8 +14,8 @@ TCP MSS clamping, but the checked roles do not implement the corresponding
 iptables/nftables/MSS tasks. The design's 1399-byte AWS VPN figure is also out of
 date (item 3).
 
-Production DX and VPN remain implementation work; WireGuard is development/test
-only in CORENET-7498. The task breakdown (§2.1) terminates Site-to-Site VPN
+DX (#57) and the Site-to-Site VPN (#52) are implemented but not yet qualified;
+WireGuard is development/test only in CORENET-7498. The task breakdown (§2.1) terminates Site-to-Site VPN
 IPsec on the on-prem appliance itself (Libreswan in the bootc image) and on the
 AWS TGW, leaving the cloud EVPN relay outside that data path. The appliance is
 therefore the AWS customer gateway, with a static, registered public IP (directly
@@ -88,8 +88,8 @@ actually handles each packet before asserting MTU or HA.
    gateways. The prototype's lab Terraform repeats the private-VIF assumption
    ([source audit](source-audit.md#3-configuration--structure-mismatches)). Verify routes,
    peer ASNs, allowed prefixes and failover on the corrected path.
-   Transit VIFs and TGW carry at most 8500 bytes; the design's 9001 is a
-   private-VIF value. A transit VIF left at its 1500 default cannot carry VXLAN
+   Transit VIFs and TGW carry at most 8500 bytes; 9001 applies only to
+   private VIFs. A transit VIF left at its 1500 default cannot carry VXLAN
    with a 1500-byte workload IP MTU, so preflight must read the VIF's configured MTU and
    jumbo capability. AWS uses a 1500-byte MTU when a Site-to-Site VPN advertises the
    same route, so if VPN backs up DX, size workload MTU/MSS for the smallest

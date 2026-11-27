@@ -4,6 +4,9 @@ argument_specs:
     short_description: Provision AWS infrastructure (2 VPCs, transit gateway, 2 EC2 routers, security groups).
     description:
       - Provisions the infra and workload VPCs, the transit gateway, the EC2 routers and their security groups.
+      - For IPsec, it also creates a Site-to-Site VPN per on-premises appliance; AWS generates the tunnel preshared keys, and tasks_from vpn_handoff reads them.
+      - For direct-connect, it associates the existing DX gateway (evpn_aws_infra_dx_gateway_id) with the TGW, allowing the two VPC CIDRs;
+        it never changes the gateway or its VIFs.
     options:
       evpn_aws_infra_aws_region:
         type: str
@@ -41,6 +44,31 @@ argument_specs:
         type: bool
         default: false
         description: Explicitly allow admin ingress from 0.0.0.0/0. For disposable labs only.
+      evpn_aws_infra_vpn_customer_gateway_ip:
+        type: str
+        default: ""
+        description: >-
+          On-premises static public IPv4 address. Required and validated when tunnel.type is ipsec;
+          set it per appliance in host variables when there are several.
+      evpn_aws_infra_vpn_customer_gateway_asn:
+        type: int
+        default: 65044
+        description: >-
+          Customer gateway BGP ASN, the on-premises ASN (the collection's bgp.onprem_asn default).
+          Keep it distinct from the TGW Amazon-side ASN and any reachable VPC Route Server ASN.
+      evpn_aws_infra_vpn_tunnel_inside_cidrs:
+        type: list
+        elements: str
+        default: [169.254.10.0/30, 169.254.11.0/30]
+        description: >-
+          Two distinct canonical /30 networks in 169.254.0.0/16, excluding AWS reserved tunnel ranges.
+          Set them per appliance in host variables when there are several; no two appliances may share one.
+      evpn_aws_infra_dx_gateway_id:
+        type: str
+        default: ""
+        description: >-
+          Existing Direct Connect gateway ID, required when tunnel.type is direct-connect; see the role README for
+          its requirements.
       tunnel:
         type: dict
         required: true
@@ -63,6 +91,9 @@ argument_specs:
             type: str
             default: 10.44.44.0/24
             description: CIDR covering the tunnel addresses (onprem_ip and cloud_ip). Allowed through the security groups and routed over the transit gateway.
+          next_hop:
+            type: str
+            description: Direct Connect only; the customer router's address on the appliance's uplink. Not used by this role.
           onprem_ip:
             type: str
             description: Tunnel address of the on-prem appliance. Part of the shared playbook configuration model; not used by this role.

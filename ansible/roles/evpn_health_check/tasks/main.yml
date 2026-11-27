@@ -40,17 +40,26 @@
     p=d['ipv4Unicast']['peers']['{{ tunnel.onprem_ip }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
-  when: "'cloud_infra' in group_names"
+  when:
+    - "'cloud_infra' in group_names"
+    - tunnel.type == 'wireguard'
 
 - name: "HEALTH [infra]: EVPN prefixes relayed from on-prem"
   ansible.builtin.shell: >
     set -o pipefail;
     podman exec frr vtysh -c "show bgp l2vpn evpn summary json" |
     python3 -c "import sys,json; d=json.load(sys.stdin);
-    p=d['peers']['{{ tunnel.onprem_ip }}'];
-    assert int(p['pfxRcd'])>0, f'pfxRcd={p[\"pfxRcd\"]}'"
+    p=d['peers']['{{ item }}'];
+    assert p['state']=='Established' and int(p['pfxRcd'])>0, f'state={p[\"state\"]} pfxRcd={p[\"pfxRcd\"]}'"
   changed_when: false
+  register: _evpn_health_check_onprem_prefixes
+  until: _evpn_health_check_onprem_prefixes.rc == 0
+  retries: 12
+  delay: 5
   when: "'cloud_infra' in group_names"
+  loop: >-
+    {{ groups['onprem_appliances'] | map('extract', hostvars) | map(attribute='tunnel') | map(attribute='onprem_ip') | list
+       if tunnel.type == 'ipsec' else [tunnel.onprem_ip] }}
 
 - name: "HEALTH [infra]: EVPN prefixes relayed from workload"
   ansible.builtin.shell: >
@@ -105,6 +114,19 @@
     label: "{{ item.cloud_gateway }} → {{ item.onprem_gateway }}"
   when: "'cloud_workload' in group_names"
 
+# Echo replies leave with DF clear, so the appliance's ping (direct_connect.yml) proves only the forward path:
+# probe the return path the same way, 1522 bytes of ICMP payload + 28 bytes of headers.
+- name: "HEALTH [workload]: Direct Connect return path carries 1550-byte packets"
+  ansible.builtin.command: ping -c 3 -W 2 -I {{ private_ip }} -M do -s 1522 {{ tunnel.onprem_ip }}
+  changed_when: false
+  register: _evpn_health_check_dx_return_ping
+  until: _evpn_health_check_dx_return_ping.rc == 0
+  retries: 6
+  delay: 5
+  when:
+    - "'cloud_workload' in group_names"
+    - tunnel.type == 'direct-connect'
+
 # ═══════════════════════════════════════════════════════════════
 # On-prem appliance checks
 # ═══════════════════════════════════════════════════════════════
@@ -125,7 +147,21 @@
     p=d['ipv4Unicast']['peers']['{{ tunnel.cloud_ip }}'];
     assert p['state']=='Established', f'state={p[\"state\"]}'"
   changed_when: false
-  when: "'onprem_appliances' in group_names"
+  when:
+    - "'onprem_appliances' in group_names"
+    - tunnel.type == 'wireguard'
+
+- name: Check on-prem IPsec health
+  ansible.builtin.include_tasks: ipsec.yml
+  when:
+    - "'onprem_appliances' in group_names"
+    - tunnel.type == 'ipsec'
+
+- name: Check on-prem Direct Connect health
+  ansible.builtin.include_tasks: direct_connect.yml
+  when:
+    - "'onprem_appliances' in group_names"
+    - tunnel.type == 'direct-connect'
 
 - name: "HEALTH [onprem]: remote VTEP present per VNI"
   ansible.builtin.shell: >
@@ -146,4 +182,8 @@
   loop: "{{ stretches }}"
   loop_control:
     label: "→ {{ item.cloud_gateway }}"
+  when: "'onprem_appliances' in group_names"
+
+- name: Record the loss and RTT baseline to the workload VTEP
+  ansible.builtin.include_tasks: baseline.yml
   when: "'onprem_appliances' in group_names"

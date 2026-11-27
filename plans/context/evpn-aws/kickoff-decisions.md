@@ -5,7 +5,7 @@ criteria are requirements; an item below is a decision only once it records an
 owner, date and evidence. Everything else is a proposal for discussion, and role
 owners are proposed unless a row records an assignment. Status rechecked on 2026-10-15; decision 16
 updated 2026-11-10; owners for decisions 15 and 18 assigned 2026-11-17; decisions 20 and 21 recorded
-2026-11-17 and 2026-11-18; decision 1's 7504 meanings approved for Networking 2026-11-25.
+2026-11-17 and 2026-11-18; decision 1's 7504 meanings approved for Networking 2026-11-25; decisions 22 and 23 recorded 2026-11-25.
 Review directions retain their dates.
 
 ## Decisions at a glance
@@ -38,6 +38,8 @@ and publication needs its destination. Resolve the remaining choices alongside r
 | 19 | Qualification evidence and sign-offs | Networking / QE / Product Security / docs | [Gate C-prod](#gate-c-prod--supported-release) | Open |
 | 20 | CORENET-7500 gateway, tunnel profile, scope split and canary | Daniel Farrell (CORENET-7500) | 7500 acceptance (AC1, AC2, AC6) | Closed 2026-11-17 by the CORENET-7500 owner; [#52](https://github.com/openshift/evpn-gateway-appliance/pull/52) implements it: Transit Gateway; IKEv2, AES256-GCM-16, SHA2-256, DH14; 7500 = VPN lifecycle, handoff, minimal appliance Libreswan/FRR and acceptance checks, 7708 = Direct Connect, hardening, FIPS validation and qualification; the AWS canary is outside 7500 |
 | 21 | WireGuard code path after the IPsec transport | Jaime Caamaño (CORENET-7498) | [VPN plan](site-to-site-vpn-plan.md) question 7 | Closed 2026-11-18 by the 7498 owner: keep WireGuard, which carries the credential-free per-PR e2e lane (7508); reusing existing WireGuard keys stays a follow-up |
+| 22 | CORENET-7501 transport preflight: scope and reading of its criteria | Daniel Farrell (CORENET-7501) | 7501 acceptance | Closed 2026-11-25 by the CORENET-7501 owner; [#56](https://github.com/openshift/evpn-gateway-appliance/pull/56) implements it: 7501 = the preflight and its internet-mode checks, and its Direct Connect checks ship with 7708; the acknowledgment is an inventory variable; the operator must declare the workload MTU, which is audited against each transport's budget; the baseline is reported and kept, with no BFD comparison; UDP reachability is proven by the deploy run's tunnel checks, with no earlier probe, which 7501's Jira criterion is to be amended to say |
+| 23 | CORENET-7708 Direct Connect design | Daniel Farrell (CORENET-7708) | 7708 delivery | Closed 2026-11-25 by the CORENET-7708 owner; [#57](https://github.com/openshift/evpn-gateway-appliance/pull/57) implements it: a customer router terminates the transit VIF's BGP; same-account DX gateways only; 7708 builds no encryption; no VPN backup; the TGW keeps ASN 64512; one appliance in `safe` mode until 7502 and 7709; decision 20's tunnel profile and pre-shared keys stand. Circuit funding stays with decision 11, and the `dx` lane with this repository's approvers |
 
 ## Already settled
 
@@ -260,11 +262,26 @@ item for decisions 7, 8 and 13 to `@knobunc`.
   [#42](https://github.com/openshift/evpn-gateway-appliance/pull/42); the CORENET-7500 description
   sets the 7500/7708 split, and [#52](https://github.com/openshift/evpn-gateway-appliance/pull/52)
   implements the decision. See [plan](site-to-site-vpn-plan.md) questions 1, 6 and 13. The 7708 owner
-  may revisit the tunnel profile and PSK authentication without reopening the 7500/7708 split.
+  may revisit the tunnel profile and PSK authentication without reopening the 7500/7708 split;
+  [decision 23](#decisions-at-a-glance) keeps both.
 
 - **WireGuard path.** Decision 21 closed 2026-11-18. Accountable owner: **Jaime Caamaño**
   (CORENET-7498). Evidence: his [owner answer](https://github.com/openshift/evpn-gateway-appliance/pull/42#discussion_r4616321422) on
   [#42](https://github.com/openshift/evpn-gateway-appliance/pull/42). See [plan](site-to-site-vpn-plan.md) question 7.
+
+- **Transport preflight.** Decision 22 closed 2026-11-25. Accountable owner: **Daniel Farrell**
+  (CORENET-7501, its Jira assignee as of 2026-11-25). Evidence: this record, made by the accountable owner in
+  [#56](https://github.com/openshift/evpn-gateway-appliance/pull/56), which implements it. See the
+  [DX plan](direct-connect-plan.md#requirements) and its questions 1–4. 7501 closes with UDP reachability
+  proven after deployment only, a reading its owner records in Jira with the "private VIF" correction
+  (decision 1) once the plan review allows Jira edits.
+
+- **Direct Connect.** Decision 23 closed 2026-11-25. Accountable owner: **Daniel Farrell**
+  (CORENET-7708, its Jira assignee as of 2026-11-25). Evidence: this record, made by the accountable owner in
+  [#57](https://github.com/openshift/evpn-gateway-appliance/pull/57), which implements it. See the
+  [DX plan](direct-connect-plan.md#questions-for-owner-decision) questions 5–7, 9, 10 and 12. A plaintext underlay's
+  support statement stays with decision 18, the circuit with decision 11, 7708's Jira criteria with the 7498
+  owner, and the `dx` e2e lane (question 11) with an approver's explicit acknowledgment on #57.
 
 ### Gate C-prod — supported release
 

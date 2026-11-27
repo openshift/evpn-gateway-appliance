@@ -9,7 +9,8 @@ description: >-
   Test-only helpers for the EVPN Gateway Appliance e2e lane. Not published:
   installed into the e2e execution environment alongside network.evpn_gateway to
   simulate the on-prem customer side (VLAN trunk + hosts) the appliance attaches
-  to, and to assert data-plane reachability from those simulated hosts.
+  to, to emulate the AWS Site-to-Site VPN endpoint, and to assert data-plane
+  reachability from those simulated hosts.
 license:
   - Apache-2.0
 tags:

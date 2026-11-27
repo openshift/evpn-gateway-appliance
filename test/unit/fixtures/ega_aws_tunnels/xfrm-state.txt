@@ -1,0 +1,50 @@
+src 192.0.2.11 dst 192.0.2.21
+	proto esp spi 0x101 reqid 16389 mode tunnel
+	replay-window 0 flag af-unspec esn
+	output-mark 0x1/0xffffffff
+	aead rfc4106(gcm(aes)) 0xTEST_ONLY_EGA_XFRM_KEY 128
+	lastused 2026-11-26 07:50:45
+	anti-replay esn context:
+	 seq-hi 0x0, seq 0x0, oseq-hi 0x0, oseq 0x158c
+	 replay_window 0, bitmap-length 0
+	if_id 0x1
+	dir out
+src 192.0.2.21 dst 192.0.2.11
+	proto esp spi 0x102 reqid 16389 mode tunnel
+	replay-window 0 flag af-unspec esn
+	output-mark 0x1/0xffffffff
+	aead rfc4106(gcm(aes)) 0xTEST_ONLY_EGA_XFRM_KEY 128
+	lastused 2026-11-26 07:50:45
+	anti-replay esn context:
+	 seq-hi 0x0, seq 0x158e, oseq-hi 0x0, oseq 0x0
+	 replay_window 128, bitmap-length 4
+	 ffffffff ffffffff ffffffff ffffffff
+	if_id 0x1
+	dir in
+src 192.0.2.11 dst 192.0.2.22
+	proto esp spi 0x201 reqid 16393 mode tunnel
+	replay-window 0 flag af-unspec esn
+	output-mark 0x2/0xffffffff
+	aead rfc4106(gcm(aes)) 0xTEST_ONLY_EGA_XFRM_KEY 128
+	lastused 2026-11-26 07:50:45
+	anti-replay esn context:
+	 seq-hi 0x0, seq 0x0, oseq-hi 0x0, oseq 0x257
+	 replay_window 0, bitmap-length 0
+	if_id 0x2
+	dir out
+src 192.0.2.22 dst 192.0.2.11
+	proto esp spi 0x202 reqid 16393 mode tunnel
+	replay-window 0 flag af-unspec esn
+	output-mark 0x2/0xffffffff
+	aead rfc4106(gcm(aes)) 0xTEST_ONLY_EGA_XFRM_KEY 128
+	lastused 2026-11-26 07:50:45
+	anti-replay esn context:
+	 seq-hi 0x0, seq 0x253, oseq-hi 0x0, oseq 0x0
+	 replay_window 128, bitmap-length 4
+	 ffffffff ffffffff ffffffff ffffffff
+	if_id 0x2
+	dir in
+src 192.0.2.11 dst 192.0.2.27
+	proto esp spi 0x701 reqid 17000 mode tunnel
+	aead rfc4106(gcm(aes)) 0xTEST_ONLY_EGA_XFRM_KEY 128
+	if_id 0x7

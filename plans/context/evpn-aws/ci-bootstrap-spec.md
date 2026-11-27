@@ -183,7 +183,7 @@ networking, AWS credentials, physical trunks, Direct Connect, or an OCP EVPN
 topology in a dedicated ITS, Testing Farm, or delegated-lab pipeline.
 
 Run the Molecule `idempotence` step for each role that
-changes a host: 7499 requires idempotent deploy and teardown, and the AWS role's 46 `aws` calls
+changes a host: 7499 requires idempotent deploy and teardown, and the AWS role's 47 `aws` calls
 through `command` make its idempotency hand-built ([source
 audit](source-audit.md#aws-role-and-certified-content)). Where a driver cannot support the step,
 record the reason and the lane covering the property. Document mock/container overrides and

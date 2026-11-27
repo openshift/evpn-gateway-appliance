@@ -1,0 +1,39 @@
+---
+- name: Validate the project name
+  ansible.builtin.include_tasks: project_name.yml
+
+- name: List the appliances
+  ansible.builtin.include_tasks: vpn_appliances.yml
+
+- name: Check AWS VPN tunnel telemetry
+  block:
+    - name: Wait for every appliance's two AWS VPN tunnels to be UP
+      amazon.aws.ec2_vpc_vpn_info:
+        region: "{{ evpn_aws_infra_aws_region }}"
+        filters:
+          "tag:Project": "{{ evpn_aws_infra_project_name }}"
+          "tag:Name": "{{ evpn_aws_infra_project_name }}-vpn-*"
+          state: available
+      register: _evpn_aws_infra_vpn_status
+      # Exactly one VPN per appliance by name, so a stray VPN cannot stand in for a missing or degraded one.
+      until:
+        - >-
+          _evpn_aws_infra_vpn_status.vpn_connections | map(attribute='tags.Name') | sort ==
+          _evpn_aws_infra_vpn_appliances | map(attribute='customer_gateway_ip')
+          | map('regex_replace', '^', evpn_aws_infra_project_name ~ '-vpn-') | sort
+        - >-
+          _evpn_aws_infra_vpn_status.vpn_connections | map(attribute='vgw_telemetry') | flatten
+          | selectattr('status', 'equalto', 'UP') | list | length == 2 * _evpn_aws_infra_vpn_appliances | length
+      retries: 30
+      delay: 10
+      # The module also returns tunnel options and customer_gateway_configuration, which contain keys.
+      no_log: true
+  rescue:
+    - name: Report unhealthy AWS VPN tunnel states
+      ansible.builtin.fail:
+        msg: >-
+          Every appliance's two AWS VPN tunnels must be UP; found {{ _evpn_aws_infra_vpn_status.vpn_connections | default([]) | length }}
+          of {{ _evpn_aws_infra_vpn_appliances | length }} available VPNs (none: check the controller credentials and region).
+          {% for v in _evpn_aws_infra_vpn_status.vpn_connections | default([]) %}{{ v.tags.Name }}:
+          {% for t in v.vgw_telemetry | default([]) %}{{ t.outside_ip_address }} {{ t.status }} {{ t.status_message | default('') }};
+          {% endfor %}{% endfor %}

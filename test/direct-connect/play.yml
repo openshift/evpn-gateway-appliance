@@ -1,0 +1,43 @@
+---
+# Runs evpn_aws_infra's Direct Connect task files named in steps, and evpn_health_check's transport
+# preflight for the step "preflight" and its Direct Connect checks for "health", against the fake `aws`
+# (and `ping`) that run.py puts first on PATH.
+- name: Direct Connect tasks against a fake AWS CLI
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    tunnel:
+      type: direct-connect
+      mtu_mode: "{{ mtu_mode | default('safe') }}"
+      onprem_ip: "{{ onprem_ip | default('10.44.44.1') }}"
+      network_cidr: "{{ network_cidr | default('10.44.44.0/24') }}"
+      next_hop: "{{ next_hop | default('10.99.0.1') }}"
+    evpn_aws_infra_aws_region: us-west-2
+    evpn_aws_infra_infra_vpc_cidr: 10.100.0.0/16
+    evpn_aws_infra_workload_vpc_cidr: 10.200.0.0/16
+    evpn_aws_infra_dx_gateway_id: "{{ dxgw | default('5f0e6c1e-1b1a-4c2a-9a55-0123456789ab') }}"
+    # For the association (dx_association), teardown (teardown_dx) and status (dx_status) cases.
+    evpn_aws_infra_project_name: ega-test
+    _evpn_aws_infra_region: us-west-2
+    _evpn_aws_infra_tgw: {stdout: tgw-0001}
+  tasks:
+    - name: Run the transport preflight
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../../ansible/roles/evpn_health_check"
+        tasks_from: preflight
+      when: "'preflight' in steps"
+
+    - name: Run the health check's Direct Connect tasks
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../../ansible/roles/evpn_health_check"
+        tasks_from: direct_connect
+      vars:
+        workload_vtep_host: localhost
+      when: "'health' in steps"
+
+    - name: Run the selected task files
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../ansible/roles/evpn_aws_infra/tasks/{{ _step }}.yml"
+      loop: "{{ steps | reject('in', ['preflight', 'health']) | list }}"
+      loop_control:
+        loop_var: _step

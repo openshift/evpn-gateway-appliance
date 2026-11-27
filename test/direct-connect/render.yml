@@ -1,0 +1,70 @@
+---
+# Renders the appliance and relay templates into out for tunnel type ttype, after running the role tasks
+# that feed them (named in steps) against run.py's fake `ip` and `aws`; run.py checks the result.
+- name: Direct Connect templates and routes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    role_root: "{{ playbook_dir }}/../../ansible/roles"
+    tunnel:
+      type: "{{ ttype }}"
+      mtu_mode: safe
+      onprem_ip: 10.44.44.1
+      cloud_ip: 10.44.44.2
+      network_cidr: 10.44.44.0/24
+      next_hop: 10.99.0.1
+    bgp: {onprem_asn: 65001, infra_asn: 65000, workload_asn: 65002}
+    frr_image: quay.io/frrouting/frr:10.2.1
+    stretches: []
+    infra_relay_host: localhost
+    workload_vtep_host: localhost
+    _evpn_aws_infra_region: us-west-2
+    _evpn_aws_infra_tgw: {stdout: tgw-0001}
+    evpn_aws_infra_dx_gateway_id: 5f0e6c1e-1b1a-4c2a-9a55-0123456789ab
+    evpn_aws_infra_infra_vpc_cidr: 10.100.0.0/16
+    evpn_aws_infra_workload_vpc_cidr: 10.200.0.0/16
+    _evpn_aws_infra_tgw_infra: {stdout: tgw-attach-infra}
+    _evpn_aws_infra_infra_rt: {stdout: rtb-infra}
+    _evpn_aws_infra_infra_instance_id: {stdout: i-infra}
+  tasks:
+    - name: Give the relay (this host, as hostvars sees it) its address
+      ansible.builtin.set_fact:
+        private_ip: 10.100.1.10
+
+    - name: Find each named task, which a rename would otherwise drop silently
+      ansible.builtin.assert:
+        that: lookup('file', role_root ~ '/' ~ item.key ~ '/tasks/main.yml') | from_yaml
+              | selectattr('name', 'in', item.value) | list | length == item.value | length
+        fail_msg: "{{ item.key }}/tasks/main.yml lacks one of {{ item.value }}"
+      loop: "{{ steps | dict2items }}"
+
+    - name: Take the named tasks from each role
+      ansible.builtin.copy:
+        dest: "{{ out }}/{{ item.key }}.yml"
+        content: "{{ lookup('file', role_root ~ '/' ~ item.key ~ '/tasks/main.yml') | from_yaml
+                     | selectattr('name', 'in', item.value) | list | to_nice_yaml }}"
+        mode: "0644"
+      loop: "{{ steps | dict2items }}"
+
+    - name: Add the task files they include
+      ansible.builtin.copy:
+        src: "{{ role_root }}/evpn_aws_infra/tasks/dx_association.yml"
+        dest: "{{ out }}/dx_association.yml"
+        mode: "0644"
+
+    - name: Run them
+      ansible.builtin.include_tasks: "{{ out }}/{{ item }}.yml"
+      loop: "{{ steps | list }}"
+
+    # IPsec's templates need the VPN handoff, which this play does not provide.
+    - name: Render the templates
+      when: ttype != 'ipsec'
+      ansible.builtin.template:
+        src: "{{ role_root }}/{{ item }}"
+        dest: "{{ out }}/{{ item | basename }}"
+        mode: "0644"
+      loop:
+        - evpn_onprem_appliance/templates/frr-onprem-appliance.conf.j2
+        - evpn_onprem_appliance/templates/nmstate.yml.j2
+        - evpn_cloud_infra/templates/frr-infra-relay.conf.j2

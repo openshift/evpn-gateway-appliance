@@ -2,7 +2,9 @@
 
 Deploys and configures the EVPN Gateway Appliance (EGA) fabric: the on-prem
 appliance, the AWS infra/workload relays, and the BGP EVPN sessions
-connecting them, using FRR and (dev/test only) WireGuard.
+connecting them, using FRR over WireGuard (development/test only), an AWS
+Site-to-Site IPsec VPN with on-prem Libreswan (`tunnel.type: ipsec`, not yet qualified)
+or the customer's AWS Direct Connect (`tunnel.type: direct-connect`, not yet qualified).
 
 Collection FQCN: `network.evpn_gateway`.
 
@@ -29,6 +31,7 @@ roles/
 playbooks/
 ├── deploy.yml                      Full deploy, idempotent
 ├── health-check.yml                Validation only
+├── preflight.yml                   Read-only transport checks (deploy.yml runs them first)
 ├── provision-aws.yml               Provision AWS infra, update inventory
 ├── teardown.yml                    Remove appliance/relay/VTEP configuration
 └── teardown-aws.yml                Destroy AWS infrastructure (irreversible)
@@ -66,19 +69,24 @@ The machine running these playbooks needs:
 - **ansible-core** — declared minimum 2.16 (`meta/runtime.yml`); CI tests 2.21 on
   Python 3.12 (`Dockerfile.ci`).
 - **Collections** — the Quick start command installs this collection and resolves
-  `galaxy.yml`'s dependencies from Hub: ansible.utils, ansible.posix, amazon.aws,
+  `galaxy.yml`'s dependencies from Hub: ansible.utils >=6.0.2, ansible.posix, amazon.aws >=9.0.0,
   containers.podman.
 - **Python** — 3.12 is the current CI-tested controller baseline. A supported
   ansible-core/Python/AAP matrix remains to be defined. Install `boto3`/`botocore`
-  for the amazon.aws modules and `netaddr` for the ansible.utils IP filters:
-  `pip install -r requirements.txt`.
+  for the amazon.aws modules, `awscli` for `evpn_aws_infra`'s AWS CLI calls and
+  `netaddr` for the ansible.utils IP filters: `pip install -r requirements.txt`.
 - **System** — `wireguard-tools` (the WireGuard key pair is generated on the
   control node); see `bindep.txt`.
 - **AWS** — credentials available in your environment for
   `provision-aws.yml`/`teardown-aws.yml`, e.g.
-  `source <(aws configure export-credentials --format env)`.
+  `source <(aws configure export-credentials --format env)` with AWS CLI v2 (the `awscli`
+  that `requirements.txt` installs is v1, so run it outside that environment).
   Provisioning runs locally without Ansible privilege escalation, using the
   controller account's credential provider chain.
+  IPsec deploy/health checks also need AWS read access unless the handoff is supplied and telemetry disabled;
+  see [VPN handoff and status](roles/evpn_aws_infra/README.md#read-only-vpn-handoff-tasks_from-vpn_handoff).
+  Direct Connect deploy/health checks need AWS read access unless `evpn_health_check_dx_telemetry` is false;
+  see [Direct Connect checks](roles/evpn_aws_infra/README.md#read-only-direct-connect-checks-tasks_from-dx_status).
 - **SSH** — the EC2 key pair named by `evpn_aws_infra_ssh_key_name` must exist in AWS, with
   its private key available to your environment (e.g. loaded into ssh-agent).
 
@@ -99,6 +107,32 @@ ansible-playbook playbooks/deploy.yml
 ansible-playbook playbooks/health-check.yml
 ```
 
+For the AWS Site-to-Site VPN, set `tunnel.type: ipsec` and
+`evpn_aws_infra_vpn_customer_gateway_ip` (the appliance's static public IPv4
+address) before provisioning, then run the same playbooks. To tear down, run
+`teardown.yml` before `teardown-aws.yml`. Provisioning is not rerunnable, so to
+change transport, tear down and provision again.
+Each appliance gets its own customer gateway and VPN connection. Without
+`inventory/hosts.yml`, the generated inventory makes the control node the one
+appliance; for a remote appliance or several, write it before the first
+provision, listing them under `onprem_appliances`; provisioning keeps them. In
+`inventory/host_vars/<host>.yml`, set each one's
+`evpn_aws_infra_vpn_customer_gateway_ip`, two
+`evpn_aws_infra_vpn_tunnel_inside_cidrs` that no other appliance uses, and a
+full copy of `tunnel` whose `onprem_ip` lies in its own `network_cidr` inside
+the shared one in `group_vars/all.yml`. Keep other per-host settings there too:
+provisioning keeps only each appliance's `ansible_host`, `ansible_connection`
+and `trunk_interface`. Appliances share `bgp.onprem_asn`, so they do not learn
+each other's EVPN routes. IPsec with multihoming is gated until CORENET-7502, so put each appliance on its own
+on-prem L2 segment: two appliances bridging the same VLANs would loop broadcast traffic.
+
+For Direct Connect, list the appliance under `onprem_appliances` in `inventory/hosts.yml` (other host settings in
+`host_vars/`), and set `tunnel.type: direct-connect`, `tunnel.mtu_mode: safe`, `tunnel.next_hop`,
+`evpn_aws_infra_dx_gateway_id` and `evpn_health_check_workload_mtu` in `group_vars/all.yml`, before provisioning. Direct Connect supports one appliance;
+the appliance and customer-router requirements are in the [`evpn_onprem_appliance`
+README](roles/evpn_onprem_appliance/README.md#aws-direct-connect-tunneltype-direct-connect). To tear down, run
+`teardown.yml` before `teardown-aws.yml`.
+
 ## Required variables
 
 See each role's `meta/argument_specs.yml` for its full schema. The shared
@@ -111,6 +145,11 @@ ones (`tunnel`, `bgp`, `stretches`) are normally set once in
   (disposable labs only). See that role's README.
 - **`evpn_aws_infra_aws_region`** — cross-check it matches the region you intend to
   provision in.
+- **`evpn_health_check_workload_mtu`** (every transport): your CUDN/VLAN IP MTU; 0, the
+  default, fails the preflight.
+- **`evpn_health_check_accept_internet_mode_limits`** must be `true` for WireGuard or
+  IPsec. Set both in `group_vars/all.yml`, which provisioning reads on the control node. See the
+  [`evpn_health_check` README](roles/evpn_health_check/README.md#transport-preflight-tasks_from-preflight).
 
 ## Known limitations (tracked, not all fixed here)
 
@@ -159,10 +198,11 @@ Still open, and **not** resolved by this change (see linked docs for
 ownership):
 
 - No real BGP inbound/outbound policy (route-maps/prefix-lists/route-target
-  filtering) — only a defensive `maximum-prefix` backstop. Needs
+  filtering) — only a defensive `maximum-prefix` backstop; IPsec underlay IPv4 uses prefix lists. Needs
   Networking to design the actual policy
   (source-audit.md §1, "No BGP policy or limits").
-- `evpn_aws_infra` requires the AWS CLI on the control node.
+- `evpn_aws_infra`, including `teardown-aws.yml` for every transport, needs the AWS CLI, which
+  AAP's supported EE lacks (source-audit.md).
 - `frr_exporter`/`node_exporter` metrics endpoints are unauthenticated on
   every interface (`network: host`, no listen-address binding, no host
   firewall) — how this should be locked down in production is not yet

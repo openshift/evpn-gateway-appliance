@@ -18,7 +18,8 @@ USER 0
 RUN dnf install -y git && dnf clean all && \
     git config --system --add safe.directory '*'
 
-# Pinned lint/build toolchain (the Ansible tools match the collection's CI pins).
+# Pinned lint/build toolchain (the Ansible tools match the collection's CI pins). jmespath
+# applies --query in the fake AWS CLI of `make check-ansible-direct-connect`.
 RUN pip install --no-cache-dir \
         ansible-core==2.21.4 \
         ansible-lint==26.8.0 \
@@ -26,7 +27,8 @@ RUN pip install --no-cache-dir \
         ansible-builder==3.1.1 \
         ruff==0.17.0 \
         shellcheck-py==0.11.0.1 \
-        hadolint-py==v2.15.1.2
+        hadolint-py==v2.15.1.2 \
+        jmespath==1.1.0
 
 # promtool for offline monitoring checks; hashes from the official 3.5.0 sha256sums.txt.
 # Extract only the tool, not the server or its assets.
@@ -94,7 +96,7 @@ RUN bash -c "$(curl -fsSL https://get.containerlab.dev)" -- -v 0.81.1
 # (MOLECULE_PODMAN_EXECUTABLE + CONTAINER_HOST). netaddr: the roles' ansible.utils.ipaddr filter renders
 # on the controller (this image, not the instance), so the molecule lane needs it here; baked at build
 # (not pulled at lane runtime) because the lanes must run disconnected. Pinned for a reproducible image —
-# the EE derives the same dep unpinned from ansible.utils. The static checks don't exercise it.
+# the EE derives the same dep unpinned from ansible.utils. check-ansible-direct-connect needs it too.
 RUN pip install --no-cache-dir \
         pytest==8.3.4 \
         pytest-testinfra==10.2.2 \

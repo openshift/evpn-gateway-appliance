@@ -10,9 +10,19 @@
   ansible.builtin.dnf:
     name: >-
       {{ ['podman', 'tcpdump', 'traceroute', 'mtr', 'bind-utils', 'nmstate']
-         + (['wireguard-tools'] if tunnel.type == 'wireguard' else []) }}
+         + (['wireguard-tools'] if tunnel.type == 'wireguard' else [])
+         + (['libreswan'] if tunnel.type == 'ipsec' else []) }}
     state: present
   when: ansible_facts.pkg_mgr in ['dnf', 'dnf5', 'yum']
+
+- name: Configure AWS IPsec tunnels
+  ansible.builtin.include_tasks: ipsec.yml
+  when: tunnel.type == 'ipsec'
+
+# A host switched from IPsec would otherwise keep the AWS tunnels and their keys.
+- name: Remove AWS IPsec configuration for other transports
+  ansible.builtin.include_tasks: ipsec_absent.yml
+  when: tunnel.type != 'ipsec'
 
 - name: Enable IP forwarding
   ansible.posix.sysctl:
@@ -41,9 +51,59 @@
     enabled: true
   when: tunnel.type == 'wireguard'
 
+# A host switched from WireGuard would otherwise keep wg0 and its routes, which shadow the new transport.
+- name: Stop and disable WireGuard for other transports
+  ansible.builtin.systemd:
+    name: wg-quick@wg0
+    state: stopped
+    enabled: false
+  register: _evpn_onprem_appliance_wg_off
+  failed_when: _evpn_onprem_appliance_wg_off.failed and 'Could not find' not in (_evpn_onprem_appliance_wg_off.msg | default(''))
+  when: tunnel.type != 'wireguard'
+
 # ── On-prem networking (nmstate) ────────────────────────────────
 - name: Configure on-prem networking
   ansible.builtin.include_tasks: nm_networking.yml
+
+# ── Direct Connect ─────────────────────────────────────────────
+# The static routes name the uplink, so they return after a carrier flap even when NetworkManager
+# installs the uplink's subnet route.
+- name: Find the Direct Connect uplink
+  ansible.builtin.command: ip -j route get {{ tunnel.next_hop }}
+  register: _evpn_onprem_appliance_dx_uplink
+  changed_when: false
+  check_mode: false
+  when: tunnel.type == 'direct-connect'
+
+# As the preflight requires: should the uplink lose its carrier since, the lookup falls through to another route,
+# and FRR would route the VPCs out of the wrong interface.
+- name: Require tunnel.next_hop directly connected on the uplink
+  ansible.builtin.assert:
+    that:
+      - _evpn_onprem_appliance_dx_route.type | default('unicast') == 'unicast'
+      - _evpn_onprem_appliance_dx_route.gateway is not defined
+      - _evpn_onprem_appliance_dx_route.dev is defined
+    fail_msg: >-
+      tunnel.next_hop {{ tunnel.next_hop }} is no longer directly connected on the uplink
+      ({{ _evpn_onprem_appliance_dx_route }}); check the uplink's carrier and address, then rerun the deploy.
+  vars:
+    _evpn_onprem_appliance_dx_route: "{{ (_evpn_onprem_appliance_dx_uplink.stdout | default('[{}]', true) | from_json)[0] }}"
+  when: tunnel.type == 'direct-connect'
+
+# Traffic to the VPCs leaves from tunnel.onprem_ip, which is not on the uplink's subnet. With the default
+# arp_announce 0 the ARP request for tunnel.next_hop would name it as the sender, which routers may ignore;
+# 2 names the uplink's own address.
+- name: Send ARP requests from the uplink's own address
+  ansible.posix.sysctl:
+    name: net.ipv4.conf.all.arp_announce
+    value: "2"
+    sysctl_file: /etc/sysctl.d/99-ega-direct-connect.conf
+    reload: true
+  when: tunnel.type == 'direct-connect'
+
+- name: Undo the Direct Connect ARP setting
+  ansible.builtin.include_tasks: dx_arp_clear.yml
+  when: tunnel.type != 'direct-connect'
 
 # ── FRR ────────────────────────────────────────────────────────
 - name: Reconcile FRR configuration

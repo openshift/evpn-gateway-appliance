@@ -1,0 +1,28 @@
+---
+# The AWS side first, so a broken path fails with its cause rather than only the ping.
+- name: Check AWS Direct Connect
+  delegate_to: localhost
+  connection: local
+  run_once: true
+  become: false
+  when: evpn_health_check_dx_telemetry | default(false) | bool
+  block:
+    - name: Check the Direct Connect interfaces, association and TGW route
+      ansible.builtin.include_role:
+        name: evpn_aws_infra
+        tasks_from: dx_status
+
+# Direct Connect: the customer's network carries the underlay, so prove the path VXLAN takes,
+# from the VTEP address to the workload VTEP, which also proves the return route to
+# tunnel.network_cidr. The forward path must carry 1550-byte packets unfragmented (see preflight.yml):
+# 1522 bytes of ICMP payload + 28 bytes of headers; the workload checks the return path (main.yml).
+- name: "HEALTH [onprem]: Direct Connect path reaches the workload VTEP"
+  ansible.builtin.command: >-
+    ping -c 3 -W 2
+    -I {{ tunnel.onprem_ip }} -M do -s 1522
+    {{ hostvars[workload_vtep_host].private_ip }}
+  changed_when: false
+  register: _evpn_health_check_dx_ping
+  until: _evpn_health_check_dx_ping.rc == 0
+  retries: 6
+  delay: 5

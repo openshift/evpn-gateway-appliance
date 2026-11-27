@@ -41,7 +41,7 @@ On-prem VLANs (for example VMware/NSX segments)
 Migration appliance ── VTEP: maps VLANs to VNIs, speaks BGP EVPN
         │ Direct Connect (transit VIF) or Site-to-Site VPN (IPsec from the appliance)
 AWS Transit Gateway ── routes outer IP packets only
-        ├── Infra VPC relay ── BGP EVPN only, next-hop-unchanged, no VXLAN
+        ├── Infra VPC relay ── BGP EVPN only, keeps next hops, no VXLAN
         └── OCP worker nodes ── VTEPs through OVN-K EVPN and frr-k8s
 
 BGP EVPN: appliance ⇄ relay ⇄ workers.  VXLAN data: appliance ⇄ workers directly.

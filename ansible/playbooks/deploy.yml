@@ -2,6 +2,91 @@
 # Full deploy — idempotent, safe to re-run.
 # Usage: ansible-playbook playbooks/deploy.yml
 
+- name: Run the read-only transport preflight
+  ansible.builtin.import_playbook: preflight.yml
+
+- name: Check and load the IPsec handoff
+  hosts: onprem_appliances
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Gate IPsec with multihoming on CORENET-7502
+      ansible.builtin.assert:
+        that:
+          - not (multihoming.enabled | default(false) | bool)
+        fail_msg: tunnel.type ipsec with multihoming is gated until CORENET-7502 qualifies active-active forwarding over it.
+      when: tunnel.type == 'ipsec'
+
+    # The relay renders every appliance's onprem_ip before the appliance play validates it, even under --limit, so
+    # check the whole group. Loop over names, not hostvars, which may hold an inventory-supplied handoff's keys.
+    - name: Require each IPsec appliance's VTEP address inside its own network
+      ansible.builtin.assert:
+        that:
+          - _net | ansible.utils.ipv4('network/prefix') == _net
+          - _tunnel.onprem_ip | ansible.utils.ipv4('address') == _tunnel.onprem_ip
+          - _tunnel.onprem_ip | ansible.utils.ipv4(_net) == _tunnel.onprem_ip
+        fail_msg: >-
+          {{ item }}: set tunnel.onprem_ip to an address inside a canonical tunnel.network_cidr (got
+          {{ _tunnel.onprem_ip }} in {{ _net }}).
+      vars:
+        _tunnel: "{{ hostvars[item].tunnel }}"
+        _net: "{{ _tunnel.network_cidr | default('10.44.44.0/24') }}"
+      loop: "{{ groups['onprem_appliances'] }}"
+      run_once: true
+      when: hostvars[item].tunnel.type == 'ipsec'
+
+    # Each appliance advertises its own VTEP network to AWS, so the TGW routes each VTEP to its own VPN.
+    # The workload imports EVPN routes for the shared onprem ASN only.
+    - name: Require IPsec appliances to share the transport and ASN and to have their own VTEPs
+      ansible.builtin.assert:
+        that:
+          - _tunnels | map(attribute='type') | unique | length == 1
+          - _hosts | map(attribute='bgp.onprem_asn') | unique | length == 1
+          # Merging the networks shrinks their total size only if two overlap. Each VTEP address is in its own
+          # network (above), so distinct networks also mean distinct addresses.
+          - _nets | map('ansible.utils.ipaddr', 'size') | sum == _nets | ansible.utils.cidr_merge | map('ansible.utils.ipaddr', 'size') | sum
+          # AWS routes and security groups use the shared (localhost) tunnel.network_cidr.
+          - _nets | reject('ansible.utils.subnet_of', _shared) | list | length == 0
+        fail_msg: >-
+          With IPsec, give every appliance the same tunnel.type and bgp.onprem_asn, and set tunnel per host with its
+          own network_cidr, overlapping no other, within the shared tunnel.network_cidr.
+      vars:
+        _hosts: "{{ groups['onprem_appliances'] | map('extract', hostvars) | list }}"
+        _tunnels: "{{ _hosts | map(attribute='tunnel') | list }}"
+        _nets: "{{ _tunnels | map(attribute='network_cidr', default='10.44.44.0/24') | list }}"
+        _shared: "{{ (hostvars['localhost'].tunnel | default(tunnel)).network_cidr | default('10.44.44.0/24') }}"
+      run_once: true
+      when: _tunnels | selectattr('type', 'equalto', 'ipsec') | list | length > 0
+
+    - name: Load missing IPsec handoff from AWS
+      delegate_to: localhost
+      connection: local
+      run_once: true
+      become: false
+      when:
+        - tunnel.type == 'ipsec'
+        - ansible_play_hosts | map('extract', hostvars) | selectattr('evpn_onprem_appliance_ipsec', 'undefined') | list | length > 0
+      block:
+        - name: Require the control-node credential context for VPN handoff
+          ansible.builtin.assert:
+            that:
+              - hostvars['localhost'].ansible_connection | default('local') in ['local', 'ansible.builtin.local', 'ansible.legacy.local']
+              - hostvars['localhost'].ansible_become | default(false) is ansible.builtin.falsy(convert_bool=true)
+            fail_msg: VPN handoff requires local execution without privilege escalation to use controller credentials.
+        - name: Read existing project VPN handoff
+          ansible.builtin.include_role:
+            name: evpn_aws_infra
+            tasks_from: vpn_handoff
+
+    # The handoff: each appliance's tunnel outside IPs, inside /30s, ASNs and AWS-generated keys.
+    - name: Pass each appliance its AWS VPN handoff in memory
+      ansible.builtin.set_fact:
+        evpn_onprem_appliance_ipsec: "{{ evpn_aws_infra_vpn[evpn_aws_infra_vpn_customer_gateway_ip] }}"
+      when:
+        - tunnel.type == 'ipsec'
+        - evpn_onprem_appliance_ipsec is not defined
+      no_log: true
+
 - name: Deploy cloud infra (EVPN relay + WireGuard)
   hosts: cloud_infra
   become: true

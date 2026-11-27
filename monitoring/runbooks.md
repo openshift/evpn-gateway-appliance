@@ -82,7 +82,7 @@ and check the sessions in FRR by their local address and interface. Other series
 ## EGABgpSessionDown
 
 A BGP peer has not been Established for 1m. On the appliance the relay peer runs over the
-WireGuard tunnel; losing it withdraws every stretch's EVPN routes. The alert clears once the
+transport; losing it withdraws every stretch's EVPN routes. The alert clears once the
 session is back, or 4m after its series stops, when EGAFrrCollectorFailed or EGAFrrMetricsDown
 takes over.
 
@@ -93,9 +93,17 @@ takes over.
 - A last error naming the maximum-prefix limit (`bgp.max_prefix`, default 1000) means the peer
   sent too many EVPN routes. EGA sets no restart timer, so the session stays down: fix the
   advertisements or raise the limit, then `clear bgp vrf VRF PEER`.
-- For the appliance's relay peer, `wg show wg0`: a `latest handshake` older than about 3
-  minutes means the tunnel is down. Check the underlay route and UDP reachability to the
-  WireGuard endpoint, then `ping` the peer address over the tunnel.
+- For the appliance's relay peer over WireGuard, `wg show wg0`: a `latest handshake` older
+  than about 3 minutes means the tunnel is down. Check the underlay route and UDP reachability
+  to the WireGuard endpoint, then `ping` the peer address over the tunnel.
+- With `tunnel.type: ipsec`, check `ipsec trafficstatus` for both `ega-aws-1` and `ega-aws-2`,
+  that both AWS underlay peers are Established (`show bgp summary`), then ping the peer from the
+  VTEP address (`ping -I TUNNEL_ONPREM_IP PEER`; other sources get no reply over the VPN).
+- With IPsec, a 169.254.x.1 peer is an AWS underlay session over `ega-aws-1` or `ega-aws-2`
+  (`ipsec trafficstatus`); check the tunnel's AWS telemetry. One tunnel down while the other is
+  up, such as during AWS endpoint maintenance, does not interrupt traffic.
+- With `tunnel.type: direct-connect`, `ip route get PEER from VTEP` (`tunnel.onprem_ip`) must
+  leave through `tunnel.next_hop` on the uplink; then check the customer router and VIF.
 
 Otherwise fix the tunnel or underlay; BGP re-establishes on its own once the peer is reachable.
 
@@ -141,7 +149,8 @@ host's VNIs or MACs.
 no OPEN has been sent for about 10m (the rule's window), so it outlasts the fix.
 
 - `show bgp vrf VRF neighbors PEER` for the last reset reason and error.
-- For the appliance's relay peer, `wg show wg0` and the underlay path, as for
+- For the appliance's relay peer, the transport (`wg show wg0`, `ipsec trafficstatus` with IPsec,
+  or the route through `tunnel.next_hop` with Direct Connect) and the underlay path, as for
   EGABgpSessionDown.
 - A maximum-prefix shutdown with a restart timer, mismatched timers, MTU problems or packet loss
   on the path can each cause repeated resets; with BFD, loss resets the session through BFD and

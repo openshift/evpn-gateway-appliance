@@ -1,0 +1,22 @@
+---
+# Undo the Direct Connect ARP setting (main.yml) on a host that had it: teardown, or deploying another transport.
+- name: Find the Direct Connect ARP setting
+  ansible.builtin.stat:
+    path: /etc/sysctl.d/99-ega-direct-connect.conf
+  register: _evpn_onprem_appliance_dx_arp_file
+
+- name: Remove the Direct Connect ARP setting
+  ansible.builtin.file:
+    path: /etc/sysctl.d/99-ega-direct-connect.conf
+    state: absent
+
+# Back to the kernel default, then to whatever the host's remaining sysctl configuration sets, for this key only:
+# --pattern must come before --system, which applies the files as soon as it is parsed. It matches each raw
+# "key = value" line, before sysctl strips a leading "-" or turns "/" into ".", so it allows both.
+- name: Restore the host's own ARP setting
+  ansible.builtin.shell: >-
+    set -e;
+    sysctl -q -w net.ipv4.conf.all.arp_announce=0;
+    sysctl -q --pattern '^-?net[./]ipv4[./]conf[./]all[./]arp_announce[[:space:]]*=' --system
+  changed_when: true
+  when: _evpn_onprem_appliance_dx_arp_file.stat.exists

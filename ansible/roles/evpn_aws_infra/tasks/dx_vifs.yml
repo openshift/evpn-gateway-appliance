@@ -1,0 +1,93 @@
+---
+# Reads and checks the transit VIFs on the customer's DX gateway. AWS can send the TGW's traffic
+# over any of them, so each must allow 1550-byte packets.
+# Each describe selects fields: AWS returns the VIF's BGP MD5 key (bgpPeers[].authKey).
+- name: Read the DX gateway's virtual interface attachments
+  ansible.builtin.command:
+    argv:
+      - aws
+      - directconnect
+      - describe-direct-connect-gateway-attachments
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --direct-connect-gateway-id
+      - "{{ evpn_aws_infra_dx_gateway_id }}"
+      - --query
+      - "directConnectGatewayAttachments[?attachmentState=='attached' || attachmentState=='attaching'].{id: virtualInterfaceId,
+        region: virtualInterfaceRegion, type: attachmentType}"
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_attachments
+  changed_when: false
+  check_mode: false
+
+# AWS refuses a TGW association for a DX gateway attached to a private VIF; a VIF lives in its
+# connection's Region, which can differ from the TGW's.
+- name: Require transit VIFs, and only transit VIFs, on the DX gateway
+  ansible.builtin.assert:
+    that:
+      - _evpn_aws_infra_dx_attached | length > 0
+      - _evpn_aws_infra_dx_attached | rejectattr('type', 'equalto', 'TransitVirtualInterface') | list | length == 0
+    fail_msg: >-
+      DX gateway {{ evpn_aws_infra_dx_gateway_id }} must have only transit VIFs attached, and at least one (accept a
+      hosted VIF onto this gateway with confirm-transit-virtual-interface). Attached: {{ _evpn_aws_infra_dx_attached }}
+  vars:
+    _evpn_aws_infra_dx_attached: "{{ _evpn_aws_infra_dx_attachments.stdout | from_json }}"
+
+- name: Read each attached VIF in its own Region
+  ansible.builtin.command:
+    argv:
+      - aws
+      - directconnect
+      - describe-virtual-interfaces
+      - --region
+      - "{{ item.region }}"
+      - --virtual-interface-id
+      - "{{ item.id }}"
+      - --query
+      - "virtualInterfaces[0].{id: virtualInterfaceId, state: virtualInterfaceState, mtu: mtu, asn: asn,
+        bgp: bgpPeers[?bgpPeerState!='deleted' && addressFamily!='ipv6'].not_null(bgpStatus, 'unknown')}"
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_vif_reads
+  changed_when: false
+  check_mode: false
+  loop: "{{ _evpn_aws_infra_dx_attachments.stdout | from_json }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+# 1550 bytes carry VXLAN with a 1500-byte workload IP MTU; transit VIFs offer 1500 or 8500. The TGW
+# (AWS's default Amazon-side ASN, 64512) drops routes whose AS path holds its own ASN.
+- name: Require readable 8500-byte VIFs
+  ansible.builtin.assert:
+    that:
+      # A VIF owned by another account reads as null.
+      - _evpn_aws_infra_dx_vif is mapping
+      - _evpn_aws_infra_dx_vif.mtu | int == 8500
+      - _evpn_aws_infra_dx_vif.asn | int != 64512
+    fail_msg: >-
+      VIF {{ item.item.id }} on DX gateway {{ evpn_aws_infra_dx_gateway_id }} must be readable by this account
+      (cross-account VIFs are unsupported) and use MTU 8500 (`aws directconnect update-virtual-interface-attributes
+      --region {{ item.item.region }} --virtual-interface-id {{ item.item.id }} --mtu 8500`, which briefly resets the
+      VIF's BGP session), with a customer router ASN other than the TGW's
+      64512. Found: {{ _evpn_aws_infra_dx_vif }}
+    quiet: true
+  vars:
+    _evpn_aws_infra_dx_vif: "{{ item.stdout | from_json }}"
+  loop: "{{ _evpn_aws_infra_dx_vif_reads.results }}"
+  loop_control:
+    label: "{{ item.item.id }}"
+
+# A VIF in maintenance must not block a deploy while another carries the traffic. The underlay is
+# IPv4, so an IPv6 peer's state does not matter.
+- name: Require a VIF that is available with every IPv4 BGP peer up
+  ansible.builtin.assert:
+    that: _evpn_aws_infra_dx_usable | length > 0
+    fail_msg: >-
+      No VIF on DX gateway {{ evpn_aws_infra_dx_gateway_id }} is available with every IPv4 BGP peer up:
+      {{ _evpn_aws_infra_dx_vifs }}
+  vars:
+    _evpn_aws_infra_dx_vifs: "{{ _evpn_aws_infra_dx_vif_reads.results | map(attribute='stdout') | map('from_json') | list }}"
+    _evpn_aws_infra_dx_usable: >-
+      {{ _evpn_aws_infra_dx_vifs | selectattr('state', 'equalto', 'available') | selectattr('bgp')
+         | selectattr('bgp', 'ansible.builtin.subset', ['up']) | list }}

@@ -19,24 +19,39 @@ router bgp {{ bgp.infra_asn }}
  neighbor {{ workload_host.private_ip }} description workload-vtep
  neighbor {{ workload_host.private_ip }} ebgp-multihop 4
  !
- neighbor {{ tunnel.onprem_ip }} remote-as {{ bgp.onprem_asn }}
- neighbor {{ tunnel.onprem_ip }} description onprem-appliance
+{# IPsec gives each appliance its own VTEP; the relay peers with all of them. #}
+{% if tunnel.type == 'ipsec' %}
+{% set onprem_peers = groups['onprem_appliances'] | map('extract', hostvars) | list %}
+{% else %}
+{% set onprem_peers = [{'tunnel': tunnel, 'bgp': bgp}] %}
+{% endif %}
+{% for a in onprem_peers %}
+ neighbor {{ a.tunnel.onprem_ip }} remote-as {{ a.bgp.onprem_asn }}
+ neighbor {{ a.tunnel.onprem_ip }} description onprem-appliance
+{% if tunnel.type != 'wireguard' %}
+ neighbor {{ a.tunnel.onprem_ip }} ebgp-multihop {{ 255 if tunnel.type == 'direct-connect' else 4 }}
+{% endif %}
+{% endfor %}
  !
  address-family ipv4 unicast
   network {{ private_ip }}/32
   neighbor {{ workload_host.private_ip }} activate
   neighbor {{ workload_host.private_ip }} soft-reconfiguration inbound
+{% if tunnel.type == 'wireguard' %}
   neighbor {{ tunnel.onprem_ip }} activate
   neighbor {{ tunnel.onprem_ip }} soft-reconfiguration inbound
+{% endif %}
  exit-address-family
  !
  address-family l2vpn evpn
   neighbor {{ workload_host.private_ip }} activate
   neighbor {{ workload_host.private_ip }} attribute-unchanged next-hop
   neighbor {{ workload_host.private_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
-  neighbor {{ tunnel.onprem_ip }} activate
-  neighbor {{ tunnel.onprem_ip }} attribute-unchanged next-hop
-  neighbor {{ tunnel.onprem_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% for a in onprem_peers %}
+  neighbor {{ a.tunnel.onprem_ip }} activate
+  neighbor {{ a.tunnel.onprem_ip }} attribute-unchanged next-hop
+  neighbor {{ a.tunnel.onprem_ip }} maximum-prefix {{ bgp.max_prefix | default(1000) }}
+{% endfor %}
  exit-address-family
 exit
 !

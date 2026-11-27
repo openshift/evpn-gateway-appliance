@@ -1,0 +1,33 @@
+---
+- name: "HEALTH [onprem]: Measure loss and RTT to the workload VTEP"
+  ansible.builtin.command: ping -q -c 20 -i 0.2 -W 2 -I {{ tunnel.onprem_ip }} {{ hostvars[workload_vtep_host].private_ip }}
+  register: _evpn_health_check_baseline
+  # The loss and RTT are parsed from ping's English summary.
+  environment:
+    LC_ALL: C
+  changed_when: false
+  failed_when: false
+
+- name: Record the baseline
+  when: not ansible_check_mode
+  vars:
+    _evpn_health_check_loss: >-
+      {{ _evpn_health_check_baseline.stdout | regex_search('([0-9.]+)% packet loss', '\1') | default(['100'], true) | first }}
+    _evpn_health_check_rtt: >-
+      {{ _evpn_health_check_baseline.stdout | regex_search('= [0-9.]+/([0-9.]+)/', '\1') | default(['inf'], true) | first }}
+  block:
+    # Kept in the run's statistics (AAP job artifacts) as well as printed.
+    - name: "HEALTH [onprem]: Keep loss and RTT to the workload VTEP"
+      ansible.builtin.set_stats:
+        data:
+          # One template, since set_stats does not template keys.
+          evpn_health_check_baseline: >-
+            {{ {inventory_hostname: {'loss_percent': _evpn_health_check_loss, 'average_rtt_ms': _evpn_health_check_rtt}} }}
+
+    - name: "HEALTH [onprem]: Record loss and RTT to the workload VTEP"
+      ansible.builtin.assert:
+        that: _evpn_health_check_loss | float < 100
+        fail_msg: >-
+          No reply from the workload VTEP {{ hostvars[workload_vtep_host].private_ip }} to {{ tunnel.onprem_ip }}.
+          {{ _evpn_health_check_baseline.stderr | default('') | trim }}
+        success_msg: "Baseline: loss {{ _evpn_health_check_loss }}%, average RTT {{ _evpn_health_check_rtt }} ms"

@@ -2,19 +2,19 @@
 # ── Tunnel ────────────────────────────────────────────────────
 # Supported types:
 #   wireguard      — dev/test, terminates on infra EC2
-#   ipsec          — Site-to-Site VPN, TGW cloud-side, Libreswan on-prem
-#                    requires on-prem public IP for Customer Gateway
-#   direct-connect — production, DX partner + jumbo MTU
+#   ipsec          — AWS VPN on TGW; on-prem Libreswan + FRR (not yet qualified)
+#   direct-connect — customer DX gateway + transit VIFs, jumbo MTU (safe only)
 #
 # MTU modes:
 #   safe           — underlay MTU ≥ 1550, no clamping (default)
-#   unsafe         — underlay MTU < 1550, TCP MSS clamping + DF bit,
-#                    UDP > MTU is dropped, live migration will not work
+#   unsafe         — underlay MTU < 1550; MSS clamping and DF handling are
+#                    CORENET-7709, UDP > MTU is dropped, live migration will not work
 tunnel:
   type: wireguard          # or 'ipsec' or 'direct-connect'
   mtu_mode: unsafe         # safe requires underlay MTU ≥ 1550
   onprem_ip: 10.44.44.1    # WG: tunnel address. IPSec/DX: VTEP loopback
   cloud_ip: 10.44.44.2     # WG: tunnel address. IPSec/DX: ignored
+  # next_hop: 10.99.0.1    # DX only: customer router on the appliance uplink; FRR routes the VPCs to it
   # Optional (defaults to this value if unset); covers onprem_ip/cloud_ip.
   # Update if you change onprem_ip/cloud_ip off their defaults — it is not
   # derived automatically.
@@ -38,6 +38,22 @@ bgp:
   infra_asn: 65100
   workload_asn: 65200
   # max_prefix: 1000   # Defensive backstop only; defaults to 1000 if omitted (source-audit.md §1).
+
+# IPsec: set evpn_aws_infra_vpn_customer_gateway_ip (per host in host_vars/ for several appliances).
+evpn_aws_infra_vpn_customer_gateway_asn: "{{ bgp.onprem_asn }}"
+
+# Direct Connect: the customer's DX gateway; health checks also read it, its VIFs and the TGW's routes from AWS
+# (evpn_health_check_dx_telemetry, default true for direct-connect).
+# evpn_aws_infra_dx_gateway_id: <dx-gateway-id>
+# Health checks read these here too; set them here, not with -e at provisioning, if not the role defaults:
+# evpn_aws_infra_aws_region: eu-west-1
+# evpn_aws_infra_project_name: evpn-poc
+
+# ── Transport preflight (playbooks/preflight.yml, run first by deploy.yml) ──
+# WireGuard and IPsec cross the internet; provisioning and deploy fail until you accept their limits
+# (see roles/evpn_health_check/README.md).
+evpn_health_check_accept_internet_mode_limits: false
+evpn_health_check_workload_mtu: 0   # required: your CUDN/VLAN IP MTU, checked against the transport
 
 # ── VLAN Stretches ────────────────────────────────────────────
 stretches:

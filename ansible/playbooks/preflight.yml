@@ -1,0 +1,15 @@
+---
+# Read-only transport preflight (CORENET-7501): no changes made. deploy.yml imports it first.
+# Usage: ansible-playbook playbooks/preflight.yml
+
+- name: Check the transport before deployment
+  # Every host in the run, including under --limit. The checks change nothing; direct-connect also reads the
+  # appliance's routes.
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Run the transport preflight
+      ansible.builtin.include_role:
+        name: evpn_health_check
+        tasks_from: preflight

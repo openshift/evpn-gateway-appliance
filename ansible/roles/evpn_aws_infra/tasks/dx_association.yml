@@ -1,0 +1,64 @@
+---
+# Included only for direct-connect, after the TGW and its VPC attachments are available.
+# Allowed prefixes are what AWS advertises to on-premises.
+- name: Associate the DX gateway with the TGW
+  ansible.builtin.command:
+    argv:
+      - aws
+      - directconnect
+      - create-direct-connect-gateway-association
+      - --region
+      - "{{ _evpn_aws_infra_region }}"
+      - --direct-connect-gateway-id
+      - "{{ evpn_aws_infra_dx_gateway_id }}"
+      - --gateway-id
+      - "{{ _evpn_aws_infra_tgw.stdout | trim }}"
+      - --add-allowed-prefixes-to-direct-connect-gateway
+      - cidr={{ evpn_aws_infra_infra_vpc_cidr }}
+      - cidr={{ evpn_aws_infra_workload_vpc_cidr }}
+      - --query
+      - directConnectGatewayAssociation.associationId
+      - --output
+      - text
+  register: _evpn_aws_infra_dx_assoc
+  changed_when: true
+
+# AWS documents no association time; allow 30 minutes, as Terraform's provider does.
+- name: Wait for the DX gateway association
+  ansible.builtin.command:
+    argv:
+      - aws
+      - directconnect
+      - describe-direct-connect-gateway-associations
+      - --region
+      - "{{ _evpn_aws_infra_region }}"
+      - --direct-connect-gateway-id
+      - "{{ evpn_aws_infra_dx_gateway_id }}"
+      - --association-id
+      - "{{ _evpn_aws_infra_dx_assoc.stdout | trim }}"
+      - --query
+      - directConnectGatewayAssociations[0].[associationState, stateChangeError]
+      - --output
+      - text
+  register: _evpn_aws_infra_dx_assoc_state
+  # A rejected association ends disassociated, with its error printed. A read right after the
+  # create can miss it (None), so None ends the wait only after 6 reads. The CLI retries
+  # throttling and connection errors itself, so any error it returns ends the wait.
+  until: >-
+    _evpn_aws_infra_dx_assoc_state.rc != 0 or
+    _evpn_aws_infra_dx_assoc_state.stdout is match('(associated|disassociated)(\\s|$)') or
+    (_evpn_aws_infra_dx_assoc_state.stdout is match('None') and _evpn_aws_infra_dx_assoc_state.attempts | default(1) > 6)
+  # The assert below reports a failed association.
+  failed_when: _evpn_aws_infra_dx_assoc_state.rc != 0
+  retries: 180
+  # The DX waits share this internal delay so make check's fake AWS cases need not sleep.
+  delay: "{{ _evpn_aws_infra_dx_retry_delay | default(10) }}"
+  changed_when: false
+
+- name: Require the DX gateway association
+  ansible.builtin.assert:
+    that: _evpn_aws_infra_dx_assoc_state.stdout is match('associated(\\s|$)')
+    fail_msg: >-
+      DX gateway association {{ _evpn_aws_infra_dx_assoc.stdout | trim }} ended as
+      "{{ _evpn_aws_infra_dx_assoc_state.stdout | trim }}" (state, error). Check it in the Direct Connect console,
+      then run teardown-aws.yml before provisioning again.

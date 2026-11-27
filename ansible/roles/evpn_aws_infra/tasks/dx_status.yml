@@ -1,0 +1,138 @@
+---
+# Read-only Direct Connect checks for health checks: the VIFs and
+# their BGP sessions, the project TGW's association, and the TGW route that proves on-premises
+# advertises tunnel.network_cidr over DX. Callers delegate it to the controller.
+- name: Require the control-node credential context for Direct Connect checks
+  ansible.builtin.assert:
+    that:
+      - hostvars['localhost'].ansible_connection | default('local') in ['local', 'ansible.builtin.local', 'ansible.legacy.local']
+      - hostvars['localhost'].ansible_become | default(false) is ansible.builtin.falsy(convert_bool=true)
+    fail_msg: Direct Connect checks require local execution without privilege escalation to use controller credentials.
+
+- name: Validate the project name
+  ansible.builtin.include_tasks: project_name.yml
+
+- name: Require the DX gateway ID
+  ansible.builtin.assert:
+    that: evpn_aws_infra_dx_gateway_id | default('', true) | length > 0
+    fail_msg: Set evpn_aws_infra_dx_gateway_id in group_vars/all.yml, so health checks read it too.
+
+- name: Check the Direct Connect VIFs
+  ansible.builtin.include_tasks: dx_vifs.yml
+
+- name: Find the project TGW
+  ansible.builtin.command:
+    argv:
+      - aws
+      - ec2
+      - describe-transit-gateways
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --filters
+      - Name=tag:Project,Values={{ evpn_aws_infra_project_name }}
+      - Name=state,Values=available
+      - --query
+      - "TransitGateways[].{id: TransitGatewayId, rt: Options.AssociationDefaultRouteTableId}"
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_status_tgw
+  changed_when: false
+  check_mode: false
+
+- name: Require one project TGW
+  ansible.builtin.assert:
+    that: _evpn_aws_infra_dx_status_tgw.stdout | from_json | length == 1
+    fail_msg: >-
+      Expected one available TGW tagged Project={{ evpn_aws_infra_project_name }} in {{ evpn_aws_infra_aws_region }};
+      found {{ _evpn_aws_infra_dx_status_tgw.stdout | from_json | map(attribute='id') | list }}. Check
+      evpn_aws_infra_aws_region and evpn_aws_infra_project_name.
+
+- name: Read the DX gateway association's allowed prefixes
+  ansible.builtin.command:
+    argv:
+      - aws
+      - directconnect
+      - describe-direct-connect-gateway-associations
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --direct-connect-gateway-id
+      - "{{ evpn_aws_infra_dx_gateway_id }}"
+      - --associated-gateway-id
+      - "{{ (_evpn_aws_infra_dx_status_tgw.stdout | from_json)[0].id }}"
+      - --query
+      # An association being updated keeps routing with its current prefixes.
+      - "directConnectGatewayAssociations[?contains(['associated', 'updating'], associationState)].allowedPrefixesToDirectConnectGateway[].cidr"
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_status_assoc
+  changed_when: false
+  check_mode: false
+
+- name: Require allowed prefixes that cover both VPCs
+  ansible.builtin.assert:
+    that:
+      # netaddr-based filters: ansible.utils' subnet_of/supernet_of tests return false on Python 3.14 before 6.0.2.
+      - _evpn_aws_infra_dx_status_prefixes | map('ansible.utils.network_in_network', evpn_aws_infra_infra_vpc_cidr) | select | list | length > 0
+      - _evpn_aws_infra_dx_status_prefixes | map('ansible.utils.network_in_network', evpn_aws_infra_workload_vpc_cidr) | select | list | length > 0
+    fail_msg: >-
+      The DX gateway must be associated with the project TGW, allowing both VPC CIDRs (if the association was removed
+      or changed, run teardown-aws.yml and provision again); allowed prefixes: {{ _evpn_aws_infra_dx_status_prefixes }}
+  vars:
+    # IPv4 only: network_in_network matches across families (::/0 "covers" any IPv4 network).
+    _evpn_aws_infra_dx_status_prefixes: "{{ _evpn_aws_infra_dx_status_assoc.stdout | from_json | ansible.utils.ipv4 }}"
+
+# The customer may advertise tunnel.network_cidr or a covering aggregate; the most specific
+# active or blackhole route to the appliance's VTEP address must use the DX attachment.
+- name: Wait for the TGW to route the on-premises VTEP network over Direct Connect
+  ansible.builtin.command:
+    argv:
+      - aws
+      - ec2
+      - search-transit-gateway-routes
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --transit-gateway-route-table-id
+      - "{{ (_evpn_aws_infra_dx_status_tgw.stdout | from_json)[0].rt }}"
+      - --filters
+      # A blackhole route has no attachment, so a more specific one fails the check.
+      - Name=state,Values=active,blackhole
+      - --query
+      # Prefix-list routes (no DestinationCidrBlock) are not resolved; the health checks' VTEP ping catches one
+      # that drops the return traffic.
+      - "Routes[?DestinationCidrBlock].{cidr: DestinationCidrBlock,
+        dxgws: TransitGatewayAttachments[?ResourceType=='direct-connect-gateway'].ResourceId || `[]`}"
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_status_routes
+  # The CLI retries throttling and connection errors itself; stop on any error it returns.
+  until: >-
+    _evpn_aws_infra_dx_status_routes.rc != 0 or
+    evpn_aws_infra_dx_gateway_id in _evpn_aws_infra_dx_status_best.dxgws | default([])
+  # The assert below reports a missing route.
+  failed_when: _evpn_aws_infra_dx_status_routes.rc != 0
+  # The anchor shares this most specific IPv4 route to tunnel.onprem_ip with the assert below.
+  vars: &_evpn_aws_infra_dx_status_best
+    _evpn_aws_infra_dx_status_best: >-
+      {%- set best = namespace(len=-1, route={}) -%}
+      {%- for r in _evpn_aws_infra_dx_status_routes.stdout | default('[]', true) | from_json -%}
+      {%- if r.cidr | ansible.utils.ipv4 and r.cidr | ansible.utils.network_in_network(tunnel.onprem_ip)
+            and r.cidr.split('/')[1] | int > best.len -%}
+      {%- set best.len = r.cidr.split('/')[1] | int -%}
+      {%- set best.route = r -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ best.route }}
+  retries: 30
+  delay: "{{ _evpn_aws_infra_dx_retry_delay | default(10) }}"
+  changed_when: false
+  check_mode: false
+
+- name: Require the TGW to route the on-premises VTEP network over Direct Connect
+  ansible.builtin.assert:
+    that: evpn_aws_infra_dx_gateway_id in _evpn_aws_infra_dx_status_best.dxgws | default([])
+    fail_msg: >-
+      The customer router must advertise {{ tunnel.network_cidr | default('10.44.44.0/24') }} (or a covering
+      aggregate) over the transit VIFs of DX gateway {{ evpn_aws_infra_dx_gateway_id }}, and no more specific TGW
+      route may cover {{ tunnel.onprem_ip }}. Most specific route:
+      {{ _evpn_aws_infra_dx_status_best }}
+  vars: *_evpn_aws_infra_dx_status_best

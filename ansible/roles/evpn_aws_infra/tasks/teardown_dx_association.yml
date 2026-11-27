@@ -1,0 +1,74 @@
+---
+- name: Find the DX gateway association
+  ansible.builtin.command:
+    argv:
+      - aws
+      - directconnect
+      - describe-direct-connect-gateway-associations
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --direct-connect-gateway-id
+      - "{{ _evpn_aws_infra_dx_attachment.dxgw }}"
+      - --associated-gateway-id
+      - "{{ _evpn_aws_infra_dx_attachment.tgw }}"
+      - --query
+      - "directConnectGatewayAssociations[?associationState!='disassociated'].{id: associationId, state: associationState}"
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_teardown_assoc
+  changed_when: false
+  check_mode: false
+
+- name: Delete the DX gateway association
+  ansible.builtin.command:
+    argv:
+      - aws
+      - directconnect
+      - delete-direct-connect-gateway-association
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --association-id
+      - "{{ item.id }}"
+  register: _evpn_aws_infra_dx_teardown_delete
+  # AWS refuses to delete an association still being created or updated with a DirectConnectClientException;
+  # retry only that. One deleted since it was found is gone, and any other error (permissions, credentials) will
+  # not change, so it stops at once. The CLI retries throttling and connection errors itself.
+  until: >-
+    _evpn_aws_infra_dx_teardown_delete.rc == 0 or
+    'does not exist' in _evpn_aws_infra_dx_teardown_delete.stderr or
+    'DirectConnectClientException' not in _evpn_aws_infra_dx_teardown_delete.stderr
+  failed_when: >-
+    _evpn_aws_infra_dx_teardown_delete.rc != 0 and 'does not exist' not in _evpn_aws_infra_dx_teardown_delete.stderr
+  retries: 180
+  delay: "{{ _evpn_aws_infra_dx_retry_delay | default(10) }}"
+  changed_when: true
+  loop: "{{ _evpn_aws_infra_dx_teardown_assoc.stdout | from_json | rejectattr('state', 'equalto', 'disassociating') | list }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+# DeleteTransitGateway needs the TGW's DX attachment gone.
+- name: Wait for the TGW's Direct Connect attachment to be deleted
+  ansible.builtin.command:
+    argv:
+      - aws
+      - ec2
+      - describe-transit-gateway-attachments
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --filters
+      - Name=resource-type,Values=direct-connect-gateway
+      - Name=transit-gateway-id,Values={{ _evpn_aws_infra_dx_attachment.tgw }}
+      - Name=resource-id,Values={{ _evpn_aws_infra_dx_attachment.dxgw }}
+      - --query
+      - "length(TransitGatewayAttachments[?!contains(['deleted', 'failed', 'rejected'], State)])"
+      - --output
+      - text
+  register: _evpn_aws_infra_dx_teardown_attachment_wait
+  # The CLI retries throttling and connection errors itself; stop on any error it returns.
+  until: >-
+    _evpn_aws_infra_dx_teardown_attachment_wait.rc != 0 or
+    _evpn_aws_infra_dx_teardown_attachment_wait.stdout | trim == '0'
+  retries: 180
+  delay: "{{ _evpn_aws_infra_dx_retry_delay | default(10) }}"
+  changed_when: false
+  when: not ansible_check_mode

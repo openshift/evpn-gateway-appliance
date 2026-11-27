@@ -1,0 +1,122 @@
+---
+# Read-only direct-connect checks, run before main.yml creates any AWS resource.
+- name: Validate Direct Connect inputs
+  ansible.builtin.assert:
+    that: evpn_aws_infra_dx_gateway_id | default('', true) | length > 0
+    fail_msg: Set evpn_aws_infra_dx_gateway_id to the ID of the customer's DX gateway.
+
+# Provisioning builds a new environment on every run, so a provisioned project must be torn down first.
+# Teardown finds the TGWs with the same tag filter.
+- name: Read the project's existing TGWs
+  ansible.builtin.command:
+    argv:
+      - aws
+      - ec2
+      - describe-transit-gateways
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --filters
+      - Name=tag:Project,Values={{ evpn_aws_infra_project_name }}
+      - Name=state,Values=pending,available,modifying
+      - --query
+      - TransitGateways[].TransitGatewayId
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_project_tgws
+  changed_when: false
+  check_mode: false
+
+- name: Require teardown before reprovisioning the project
+  ansible.builtin.assert:
+    that: _evpn_aws_infra_dx_project_tgws.stdout | from_json | length == 0
+    fail_msg: >-
+      Project {{ evpn_aws_infra_project_name }} already has TGWs {{ _evpn_aws_infra_dx_project_tgws.stdout | from_json }};
+      run teardown-aws.yml first.
+
+- name: Read the DX gateway
+  ansible.builtin.command:
+    argv:
+      - aws
+      - directconnect
+      - describe-direct-connect-gateways
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --direct-connect-gateway-id
+      - "{{ evpn_aws_infra_dx_gateway_id }}"
+      - --query
+      - "directConnectGateways[].{state: directConnectGatewayState, asn: amazonSideAsn}"
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_gateway_lookup
+  changed_when: false
+  check_mode: false
+
+# main.yml creates the TGW with AWS's default Amazon-side ASN, 64512; AWS refuses an association
+# between gateways with the same ASN, after the VPCs and instances exist.
+- name: Require an available DX gateway with an ASN other than the TGW's
+  ansible.builtin.assert:
+    that:
+      - _evpn_aws_infra_dx_gateways | length == 1
+      - _evpn_aws_infra_dx_gateways[0].state == 'available'
+      - _evpn_aws_infra_dx_gateways[0].asn | int != 64512
+    fail_msg: >-
+      DX gateway {{ evpn_aws_infra_dx_gateway_id }} must exist, be available and use an Amazon-side ASN other than
+      the TGW's 64512 (AWS cannot change a DX gateway's ASN; use one created with another). Found:
+      {{ _evpn_aws_infra_dx_gateways }}
+  vars:
+    _evpn_aws_infra_dx_gateways: "{{ _evpn_aws_infra_dx_gateway_lookup.stdout | from_json }}"
+
+- name: Check the Direct Connect VIFs
+  ansible.builtin.include_tasks: dx_vifs.yml
+
+- name: Read the DX gateway's associations
+  ansible.builtin.command:
+    argv:
+      - aws
+      - directconnect
+      - describe-direct-connect-gateway-associations
+      - --region
+      - "{{ evpn_aws_infra_aws_region }}"
+      - --direct-connect-gateway-id
+      - "{{ evpn_aws_infra_dx_gateway_id }}"
+      - --query
+      - "directConnectGatewayAssociations[?associationState!='disassociated'].{type: associatedGateway.type,
+        gateway: associatedGateway.id, region: associatedGateway.region,
+        prefixes: allowedPrefixesToDirectConnectGateway[].cidr}"
+      - --output
+      - json
+  register: _evpn_aws_infra_dx_assoc_lookup
+  changed_when: false
+  check_mode: false
+
+# A DX gateway with transit VIFs serves transit gateways only; it takes at most six, and their
+# allowed prefixes must not overlap.
+- name: Require a free DX gateway slot and non-overlapping VPC prefixes
+  ansible.builtin.assert:
+    that:
+      - _evpn_aws_infra_dx_all_assocs | rejectattr('type', 'equalto', 'transitGateway') | list | length == 0
+      - _evpn_aws_infra_dx_all_assocs | length < 6
+      - _evpn_aws_infra_dx_overlaps | length == 0
+    fail_msg: >-
+      DX gateway {{ evpn_aws_infra_dx_gateway_id }} must have only transit gateway associations
+      (found {{ _evpn_aws_infra_dx_all_assocs | map(attribute='type') | list }}), fewer than 6 of them
+      (found {{ _evpn_aws_infra_dx_all_assocs | length }}), and no allowed prefixes overlapping the VPC CIDRs
+      (found {{ _evpn_aws_infra_dx_overlaps }}). If such a TGW is an earlier environment of this collection, finish
+      its teardown-aws.yml with its project name and Region (the TGW check above covers only this Region); otherwise
+      choose VPC CIDRs outside those prefixes. With six associations already, choose another
+      evpn_aws_infra_dx_gateway_id or have its owner free one.
+  vars:
+    _evpn_aws_infra_dx_all_assocs: "{{ _evpn_aws_infra_dx_assoc_lookup.stdout | from_json }}"
+    # netaddr-based filters: ansible.utils' subnet_of/supernet_of tests return false on Python 3.14 before 6.0.2.
+    # IPv4 only: network_in_network matches across families (::/0 "covers" any IPv4 network).
+    _evpn_aws_infra_dx_overlaps: >-
+      {%- set found = [] -%}
+      {%- for a in _evpn_aws_infra_dx_all_assocs -%}
+      {%- for p in a.prefixes | default([], true) | ansible.utils.ipv4 -%}
+      {%- for c in [evpn_aws_infra_infra_vpc_cidr, evpn_aws_infra_workload_vpc_cidr]
+            if p | ansible.utils.network_in_network(c) or c | ansible.utils.network_in_network(p) -%}
+      {%- set _ = found.append(p ~ ' (TGW ' ~ a.gateway ~ ' in ' ~ a.region ~ ')') -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {{ found | unique }}

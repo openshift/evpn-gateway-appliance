@@ -326,7 +326,7 @@ tunnel:
 | --- | --- | --- | --- | --- |
 | `wireguard` | Infra VPC EC2 | Appliance (wg-quick) | ~1400 inner | Dev/test |
 | `ipsec` | AWS TGW (Site-to-Site VPN) | Appliance (Libreswan) | 1399 (AWS-imposed) | Customers without DX |
-| `direct-connect` | AWS DX Gateway → TGW | Customer's DX circuit | Up to 9001 (jumbo) | Production |
+| `direct-connect` | AWS DX Gateway → TGW | Customer's DX circuit | Up to 8500 (transit VIF) | Production |
 
 **WireGuard** — terminates on the infra VPC router. Ansible generates
 keys, deploys configs, opens SG rules. Works behind NAT, zero cost.
@@ -354,9 +354,11 @@ Libreswan on the appliance with the tunnel parameters. The BGP session
 runs over the VPN tunnel inside addresses (169.254.x.x link-local),
 provided by AWS.
 
-**Direct Connect** — Ansible skips all tunnel setup and only configures
-FRR, VXLAN, and bridges. Assumes IP reachability between VTEPs already
-exists via the customer's DX circuit.
+**Direct Connect** — the customer's DX gateway and transit VIFs carry the
+underlay. Provisioning associates the existing DX gateway with the TGW;
+on the appliance, Ansible configures no tunnel, only FRR static routes to
+the VPCs through the customer router (`tunnel.next_hop`), VXLAN and
+bridges. `mtu_mode: safe` only.
 
 ### MTU Modes
 
@@ -368,7 +370,7 @@ fits depends on the underlay MTU:
 | WireGuard over internet | ~1400 | No |
 | AWS Site-to-Site VPN | 1399 | No |
 | Direct Connect (default) | 1500 | No |
-| Direct Connect (jumbo) | 9001 | Yes |
+| Direct Connect (jumbo, transit VIF) | 8500 | Yes |
 | Any underlay ≥ 1600 | ≥ 1600 | Yes |
 
 The `mtu_mode` setting controls how the appliance handles this:
@@ -434,7 +436,7 @@ Direct Connect circuit with jumbo frames from a DX partner.
 
 ```mermaid
 graph LR
-    OP["Customer On-Prem"] -- "circuit" --> DX["DX Partner PoP<br/>jumbo 9001"]
+    OP["Customer On-Prem"] -- "circuit" --> DX["DX Partner PoP<br/>jumbo 8500"]
     DX -- "Direct Connect" --> GW["AWS DX Gateway"]
     GW --> TGW["Transit Gateway"]
     TGW --> VPCs["Workload VPCs"]

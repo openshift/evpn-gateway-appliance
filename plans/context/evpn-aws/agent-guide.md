@@ -30,6 +30,7 @@ open the section a spec links to and recheck it.
 | AMI or another customer channel | [AMI channel](bib-configuration-spec.md#ami-channel) or the relevant [delivery channel](bib-configuration-spec.md#customer-delivery-channels); release objects: [promotion](pipeline-spec.md#4-promotion-and-operation), [productization](productization.md) |
 | MTU, transports, OCP EVPN behavior | [networking handoff](networking-spec.md), [primer](evpn-primer.md) |
 | AWS Site-to-Site VPN (CORENET-7500) | [VPN plan](site-to-site-vpn-plan.md): owner questions, tunnel profile, test obligations and CI gates; qualification is CORENET-7708 (decision 20) |
+| Transport preflight (CORENET-7501), AWS Direct Connect (CORENET-7708) | [DX and preflight plan](direct-connect-plan.md): CORENET-7501's acceptance criteria, when each check runs, the 7501/7708 split, decisions 22 and 23, the open circuit question (8) and the proposed e2e lane (11) |
 | Which existing example to reuse | [prior art](prior-art.md#choose-the-example-by-delivery-problem) |
 
 ## Sources of truth

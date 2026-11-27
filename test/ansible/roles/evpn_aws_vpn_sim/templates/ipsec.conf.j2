@@ -1,0 +1,36 @@
+# Test-only AWS endpoint emulator; the customer gateway initiates both tunnels.
+config setup
+    uniqueids=no
+
+{% for vpn in evpn_aws_vpn_sim_vpns %}
+{% set vpn_index = loop.index0 %}
+{% for vpn_tunnel in vpn.tunnels | sort(attribute='inside_cidr') %}
+{% set n = 2 * vpn_index + loop.index %}
+conn ega-aws-sim-{{ n }}
+    keyexchange=ikev2
+    authby=secret
+    ike=aes_gcm256-sha2_256;modp2048
+    esp=aes_gcm256;modp2048
+    pfs=yes
+    ikelifetime=28800s
+    salifetime=3600s
+    rekeymargin=270s
+    rekeyfuzz=100%
+    dpddelay=10s
+    retransmit-timeout=40s
+    auto=add
+    left={{ vpn_tunnel.outside_ip }}
+    leftid={{ vpn_tunnel.outside_ip }}
+    right={{ vpn.customer_gateway_ip }}
+    rightid={{ vpn.customer_gateway_ip }}
+    leftsubnet=0.0.0.0/0
+    rightsubnet=0.0.0.0/0
+    # Libreswan 5.4 spd_owner() otherwise treats the two 0/0 policies as conflicting despite their different XFRM IDs.
+    overlapip=yes
+    ipsec-interface={{ n }}
+    leftinterface-ip={{ vpn_tunnel.inside_cidr | ansible.utils.ipmath(1) }}/30
+    # Pluto manages the XFRM interface and its address; FRR manages routes (ipsec.conf(5), leftupdown).
+    leftupdown=""
+
+{% endfor %}
+{% endfor %}

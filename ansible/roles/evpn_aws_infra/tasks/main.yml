@@ -9,6 +9,9 @@
 # certified content").
 # ═══════════════════════════════════════════════════════════════════════
 
+- name: Validate the project name
+  ansible.builtin.include_tasks: project_name.yml
+
 - name: Validate admin CIDR is configured
   ansible.builtin.assert:
     that:
@@ -21,6 +24,14 @@
   ansible.builtin.set_fact:
     _evpn_aws_infra_region: "{{ evpn_aws_infra_aws_region }}"
     _evpn_aws_infra_admin_cidr: "{{ evpn_aws_infra_admin_cidr if evpn_aws_infra_admin_cidr | length > 0 else '0.0.0.0/0' }}"
+
+- name: Validate AWS Site-to-Site VPN inputs
+  ansible.builtin.include_tasks: vpn_preflight.yml
+  when: tunnel.type == 'ipsec'
+
+- name: Validate the customer's Direct Connect resources
+  ansible.builtin.include_tasks: dx_preflight.yml
+  when: tunnel.type == 'direct-connect'
 
 # ── Look up AMI ─────────────────────────────────────────────────────
 - name: Look up CentOS Stream 10 AMI
@@ -444,6 +455,26 @@
     --query "TransitGatewayRouteTables[0].TransitGatewayRouteTableId" --output text
   register: _evpn_aws_infra_tgw_rt
   changed_when: false
+  when: tunnel.type == 'wireguard'
+
+- name: Provision AWS Site-to-Site VPN
+  ansible.builtin.include_tasks: vpn.yml
+  when: tunnel.type == 'ipsec'
+
+- name: Associate the customer's Direct Connect gateway
+  ansible.builtin.include_tasks: dx_association.yml
+  when: tunnel.type == 'direct-connect'
+
+- name: Route the on-premises network through the TGW
+  ansible.builtin.command: >
+    aws ec2 create-route --region {{ _evpn_aws_infra_region }}
+    --route-table-id {{ _evpn_aws_infra_infra_rt.stdout | trim }}
+    --destination-cidr-block {{ tunnel.network_cidr | default('10.44.44.0/24') }}
+    --transit-gateway-id {{ _evpn_aws_infra_tgw.stdout | trim }}
+  register: _evpn_aws_infra_r
+  failed_when: _evpn_aws_infra_r.rc != 0 and 'already exists' not in _evpn_aws_infra_r.stderr
+  changed_when: _evpn_aws_infra_r.rc == 0
+  when: tunnel.type != 'wireguard'
 
 - name: Add TGW static route for on-prem CIDR
   ansible.builtin.command: >
@@ -454,6 +485,7 @@
   register: _evpn_aws_infra_r
   failed_when: _evpn_aws_infra_r.rc != 0 and 'already exists' not in _evpn_aws_infra_r.stderr
   changed_when: _evpn_aws_infra_r.rc == 0
+  when: tunnel.type == 'wireguard'
 
 - name: Add on-prem WG CIDR route to Infra RT via ENI
   ansible.builtin.shell: |
@@ -465,3 +497,4 @@
       --destination-cidr-block {{ tunnel.network_cidr | default('10.44.44.0/24') }} \
       --network-interface-id $ENI 2>/dev/null || true
   changed_when: false
+  when: tunnel.type == 'wireguard'

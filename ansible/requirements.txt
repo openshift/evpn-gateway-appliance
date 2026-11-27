@@ -1,8 +1,9 @@
 # Python dependencies for the control node / execution environment.
 #
 # Consumed by ansible-builder when building an execution environment, and recognized
-# by galaxy-importer. boto3/botocore back the amazon.aws teardown modules.
-# netaddr backs the ansible.utils IP filters.
+# by galaxy-importer. boto3/botocore back the amazon.aws modules.
+# netaddr backs the ansible.utils IP filters. awscli backs evpn_aws_infra's AWS CLI calls.
+awscli
 boto3
 botocore
 netaddr>=0.10.1
