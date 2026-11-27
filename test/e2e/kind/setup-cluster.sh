@@ -38,10 +38,18 @@ teardown() {
 		fi
 		rm -f "${work_dir}/kind-cluster"
 	fi
-	if [ -f "${work_dir}/kind-network" ] && podman network exists kind; then
+	owned_network=0
+	[ -f "${work_dir}/kind-network" ] && owned_network=1
+	if [ "$owned_network" = 1 ] && podman network exists kind; then
 		podman network rm kind
 	fi
 	rm -f "${work_dir}/kind-network"
+	# netavark cannot delete the bridge while a containerlab veth is still
+	# enslaved to it, so the interface can outlive the network and keep the
+	# subnet busy for the next scenario's network create.
+	if [ "$owned_network" = 1 ] && ip link show "$kind_bridge" >/dev/null 2>&1; then
+		ip link del "$kind_bridge"
+	fi
 }
 
 case "$cmd" in
