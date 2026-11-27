@@ -2,6 +2,10 @@
 ! Managed by Ansible — do not edit manually
 !
 ! KNOWN OPEN ITEM: no route-map/prefix-list policy; maximum-prefix below is only a defensive backstop (source-audit.md §1, "No BGP policy or limits").
+! Per-VNI route targets use the route-target form (rt import/export is not a valid
+! FRR command and was silently dropped at load). FRR 10.5 only accumulates a second
+! import RT after a first explicit one exists, so the workload-ASN import must come
+! before the onprem-ASN import, or the import list collapses to one entry.
 frr defaults traditional
 hostname {{ inventory_hostname }}
 log syslog informational
@@ -31,8 +35,8 @@ router bgp {{ bgp.onprem_asn }}
 {% set vni = 10000 + s.vlan %}
   vni {{ vni }}
    rd {{ tunnel.onprem_ip }}:{{ vni }}
-   route-target import {{ bgp.onprem_asn }}:{{ vni }}
    route-target import {{ bgp.workload_asn }}:{{ vni }}
+   route-target import {{ bgp.onprem_asn }}:{{ vni }}
    route-target export {{ bgp.onprem_asn }}:{{ vni }}
    advertise-svi-ip
   exit-vni

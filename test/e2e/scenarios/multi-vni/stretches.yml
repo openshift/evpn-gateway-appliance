@@ -1,0 +1,20 @@
+# The three sample stretches from docs/design.md §3. Passed to
+# network.evpn_gateway_test.simulate and network.evpn_gateway.deploy as extra
+# vars, which override the single-stretch inventory default. Everything else
+# (VNI = 10000 + VLAN, route targets, FRR stanzas) is derived by the roles.
+stretches:
+  - vlan: 100
+    name: production
+    subnet: 10.42.1.0/24
+    onprem_gateway: 10.42.1.1
+    cloud_gateway: 10.42.1.2
+  - vlan: 200
+    name: staging
+    subnet: 10.42.2.0/24
+    onprem_gateway: 10.42.2.1
+    cloud_gateway: 10.42.2.2
+  - vlan: 300
+    name: management
+    subnet: 10.42.3.0/24
+    onprem_gateway: 10.42.3.1
+    cloud_gateway: 10.42.3.2

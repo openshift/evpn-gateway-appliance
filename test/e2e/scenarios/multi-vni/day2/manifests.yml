@@ -1,0 +1,65 @@
+# Day-2 stretch: VLAN 400 added as a NEW EVPN CUDN (the documented OCP 4.22
+# contract does not allow enabling EVPN on an existing CUDN). Applied by
+# checks.sh after the three-stretch proof; the existing
+# RouteAdvertisements (ega-multi-vni-ra) picks the CUDN up through the shared
+# evpn: enabled label. The VTEP stays Unmanaged.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: database
+  labels:
+    ega-stretch: database
+    k8s.ovn.org/primary-user-defined-network: ""
+---
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: database
+  labels:
+    evpn: enabled
+spec:
+  namespaceSelector:
+    matchLabels:
+      ega-stretch: database
+  network:
+    topology: Layer2
+    layer2:
+      role: Primary
+      subnets:
+        - 10.42.4.0/24
+      reservedSubnets:
+        - 10.42.4.1/32
+        - 10.42.4.10/32
+      infrastructureSubnets:
+        - 10.42.4.240/28
+      defaultGatewayIPs:
+        - 10.42.4.254
+    transport: EVPN
+    evpn:
+      vtep: ega-vtep
+      macVRF:
+        vni: 10400
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ega-test-workload
+  namespace: database
+spec:
+  selector:
+    matchLabels:
+      app: ega-test-workload
+  template:
+    metadata:
+      labels:
+        app: ega-test-workload
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+      containers:
+        - name: agnhost
+          image: registry.k8s.io/e2e-test-images/agnhost:2.43
+          args:
+            - netexec
+            - --http-port=8080
