@@ -243,7 +243,7 @@ set `EGA_STAGE` to its nested path, for example `EGA_STAGE=evpn_onprem_appliance
 
 Deploy + the collection's health check pass end to end: three-AS eBGP, Type-2/3 exchange,
 and bidirectional L2 reachability across the fabric. Still to add: explicit pytest
-assertions (Type-2/3, BUM, isolation) and the Prow/CI job wiring (cross-repo).
+assertions (Type-2/3, BUM, isolation). Prow's `e2e` and `molecule` jobs run these lanes.
 
 ## Testing plan (not yet built)
 

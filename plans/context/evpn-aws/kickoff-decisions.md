@@ -27,7 +27,7 @@ and publication needs its destination. Resolve the remaining choices alongside r
 | 8 | Konflux cluster | Engineering / Konflux platform / releng | [Gate B](#gate-b--non-releasing-konflux-builds) | Open; action item assigned 2026-10-01 |
 | 9 | Build canary inputs: tenant, Application, RBAC, quota, MPC capacity | Engineering / Konflux platform | [Gate B](#gate-b--non-releasing-konflux-builds) | Open |
 | 10 | FRR and exporter payload, RHEL base, package access | Networking / PM / Product Security | [Gate B](#gate-b--non-releasing-konflux-builds) | Review direction 2026-10-01 (FRR, `frr-metrics`); accountable owner/approvals and the rest remain open |
-| 11 | Test backend, AWS identity, funded accounts and labs | QE / AWS / releng / management | First selected AWS/lab test in [Gate B](#gate-b--non-releasing-konflux-builds); no block on a bootc-only canary | Open for the AWS/lab backend; the credential-free emulated EVPN lane (containerlab + test EE + pytest/testinfra) is already realized (see [Already settled](#already-settled)), decision owner/date pending |
+| 11 | Test backend, AWS identity, funded accounts and labs | QE / AWS / releng / management | First selected AWS/lab test in [Gate B](#gate-b--non-releasing-konflux-builds); no block on a bootc-only canary | Open for the AWS/lab backend; the credential-free emulated EVPN lane (containerlab + test EE + the collection's health check; its pytest/testinfra assertions are not built yet) is already realized (see [Already settled](#already-settled)), decision owner/date pending |
 | 12 | Artifact set: qcow2, AMI, vmdk/ova, installers, FIPS variant | PM / Architecture | Before adding optional formats/variants, then [Gate C-stage](#gate-c-stage--trial-publication); qcow2/AMI remain Jira requirements | Open |
 | 13 | AMI channel and entitlement | PM / cloud publishing / releng | [Gate C-stage](#gate-c-stage--trial-publication) | Open; action item assigned 2026-10-01 |
 | 14 | Stage publication objects and how the collection finds the released AMI | Releng / channel owners / Architecture | [Gate C-stage](#gate-c-stage--trial-publication) | Open |
@@ -36,7 +36,7 @@ and publication needs its destination. Resolve the remaining choices alongside r
 | 17 | Product identity: Engineering ID, CPE, registry paths, ProdSec stream | PM / Product Security / releng | [Gate C-stage](#gate-c-stage--trial-publication) for the Engineering ID; [Gate C-prod](#gate-c-prod--supported-release) for the rest | Open |
 | 18 | Support matrix, including the AWS/OCP support decision and ROSA | Jaime Caamaño Ruiz (team lead) | [Gate C-prod](#gate-c-prod--supported-release) | Open; owner assigned 2026-11-17 |
 | 19 | Qualification evidence and sign-offs | Networking / QE / Product Security / docs | [Gate C-prod](#gate-c-prod--supported-release) | Open |
-| 20 | CORENET-7500 gateway, tunnel profile, scope split and canary | Daniel Farrell (CORENET-7500) | 7500 acceptance (AC1, AC2, AC6) | Closed 2026-11-17 by the CORENET-7500 owner; [#52](https://github.com/openshift/evpn-gateway-appliance/pull/52) implements it: Transit Gateway; IKEv2, AES256-GCM-16, SHA2-256, DH14; 7500 = VPN lifecycle, handoff, minimal appliance Libreswan/FRR and acceptance checks, 7708 = Direct Connect, hardening, FIPS validation and qualification; the AWS canary is outside 7500 |
+| 20 | CORENET-7500 gateway, tunnel profile, scope split and canary | Daniel Farrell (CORENET-7500) | 7500 acceptance (AC1, AC2, AC6) | Closed 2026-11-17 by the CORENET-7500 owner, [approved](https://github.com/openshift/evpn-gateway-appliance/pull/42#issuecomment-7102177258) on #42 by the 7498 owner; [#52](https://github.com/openshift/evpn-gateway-appliance/pull/52) implements it: Transit Gateway; IKEv2, AES256-GCM-16, SHA2-256, DH14; 7500 = VPN lifecycle, handoff, minimal appliance Libreswan/FRR and acceptance checks, 7708 = Direct Connect, hardening, FIPS validation and qualification; the AWS canary is outside 7500 |
 | 21 | WireGuard code path after the IPsec transport | Jaime Caamaño (CORENET-7498) | [VPN plan](site-to-site-vpn-plan.md) question 7 | Closed 2026-11-18 by the 7498 owner: keep WireGuard, which carries the credential-free per-PR e2e lane (7508); reusing existing WireGuard keys stays a follow-up |
 
 ## Already settled
@@ -55,7 +55,7 @@ under the rule above. Reviewer identity alone does not supply that owner.
 | The collection's namespace and name are `network.evpn_gateway` (7499 also uses this name as of 2026-11-02); the collection's issue tracker is to move to a Jira project not yet chosen, recorded in its README | Review comments on pull request #3, 2026-10-02 (`jcaamano`) |
 | Source CI runs as Prow tests that call scripts or Make targets, with no test logic in the test definition; GitHub Actions is not assumed | Review comment on pull request #3, 2026-10-02 (`jcaamano`) |
 | 7504's VNI/MAC views and 7505's "approved upstream" images follow decision 10 | Same review |
-| The emulated CORENET-7508 integration lane is containerlab + a test execution environment running the collection's `deploy.yml` + pytest/testinfra/vtysh JSON, behind a runner-agnostic `test/e2e/run.sh` (kind/real OVN-K reserved for later OCP interop lanes); distinct from the still-open AWS/lab test backend (decision 11) | `test/e2e/` lane in the CORENET-7508 PR; **accountable decision owner and date pending — TODO confirm** |
+| The emulated CORENET-7508 integration lane is containerlab + a test execution environment running the collection's `deploy.yml` + its health check (pytest/testinfra/vtysh JSON assertions not built yet), behind a runner-agnostic `test/e2e/run.sh` (kind/real OVN-K reserved for later OCP interop lanes); distinct from the still-open AWS/lab test backend (decision 11) | `test/e2e/` lane in the CORENET-7508 PR; **accountable decision owner and date pending — TODO confirm** |
 
 The review spoke for the Networking maintainers ("we") and named no decision owner. Decision 10's
 listed owners are Networking, PM and Product Security; PM and Product Security confirmation is not
@@ -257,7 +257,9 @@ item for decisions 7, 8 and 13 to `@knobunc`.
 
 - **AWS Site-to-Site VPN.** Decision 20 closed 2026-11-17. Accountable owner: **Daniel Farrell**
   (CORENET-7500). Evidence: this record, made by the accountable owner in
-  [#42](https://github.com/openshift/evpn-gateway-appliance/pull/42); the CORENET-7500 description
+  [#42](https://github.com/openshift/evpn-gateway-appliance/pull/42) and
+  [approved](https://github.com/openshift/evpn-gateway-appliance/pull/42#issuecomment-7102177258)
+  there by Jaime Caamaño (CORENET-7498) on 2026-11-23; the CORENET-7500 description
   sets the 7500/7708 split, and [#52](https://github.com/openshift/evpn-gateway-appliance/pull/52)
   implements the decision. See [plan](site-to-site-vpn-plan.md) questions 1, 6 and 13. The 7708 owner
   may revisit the tunnel profile and PSK authentication without reopening the 7500/7708 split.

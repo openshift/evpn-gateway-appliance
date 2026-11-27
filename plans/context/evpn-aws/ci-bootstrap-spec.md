@@ -257,10 +257,11 @@ behind runner-agnostic entry points (toolchain pinned in `Dockerfile.ci`, test E
 lane, and `test/e2e/run_remote.sh` is the shared VM-model core (exports the base images, ships
 them over SSH, builds on the target, then runs the lane). `run_remote.sh` selects the lane via
 `EGA_ENTRYPOINT`; the named wrappers `run_e2e.sh` / `run_molecule.sh` set it. The openshift/release
-Prow job that calls `run_remote.sh` for the e2e lane is wired in; the parallel `molecule` job
-(calling `run_molecule.sh`) is the remaining cross-repo TODO.
+Prow jobs that call `run_remote.sh` are wired in: `e2e`
+([release#87688](https://github.com/openshift/release/pull/87688)) and `molecule`
+([release#88739](https://github.com/openshift/release/pull/88739)).
 
-Those runners also expose KVM: RHEL System Roles tests its networking role in
+GitHub-hosted runners also expose KVM: RHEL System Roles tests its networking role in
 CentOS Stream 9/10 VMs and bootc containers across an ansible-core matrix
 ([workflow](https://github.com/linux-system-roles/network/blob/9a4537d21b/.github/workflows/qemu-kvm-integration-tests.yml)).
 The `openshift` org enables Actions only when the repository owner requests it

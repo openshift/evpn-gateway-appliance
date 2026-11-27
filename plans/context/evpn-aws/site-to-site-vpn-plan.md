@@ -119,7 +119,7 @@ Configure one route-based VPN connection:
 
 - [Two tunnels](https://docs.aws.amazon.com/vpn/latest/s2svpn/VPNTunnels.html) with separate outside endpoints.
 - FRR BGP over a distinct, nonreserved link-local /30 per tunnel ([AWS: keepalive 10 s, hold 30 s](https://docs.aws.amazon.com/vpn/latest/s2svpn/Juniper_Troubleshooting.html)); accept only VPC prefixes and advertise only the appliance VTEP network (AC3).
-- CGW-side NAT in 7708 qualification; no NAT in emulation or the AWS canary.
+- CGW-side NAT in 7708 qualification; no NAT in emulation. The proposed AWS canary's EC2 customer gateway would sit behind EC2's one-to-one NAT, so it would use NAT-T ([end-to-end CI plan](e2e-ci-plan.md#transport-canary)).
 
 Pin the same explicit [AWS-supported tunnel options](https://docs.aws.amazon.com/vpn/latest/s2svpn/tunnel-configure.html) in emulation and the AWS canary:
 

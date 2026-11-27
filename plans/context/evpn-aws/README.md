@@ -90,6 +90,7 @@ parallel. Record accepted decisions in the decision list.
 | [Networking handoff](networking-spec.md) | Source gaps and interfaces to networking/QE qualification |
 | [FRR metrics and observability](frr-metrics-plan.md) | CORENET-7504 exporter choice, status, implementation chunks and asks; [details](frr-metrics-details.md) hold the evidence behind it |
 | [Site-to-Site VPN](site-to-site-vpn-plan.md) | CORENET-7500 transport plan, owner questions and implementation sequence |
+| [End-to-end CI](e2e-ci-plan.md) | What e2e CI proves per PR (emulated, mocked) and live (AWS lanes, standing labs), and the accounts and credentials the live lanes need |
 
 [Prior art](prior-art.md) identifies reusable code and its limits;
 [source evidence](source-evidence.md) records checked revisions and the reasons
