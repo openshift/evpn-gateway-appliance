@@ -18,6 +18,7 @@
 #   EGA_RUNTIME_SOCK  host podman socket
 #   EGA_EE_IMAGE      execution-environment image (the artifact AAP runs)
 #   EGA_LAB_DIR       lab work dir (bind-mounted; holds inventory/ and the key)
+#   EGA_WORK_DIR       scenario work dir (bind-mounted; holds the kind kubeconfig)
 #   EGA_SSH_KEY       SSH private key for the lab nodes
 #   KUBECONFIG        optional; forwarded into the EE when it exists
 ee_runtime() {
@@ -34,6 +35,7 @@ ee_playbook() {
 	echo ">> ansible-playbook ${pb} (via execution environment: $EGA_EE_IMAGE)"
 	ee_runtime run --rm --net=host --user 0 \
 		-v "${EGA_LAB_DIR}:${EGA_LAB_DIR}:Z" \
+		-v "${EGA_WORK_DIR}:${EGA_WORK_DIR}:Z" \
 		-e ANSIBLE_HOST_KEY_CHECKING=False \
 		"${kube_env[@]}" \
 		-w "${EGA_LAB_DIR}" \
