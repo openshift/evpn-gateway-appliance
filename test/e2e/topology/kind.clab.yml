@@ -1,10 +1,9 @@
 ---
 # Appliance, relay, and TGW. Workload peers are the kind nodes, filled in by discovery.
 # ega-kind-br is the host bridge for the kind network. tgw eth1 is enslaved to it.
-# The relay link is eth2. The bridge node's post-deploy firewall rules are
-# skipped (--skip-post-deploy in entrypoint_e2e.sh): they cannot be installed
-# on the nft-only RHEL 10 CI hosts, and bridged traffic never traverses them
-# here because setup-cluster.sh disables bridge netfilter.
+# The relay link is eth2. The bridge node's post-deploy firewall rules install via
+# the nftables backend (host preloaded with xt_comment and docker's chain layout
+# by run.sh / setup-cluster.sh).
 name: ega-kind
 
 mgmt:
