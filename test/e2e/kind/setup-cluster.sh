@@ -73,6 +73,16 @@ if sysctl -n net.bridge.bridge-nf-call-iptables >/dev/null 2>&1; then
 	sysctl -w net.bridge.bridge-nf-call-ip6tables=0
 fi
 
+# Containerlab's bridge post-deploy needs a firewall backend: its nftables
+# client only detects (never creates) docker's chain layout, and iptables-nft
+# does not materialize the FORWARD chain until a rule references it. Recreate
+# docker's layout (both families) so the nftables backend initializes; the
+# rules themselves then apply with xt_comment loaded by run.sh.
+iptables -N DOCKER-USER 2>/dev/null || true
+iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -I FORWARD -j DOCKER-USER
+ip6tables -N DOCKER-USER 2>/dev/null || true
+ip6tables -C FORWARD -j DOCKER-USER 2>/dev/null || ip6tables -I FORWARD -j DOCKER-USER
+
 # Mark the network as this run's, so teardown removes only what it created.
 # The bridge must exist before the clab topology's host-side veth is enslaved
 # to it after the deploy.

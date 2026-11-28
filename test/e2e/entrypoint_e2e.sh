@@ -123,16 +123,7 @@ run_scenario() (
 	fi
 
 	echo ">> containerlab deploy: $topo"
-	# The kind topology's bridge node installs forwarding rules in its post-deploy
-	# stage; that cannot run on the nft-only RHEL 10 CI hosts (the rules need an
-	# xt-compat match those kernels cannot resolve), and bridged traffic never
-	# traverses them because setup-cluster.sh disables bridge netfilter. Skipping
-	# post-deploy keeps the node exec: stanzas (clab 0.81.1 runs those regardless).
-	skip_post=()
-	if [ "$needs_kind" = "true" ]; then
-		skip_post=(--skip-post-deploy)
-	fi
-	EGA_NODE_IMAGE="$EGA_NODE_IMAGE" containerlab deploy --name "$lab_name" -t "$topo" --reconfigure "${skip_post[@]}"
+	EGA_NODE_IMAGE="$EGA_NODE_IMAGE" containerlab deploy --name "$lab_name" -t "$topo" --reconfigure
 
 	# sshd starts only after host-key generation; wait rather than racing the boot.
 	export ANSIBLE_HOST_KEY_CHECKING=False

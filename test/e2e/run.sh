@@ -62,14 +62,20 @@ if [ ! -S "$EGA_RUNTIME_SOCK" ]; then
 fi
 
 # Host kernel modules for the kind scenario: openvswitch for ovs-vswitchd,
-# br_netfilter for the route advertisements. The package must come from the
-# host's own repos — the toolchain container cannot install host-kernel modules.
+# br_netfilter for the route advertisements, xt_comment for containerlab's
+# bridge post-deploy nft rules (el10 ships it in kernel-modules-extra, which
+# the CI host does not preinstall). The packages must come from the host's
+# own repos — the toolchain container cannot install host-kernel modules.
 if [ "${EGA_ENTRYPOINT:-entrypoint_e2e.sh}" = entrypoint_e2e.sh ]; then
-	modprobe openvswitch 2>/dev/null || {
-		dnf install -y "kernel-modules-core-$(uname -r)"
-		modprobe openvswitch
-	}
+	echo ">> host module prep: kernel $(uname -r)"
+	# openvswitch may already be satisfied (hiding the need), so probe both
+	# modules before deciding to install.
+	if ! modprobe openvswitch 2>/dev/null || ! modprobe xt_comment 2>/dev/null; then
+		dnf install -y "kernel-modules-core-$(uname -r)" "kernel-modules-extra-$(uname -r)"
+	fi
+	modprobe openvswitch
 	modprobe br_netfilter 2>/dev/null || true
+	modprobe xt_comment
 fi
 
 mkdir -p "$EGA_WORK_DIR" "$EGA_ARTIFACT_DIR"
